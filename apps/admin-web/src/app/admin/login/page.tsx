@@ -199,15 +199,6 @@ export default function AdminLoginPage() {
             </form>
           </GlassCard>
 
-          <motion.div
-            initial={{ opacity: 0 }}
-            animate={{ opacity: 1 }}
-            transition={{ delay: 0.25 }}
-            className="mt-4 rounded-2xl border border-white/10 bg-white/5 px-4 py-3 text-xs text-white/60"
-          >
-            Tu usuario debe existir en <span className="font-semibold text-white/80">profiles</span> con rol{' '}
-            <span className="font-semibold text-white/80">admin</span> y estar activo.
-          </motion.div>
         </motion.div>
       </div>
     </div>

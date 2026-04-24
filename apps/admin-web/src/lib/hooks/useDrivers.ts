@@ -39,6 +39,33 @@ export type DriverMergedRow = DriverRow & {
   only_in_inventory?: boolean;
 };
 
+function normalizeText(value: unknown): string {
+  return String(value ?? '').trim();
+}
+
+function normalizePhone(value: unknown): string {
+  return String(value ?? '').replace(/\D+/g, '').trim();
+}
+
+function buildInventoryOnlyRow(t: InventoryTransportRow): DriverMergedRow {
+  return {
+    id: '',
+    profile_id: '',
+    nombre: t.firebase_nombre || 'Sin nombre',
+    telefono: null,
+    activo: t.firebase_activo,
+    current_status: 'offline',
+    created_at: '',
+    updated_at: '',
+    firebase_codigo: t.firebase_codigo,
+    firebase_nombre: t.firebase_nombre,
+    firebase_activo: t.firebase_activo,
+    synced_from_inventory: false,
+    only_in_inventory: true,
+    profiles: null,
+  } as DriverMergedRow;
+}
+
 async function listDriverInventoryMappings(): Promise<DriverInventoryMappingRow[]> {
   const res = await fetch('/api/admin/driver-inventory-mapping', {
     method: 'GET',
@@ -67,12 +94,12 @@ async function listInventoryTransportes(): Promise<InventoryTransportRow[]> {
   const snap = await getDocs(qy);
 
   return snap.docs.map((d) => {
-    const data = d.data() as any;
+    const data = d.data() as Record<string, unknown>;
 
     return {
       firebase_id: d.id,
-      firebase_codigo: String(data.codigo ?? '').trim(),
-      firebase_nombre: String(data.nombre ?? '').trim(),
+      firebase_codigo: normalizeText(data.codigo),
+      firebase_nombre: normalizeText(data.nombre),
       firebase_activo: data.isActive !== false,
     };
   });
@@ -83,7 +110,6 @@ export function useDrivers() {
   const [loading, setLoading] = useState(true);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
-
   const [q, setQ] = useState('');
 
   const filtered = useMemo(() => {
@@ -91,10 +117,10 @@ export function useDrivers() {
     if (!s) return rows;
 
     return rows.filter((r) => {
-      const nombre = (r.nombre || '').toLowerCase();
-      const telefono = (r.telefono || '').toLowerCase();
-      const firebaseNombre = (r.firebase_nombre || '').toLowerCase();
-      const firebaseCodigo = (r.firebase_codigo || '').toLowerCase();
+      const nombre = normalizeText(r.nombre).toLowerCase();
+      const telefono = normalizeText(r.telefono).toLowerCase();
+      const firebaseNombre = normalizeText(r.firebase_nombre).toLowerCase();
+      const firebaseCodigo = normalizeText(r.firebase_codigo).toLowerCase();
 
       return (
         nombre.includes(s) ||
@@ -116,70 +142,148 @@ export function useDrivers() {
         listInventoryTransportes(),
       ]);
 
-      const mappingByCode = new Map(
-        mappings.map((m) => [m.firebase_employee_code, m])
-      );
+      const mappingByFirebaseCode = new Map<string, DriverInventoryMappingRow>();
+      const mappingByDriverId = new Map<string, DriverInventoryMappingRow>();
 
-      const driverById = new Map(
-        drivers.map((d) => [d.id, d])
-      );
+      for (const mapping of mappings) {
+        const firebaseCode = normalizeText(mapping.firebase_employee_code);
+        const driverId = normalizeText(mapping.driver_id);
 
-      const merged: DriverMergedRow[] = transportes.map((t) => {
-        const mapping = mappingByCode.get(t.firebase_codigo);
-        const driver = mapping?.driver_id ? driverById.get(mapping.driver_id) : null;
-
-        if (driver) {
-          return {
-            ...driver,
-            firebase_codigo: t.firebase_codigo,
-            firebase_nombre: t.firebase_nombre,
-            firebase_activo: t.firebase_activo,
-            synced_from_inventory: true,
-            only_in_inventory: false,
-          };
+        if (firebaseCode) {
+          mappingByFirebaseCode.set(firebaseCode, mapping);
         }
 
-        return {
-          id: '',
-          profile_id: '',
-          nombre: t.firebase_nombre,
-          telefono: null,
-          activo: t.firebase_activo,
-          current_status: 'offline',
-          created_at: '',
-          updated_at: '',
-          firebase_codigo: t.firebase_codigo,
-          firebase_nombre: t.firebase_nombre,
-          firebase_activo: t.firebase_activo,
-          synced_from_inventory: false,
-          only_in_inventory: true,
-          profiles: null,
-        };
+        if (driverId) {
+          mappingByDriverId.set(driverId, mapping);
+        }
+      }
+
+      const inventoryByCode = new Map<string, InventoryTransportRow>();
+
+      for (const t of transportes) {
+        const code = normalizeText(t.firebase_codigo);
+        if (code) {
+          inventoryByCode.set(code, t);
+        }
+      }
+
+      const mergedRows: DriverMergedRow[] = [];
+      const usedInventoryCodes = new Set<string>();
+
+      // 1) Primero meter todos los choferes de Supabase
+      for (const driver of drivers) {
+        const driverId = normalizeText(driver.id);
+        const mapping = driverId ? mappingByDriverId.get(driverId) : undefined;
+
+        const firebaseCode = normalizeText(mapping?.firebase_employee_code);
+        const inventoryMatch = firebaseCode
+          ? inventoryByCode.get(firebaseCode)
+          : undefined;
+
+        if (inventoryMatch && firebaseCode) {
+          usedInventoryCodes.add(firebaseCode);
+        }
+
+        const resolvedFirebaseCodigo =
+          (inventoryMatch?.firebase_codigo ?? firebaseCode) || null;
+
+        const resolvedFirebaseNombre =
+          (inventoryMatch?.firebase_nombre ??
+            normalizeText(mapping?.firebase_employee_name)) || null;
+
+        mergedRows.push({
+          ...driver,
+          firebase_codigo: resolvedFirebaseCodigo,
+          firebase_nombre: resolvedFirebaseNombre,
+          firebase_activo:
+            typeof inventoryMatch?.firebase_activo === 'boolean'
+              ? inventoryMatch.firebase_activo
+              : null,
+          synced_from_inventory: !!inventoryMatch,
+          only_in_inventory: false,
+        });
+      }
+
+      // 2) Luego agregar los que existen solo en inventario
+      for (const t of transportes) {
+        const code = normalizeText(t.firebase_codigo);
+        if (!code) continue;
+        if (usedInventoryCodes.has(code)) continue;
+
+        const mapping = mappingByFirebaseCode.get(code);
+
+        if (mapping?.driver_id) {
+          mergedRows.push({
+            ...buildInventoryOnlyRow(t),
+            synced_from_inventory: false,
+            only_in_inventory: true,
+          });
+          usedInventoryCodes.add(code);
+          continue;
+        }
+
+        mergedRows.push(buildInventoryOnlyRow(t));
+        usedInventoryCodes.add(code);
+      }
+
+      // 3) Ordenar para UI
+      mergedRows.sort((a, b) => {
+        const aOnlyInv = a.only_in_inventory ? 1 : 0;
+        const bOnlyInv = b.only_in_inventory ? 1 : 0;
+
+        if (aOnlyInv !== bOnlyInv) {
+          return aOnlyInv - bOnlyInv;
+        }
+
+        const aActivo = a.activo ? 1 : 0;
+        const bActivo = b.activo ? 1 : 0;
+
+        if (aActivo !== bActivo) {
+          return bActivo - aActivo;
+        }
+
+        const aName = normalizeText(a.nombre || a.firebase_nombre).toLowerCase();
+        const bName = normalizeText(b.nombre || b.firebase_nombre).toLowerCase();
+
+        return aName.localeCompare(bName, 'es');
       });
 
-      setRows(merged);
-    } catch (e: any) {
-      setError(e?.message ?? 'Error al cargar choferes');
+      setRows(mergedRows);
+    } catch (e: unknown) {
+      const message =
+        e instanceof Error ? e.message : 'Error al cargar choferes';
+      setError(message);
     } finally {
       setLoading(false);
     }
   }, []);
 
   useEffect(() => {
-    reload();
+    void reload();
   }, [reload]);
 
   const createDriver = useCallback(
-    async (input: { nombre: string; telefono: string; password: string; activo?: boolean }) => {
+    async (input: {
+      nombre: string;
+      telefono: string;
+      password: string;
+      activo?: boolean;
+    }) => {
       setBusy(true);
       setError(null);
 
       try {
-        await driversService.create(input);
+        await driversService.create({
+          ...input,
+          nombre: normalizeText(input.nombre),
+          telefono: normalizePhone(input.telefono),
+        });
+
         await reload();
         return true;
-      } catch (e: any) {
-        setError(e?.message ?? 'Error al crear chofer');
+      } catch (e: unknown) {
+        const message = e instanceof Error ? e.message : 'Error al crear chofer';
+        setError(message);
         return false;
       } finally {
         setBusy(false);
@@ -189,16 +293,49 @@ export function useDrivers() {
   );
 
   const updateDriver = useCallback(
-    async (id: string, patch: { nombre?: string; telefono?: string; activo?: boolean; password?: string }) => {
+    async (
+      id: string,
+      patch: {
+        nombre?: string;
+        telefono?: string;
+        activo?: boolean;
+        password?: string;
+      }
+    ) => {
       setBusy(true);
       setError(null);
 
       try {
-        await driversService.update(id, patch);
+        const payload: {
+          nombre?: string;
+          telefono?: string;
+          activo?: boolean;
+          password?: string;
+        } = {};
+
+        if (typeof patch.nombre === 'string') {
+          payload.nombre = normalizeText(patch.nombre);
+        }
+
+        if (typeof patch.telefono === 'string') {
+          payload.telefono = normalizePhone(patch.telefono);
+        }
+
+        if (typeof patch.activo === 'boolean') {
+          payload.activo = patch.activo;
+        }
+
+        if (typeof patch.password === 'string' && patch.password.trim()) {
+          payload.password = patch.password.trim();
+        }
+
+        await driversService.update(id, payload);
         await reload();
         return true;
-      } catch (e: any) {
-        setError(e?.message ?? 'Error al actualizar');
+      } catch (e: unknown) {
+        const message =
+          e instanceof Error ? e.message : 'Error al actualizar chofer';
+        setError(message);
         return false;
       } finally {
         setBusy(false);
@@ -216,8 +353,10 @@ export function useDrivers() {
         await driversService.remove(id);
         await reload();
         return true;
-      } catch (e: any) {
-        setError(e?.message ?? 'Error al eliminar');
+      } catch (e: unknown) {
+        const message =
+          e instanceof Error ? e.message : 'Error al eliminar chofer';
+        setError(message);
         return false;
       } finally {
         setBusy(false);

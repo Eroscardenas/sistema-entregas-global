@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useMemo, useState, useCallback } from 'react';
+import React, { useMemo, useState, useCallback, useEffect } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { useRouter } from 'next/navigation';
 
@@ -42,9 +42,12 @@ import {
   Ban,
 } from 'lucide-react';
 
+import { collection, getDocs, limit as qLimit, orderBy, query, Timestamp, where } from 'firebase/firestore';
+
 import { PATHS } from '@/lib/constants/paths';
 import { useAdminGuard } from '@/lib/hooks/useAdminGuard';
 import { supabaseBrowser } from '@/lib/supabase/client';
+import { inventoryDb } from '@/lib/firebase/inventory.client';
 import {
   useAssignmentsBuilderAdmin,
   type BatchCustomer,
@@ -185,6 +188,15 @@ function normalizeTextPdf(value?: string | null) {
     .replace(/[\u0300-\u036f]/g, '');
 }
 
+function normalizeLooseText(value?: string | null) {
+  return String(value || '')
+    .trim()
+    .toUpperCase()
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .replace(/\s+/g, ' ');
+}
+
 function firstNumeric(...values: unknown[]) {
   for (const value of values) {
     const n = Number(value);
@@ -290,6 +302,155 @@ type GlobalProductSummary = {
   customers_count: number;
 };
 
+type AssignmentDriverOption = {
+  id: string;
+  nombre: string;
+  activo?: boolean | null;
+  current_status?: string | null;
+  firebase_codigo?: string | null;
+  firebase_nombre?: string | null;
+  synced_from_inventory?: boolean;
+  only_in_inventory?: boolean;
+};
+
+type InventoryMovementBatchItem = {
+  bolsaVaciaCodigo?: string | null;
+  productoCodigo?: string | null;
+  productoNombre?: string | null;
+  tipoHielo?: string | null;
+  cantidad?: number | null;
+  delta?: number | null;
+};
+
+type InventoryMovementDoc = {
+  tipo?: string | null;
+  batch?: boolean | null;
+  salidaSubtipo?: string | null;
+  salidaDestino?: string | null;
+  destinatario?: string | null;
+  clienteNombre?: string | null;
+  fecha?: unknown;
+  createdAt?: unknown;
+  productoNombre?: string | null;
+  productoCodigo?: string | null;
+  tipoHielo?: string | null;
+  cantidad?: number | null;
+  deltaPrincipal?: number | null;
+  items?: InventoryMovementBatchItem[] | null;
+};
+
+function hasRealDriverId(value: unknown) {
+  return String(value ?? '').trim().length > 0;
+}
+
+function toDateStart(value: string) {
+  const d = new Date(`${value}T00:00:00`);
+  return d;
+}
+
+function toDateEndExclusive(value: string) {
+  const d = new Date(`${value}T00:00:00`);
+  d.setDate(d.getDate() + 1);
+  return d;
+}
+
+function inventoryProductDisplayName(item?: InventoryMovementBatchItem | null) {
+  const byName = String(item?.productoNombre || '').trim();
+  if (byName) return byName;
+
+  const codigo = String(item?.productoCodigo || item?.bolsaVaciaCodigo || '').trim();
+  const tipo = String(item?.tipoHielo || '').trim();
+
+  if (codigo && tipo) return `${codigo} ${tipo}`;
+  return codigo || tipo || 'PRODUCTO';
+}
+
+function buildDriverDestinatarioCandidates(driverName?: string | null, driverCode?: string | null) {
+  const name = String(driverName || '').trim();
+  const code = String(driverCode || '').trim();
+
+  const raw = new Set<string>();
+
+  if (name) raw.add(name);
+  if (code) raw.add(code);
+  if (name && code) raw.add(`${name} (${code})`);
+
+  return Array.from(raw).map(normalizeLooseText).filter(Boolean);
+}
+
+function movementMatchesDriver(
+  movement: InventoryMovementDoc,
+  driverName?: string | null,
+  driverCode?: string | null
+) {
+  const normalizedDestinatario = normalizeLooseText(movement.destinatario);
+  const normalizedCliente = normalizeLooseText(movement.clienteNombre);
+  const candidates = buildDriverDestinatarioCandidates(driverName, driverCode);
+
+  if (!candidates.length) return false;
+
+  return candidates.some((candidate) => {
+    if (!candidate) return false;
+    return (
+      normalizedDestinatario.includes(candidate) ||
+      normalizedCliente.includes(candidate)
+    );
+  });
+}
+
+async function getInventoryGlobalOutputsForDriverPdf(
+  workDate: string,
+  driverName?: string | null,
+  driverCode?: string | null
+) {
+  if (!workDate || !driverName) {
+    return new Map<string, number>();
+  }
+
+  const start = toDateStart(workDate);
+  const endExclusive = toDateEndExclusive(workDate);
+
+  const qy = query(
+    collection(inventoryDb, 'movimientos'),
+    where('fecha', '>=', Timestamp.fromDate(start)),
+    where('fecha', '<', Timestamp.fromDate(endExclusive)),
+    orderBy('fecha', 'asc'),
+    qLimit(2000)
+  );
+
+  const snap = await getDocs(qy);
+
+  const byProduct = new Map<string, number>();
+
+  for (const docSnap of snap.docs) {
+    const raw = docSnap.data() as InventoryMovementDoc;
+
+    if (String(raw.tipo || '').trim().toUpperCase() !== 'SALIDA_BOLSA') continue;
+    if (String(raw.salidaSubtipo || '').trim().toUpperCase() !== 'ENTREGA_TRANSPORTE') continue;
+    if (!movementMatchesDriver(raw, driverName, driverCode)) continue;
+
+    if (Array.isArray(raw.items) && raw.items.length > 0) {
+      for (const item of raw.items) {
+        const nombre = inventoryProductDisplayName(item);
+        const cantidad = Math.abs(firstNumeric(item?.cantidad, item?.delta, 0));
+        if (!nombre || cantidad <= 0) continue;
+
+        byProduct.set(nombre, (byProduct.get(nombre) ?? 0) + cantidad);
+      }
+      continue;
+    }
+
+    const fallbackNombre = String(raw.productoNombre || raw.productoCodigo || '').trim();
+    const fallbackCantidad = Math.abs(firstNumeric(raw.cantidad, raw.deltaPrincipal, 0));
+
+    if (fallbackNombre && fallbackCantidad > 0) {
+      byProduct.set(fallbackNombre, (byProduct.get(fallbackNombre) ?? 0) + fallbackCantidad);
+    }
+  }
+
+  return byProduct;
+}
+
 export default function AdminAsignacionesPage() {
   const router = useRouter();
   const guard = useAdminGuard();
@@ -301,10 +462,37 @@ export default function AdminAsignacionesPage() {
   const [batch, setBatch] = useState<BatchCustomer[]>([]);
   const [cancellingDeliveryId, setCancellingDeliveryId] = useState<string | null>(null);
 
-  const driversActive = useMemo(
-    () => api.drivers.filter((d) => d.activo),
-    [api.drivers]
-  );
+  const assignableDrivers = useMemo(() => {
+    return (api.drivers as AssignmentDriverOption[])
+      .filter((d) => d.activo && hasRealDriverId(d.id))
+      .sort((a, b) => {
+        const aName = String(a.nombre || a.firebase_nombre || '').trim().toLowerCase();
+        const bName = String(b.nombre || b.firebase_nombre || '').trim().toLowerCase();
+        return aName.localeCompare(bName, 'es');
+      });
+  }, [api.drivers]);
+
+  const inventoryOnlyDrivers = useMemo(() => {
+    return (api.drivers as AssignmentDriverOption[])
+      .filter((d) => d.activo && !hasRealDriverId(d.id))
+      .sort((a, b) => {
+        const aName = String(a.nombre || a.firebase_nombre || '').trim().toLowerCase();
+        const bName = String(b.nombre || b.firebase_nombre || '').trim().toLowerCase();
+        return aName.localeCompare(bName, 'es');
+      });
+  }, [api.drivers]);
+
+  const selectedAssignableDriver = useMemo(() => {
+    return assignableDrivers.find((d) => d.id === driverId) ?? null;
+  }, [assignableDrivers, driverId]);
+
+  useEffect(() => {
+    if (!driverId) return;
+    const stillExists = assignableDrivers.some((d) => d.id === driverId);
+    if (!stillExists) {
+      setDriverId('');
+    }
+  }, [driverId, assignableDrivers]);
 
   const customersFiltered = useMemo(() => {
     const s = qCustomer.trim().toLowerCase();
@@ -335,10 +523,21 @@ export default function AdminAsignacionesPage() {
   }, [batch]);
 
   function openMassBuilder() {
+    const selectedDriverStillValid =
+      driverId && assignableDrivers.some((d) => d.id === driverId)
+        ? driverId
+        : '';
+
+    const selectedAssignmentDriverStillValid =
+      api.selectedAssignment?.driver_id &&
+      assignableDrivers.some((d) => d.id === api.selectedAssignment?.driver_id)
+        ? api.selectedAssignment.driver_id
+        : '';
+
     const d =
-      driverId ||
-      api.selectedAssignment?.driver_id ||
-      driversActive[0]?.id ||
+      selectedDriverStillValid ||
+      selectedAssignmentDriverStillValid ||
+      assignableDrivers[0]?.id ||
       '';
 
     setDriverId(d);
@@ -580,16 +779,23 @@ export default function AdminAsignacionesPage() {
 
   const batchOk = useMemo(() => {
     if (!driverId) return false;
+    if (!assignableDrivers.some((d) => d.id === driverId)) return false;
     if (!api.workDate) return false;
     if (batch.length === 0) return false;
     if (batch.some((b) => b.items.length === 0)) return false;
     return true;
-  }, [driverId, api.workDate, batch]);
+  }, [driverId, assignableDrivers, api.workDate, batch]);
 
   async function saveBatch() {
     if (!batchOk) return;
 
-    const assignmentId = await api.getOrCreateAssignment(driverId, api.workDate);
+    const validDriver = assignableDrivers.find((d) => d.id === driverId);
+    if (!validDriver) {
+      alert('Selecciona un chofer válido con acceso completo en entregas.');
+      return;
+    }
+
+    const assignmentId = await api.getOrCreateAssignment(validDriver.id, api.workDate);
     if (!assignmentId) return;
 
     const res = await api.createDeliveriesBatch(assignmentId, batch);
@@ -692,12 +898,25 @@ export default function AdminAsignacionesPage() {
     [api, cancelDelivery]
   );
 
-  const exportSelectedAssignmentPdf = useCallback(() => {
+  const exportSelectedAssignmentPdf = useCallback(async () => {
     if (!api.selectedAssignmentId || !api.selectedAssignment) return;
 
     const driverName = api.selectedAssignment.driver_nombre || 'CHOFER';
     const workDate = api.workDate || '';
     const route = api.selectedAssignment.route;
+
+    const driverMeta = (api.drivers as AssignmentDriverOption[]).find(
+      (d) => d.id === api.selectedAssignment?.driver_id
+    );
+
+    const driverCodeForInventory =
+      String(driverMeta?.firebase_codigo || '').trim() || null;
+
+    const inventoryGlobalByProduct = await getInventoryGlobalOutputsForDriverPdf(
+      workDate,
+      driverName,
+      driverCodeForInventory
+    );
 
     const routeStatus = String(route?.status || 'NO_INICIADA');
     const routeStartedAt = formatDateTime(route?.started_at);
@@ -718,13 +937,14 @@ export default function AdminAsignacionesPage() {
     });
 
     const productNames = Array.from(
-      new Set(
-        deliveries.flatMap((delivery) =>
+      new Set([
+        ...deliveries.flatMap((delivery) =>
           (delivery.items || [])
             .map((item) => String(item?.product_nombre || '').trim())
             .filter(Boolean)
-        )
-      )
+        ),
+        ...Array.from(inventoryGlobalByProduct.keys()),
+      ])
     ).sort((a, b) => a.localeCompare(b, 'es', { sensitivity: 'base' }));
 
     const assignedByProduct = new Map<string, number>();
@@ -860,8 +1080,8 @@ export default function AdminAsignacionesPage() {
             const qtyDelivered = cancelled
               ? 0
               : confirmed
-              ? row.qtyReal
-              : row.qtyAssigned;
+                ? row.qtyReal
+                : row.qtyAssigned;
 
             const qtyLabel = qtyDelivered > 0 ? `${qtyDelivered}` : '';
 
@@ -926,7 +1146,7 @@ export default function AdminAsignacionesPage() {
 
     const soldRowProducts = productNames
       .map((productName) => {
-        const qty = soldByProduct.get(productName) ?? 0;
+        const qty = inventoryGlobalByProduct.get(productName) ?? 0;
         return `
           <td colspan="2" class="center summary-qty summary-cell-summary summary-merge-cell">${qty}</td>
         `;
@@ -935,9 +1155,9 @@ export default function AdminAsignacionesPage() {
 
     const diffRowProducts = productNames
       .map((productName) => {
-        const sold = soldByProduct.get(productName) ?? 0;
+        const salidasGlobal = inventoryGlobalByProduct.get(productName) ?? 0;
         const assigned = assignedByProduct.get(productName) ?? 0;
-        const diff = sold - assigned;
+        const diff = salidasGlobal - assigned;
 
         const cls =
           diff > 0 ? 'diff-positive' : diff < 0 ? 'diff-negative' : 'diff-zero';
@@ -1261,6 +1481,7 @@ KM RECORRIDOS: ${escapeHtml(
     api.selectedAssignmentId,
     api.selectedAssignment,
     api.workDate,
+    api.drivers,
     selectedAssignmentDeliveriesAll,
   ]);
 
@@ -1268,7 +1489,7 @@ KM RECORRIDOS: ${escapeHtml(
     if (!driverId || batchDetailed.length === 0) return;
 
     const driverName =
-      driversActive.find((d) => d.id === driverId)?.nombre ||
+      assignableDrivers.find((d) => d.id === driverId)?.nombre ||
       api.selectedAssignment?.driver_nombre ||
       'CHOFER';
 
@@ -1485,7 +1706,7 @@ KILOMETRAJE FINAL: —
       win.focus();
       win.print();
     }, 400);
-  }, [driverId, batchDetailed, driversActive, api.selectedAssignment, api.workDate, batch, routeQty, routeTotal]);
+  }, [driverId, batchDetailed, assignableDrivers, api.selectedAssignment, api.workDate, batch, routeQty, routeTotal]);
 
   if (guard.loading) {
     return (
@@ -1991,16 +2212,56 @@ KILOMETRAJE FINAL: —
                       onChange={(e) => setDriverId(e.target.value)}
                       className="w-full rounded-xl border border-white/10 bg-white/5 px-4 py-3 text-white focus:outline-none focus:ring-2 focus:ring-[#1E4A7A]"
                     >
-                      <option value="">Selecciona</option>
-                      {driversActive.map((d) => (
+                      <option value="">Selecciona un chofer con acceso activo</option>
+
+                      {assignableDrivers.map((d) => (
                         <option key={d.id} value={d.id}>
-                          {d.nombre} ({d.current_status})
+                          {d.nombre}
+                          {d.firebase_codigo ? ` • ${d.firebase_codigo}` : ''}
+                          {d.current_status ? ` • ${d.current_status}` : ''}
                         </option>
                       ))}
                     </select>
+
                     <p className="mt-1 text-xs text-white/40">
-                      Si ya existe asignación para este chofer en esta fecha, se reutiliza y se le agregan nuevas entregas.
+                      Aquí solo aparecen choferes activos con acceso completo en entregas. Si ya existe asignación para este chofer en esta fecha, se reutiliza y se le agregan nuevas entregas.
                     </p>
+
+                    {selectedAssignableDriver && (
+                      <div className="mt-3 rounded-xl border border-emerald-500/20 bg-emerald-500/10 p-3 text-xs text-emerald-100">
+                        Chofer seleccionado: <b>{selectedAssignableDriver.nombre}</b>
+                        {selectedAssignableDriver.firebase_codigo
+                          ? ` • Código inventario: ${selectedAssignableDriver.firebase_codigo}`
+                          : ''}
+                        {selectedAssignableDriver.current_status
+                          ? ` • Estado app: ${selectedAssignableDriver.current_status}`
+                          : ''}
+                      </div>
+                    )}
+
+                    {inventoryOnlyDrivers.length > 0 && (
+                      <div className="mt-3 rounded-xl border border-amber-500/20 bg-amber-500/10 p-3 text-xs text-amber-100">
+                        Hay <b>{inventoryOnlyDrivers.length}</b> chofer(es) activos en inventario sin acceso completo en entregas, por eso no salen en este selector.
+                        <div className="mt-2 text-amber-200/80">
+                          Completa su acceso primero en la página de <b>Choferes</b>.
+                        </div>
+
+                        <button
+                          type="button"
+                          onClick={() => router.push('/admin/choferes')}
+                          className="mt-3 inline-flex items-center gap-2 rounded-xl bg-white/10 px-3 py-2 text-xs text-white/80 hover:bg-white/20"
+                        >
+                          <Truck className="h-4 w-4" />
+                          Ir a Choferes
+                        </button>
+                      </div>
+                    )}
+
+                    {assignableDrivers.length === 0 && (
+                      <div className="mt-3 rounded-xl border border-red-500/20 bg-red-500/10 p-3 text-xs text-red-100">
+                        No hay choferes asignables en este momento. Necesitas al menos un chofer activo con <b>id real en entregas</b>.
+                      </div>
+                    )}
                   </div>
 
                   <div>

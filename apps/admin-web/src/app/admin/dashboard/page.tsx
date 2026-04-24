@@ -870,20 +870,6 @@ function DriverRow({
             />
           </div>
 
-          <button
-            type="button"
-            onClick={onDetails}
-            disabled={!driver.driverId}
-            className={cx(
-              'inline-flex items-center gap-2 rounded-2xl border px-3 py-2 text-sm transition',
-              driver.driverId
-                ? 'border-white/10 bg-white/5 text-white/80 hover:bg-white/8'
-                : 'cursor-not-allowed border-white/5 bg-white/5 text-white/35'
-            )}
-          >
-            {driver.driverId ? 'Ver detalles' : 'Completar acceso móvil'}
-            <ChevronRight className="h-4 w-4 text-white/50" />
-          </button>
         </div>
       </div>
     </div>

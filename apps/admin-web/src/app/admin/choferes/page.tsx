@@ -15,7 +15,6 @@ import {
   User2,
   X,
   Clock,
-  Calendar,
   AlertTriangle,
   Truck,
   Users,
@@ -25,36 +24,26 @@ import {
   ShieldAlert,
 } from 'lucide-react';
 
-import { useDrivers } from '@/lib/hooks/useDrivers';
-import type { DriverRow } from '@/lib/types/driver.types';
+import { useDrivers, type DriverMergedRow } from '@/lib/hooks/useDrivers';
 
-type UiDriver = DriverRow & {
-  firebase_codigo?: string | null;
-  firebase_nombre?: string | null;
-  firebase_activo?: boolean | null;
-  synced_from_inventory?: boolean;
-  only_in_inventory?: boolean;
-};
+type UiDriver = DriverMergedRow;
 
 function cx(...xs: Array<string | false | null | undefined>) {
   return xs.filter(Boolean).join(' ');
 }
 
-function getDriverRowKey(driver: {
-  id?: string | null;
-  firebase_codigo?: string | null;
-  nombre?: string | null;
-}) {
+function getDriverRowKey(driver: UiDriver) {
   const id = String(driver.id ?? '').trim();
-  if (id) return id;
+  if (id) return `db-${id}`;
 
   const firebaseCodigo = String(driver.firebase_codigo ?? '').trim();
   if (firebaseCodigo) return `inv-${firebaseCodigo}`;
 
-  const nombre = String(driver.nombre ?? '').trim();
-  if (nombre) return `inv-name-${nombre}`;
+  const profileId = String(driver.profile_id ?? '').trim();
+  if (profileId) return `profile-${profileId}`;
 
-  return 'inv-fallback-row';
+  const nombre = String(driver.nombre ?? '').trim();
+  return `fallback-${nombre}`;
 }
 
 function safeShortProfile(profileId?: string | null) {
@@ -62,12 +51,8 @@ function safeShortProfile(profileId?: string | null) {
   return v ? `${v.slice(0, 8)}…` : 'Sin perfil';
 }
 
-function safeDate(value?: string | null) {
-  const v = String(value ?? '').trim();
-  if (!v) return '—';
-  const d = new Date(v);
-  if (Number.isNaN(d.getTime())) return '—';
-  return d.toLocaleDateString();
+function normalizePhoneInput(value: string) {
+  return value.replace(/[^\d+]/g, '');
 }
 
 function Modal({
@@ -93,7 +78,7 @@ function Modal({
     <AnimatePresence>
       {open && (
         <motion.div
-          className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm p-4"
+          className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4 backdrop-blur-sm"
           initial={{ opacity: 0 }}
           animate={{ opacity: 1 }}
           exit={{ opacity: 0 }}
@@ -144,7 +129,7 @@ function DriverCard({
 }) {
   const inventoryOnly = !!driver.only_in_inventory;
   const synced = !!driver.synced_from_inventory;
-  const canMutateDriver = !!driver.id;
+  const canMutateDriver = !!String(driver.id ?? '').trim();
 
   return (
     <motion.div
@@ -170,7 +155,7 @@ function DriverCard({
           </div>
 
           <div>
-            <h3 className="font-semibold text-white">{driver.nombre}</h3>
+            <h3 className="font-semibold text-white">{driver.nombre || 'Sin nombre'}</h3>
 
             <div className="flex flex-wrap items-center gap-2 text-xs text-white/50">
               {driver.firebase_codigo ? (
@@ -190,7 +175,11 @@ function DriverCard({
                   <CheckCircle2 className="h-3 w-3" />
                   Sincronizado
                 </span>
-              ) : null}
+              ) : (
+                <span className="inline-flex items-center gap-1 rounded-full border border-white/10 bg-white/10 px-2 py-0.5 text-white/65">
+                  App entregas
+                </span>
+              )}
             </div>
 
             <p className="mt-1 flex items-center gap-1 text-sm text-white/50">
@@ -247,15 +236,16 @@ function DriverCard({
             !canMutateDriver
               ? 'cursor-not-allowed bg-white/5 text-white/30'
               : driver.activo
-              ? 'bg-white/10 text-white/70 hover:bg-white/20'
-              : 'bg-green-500/20 text-green-300 hover:bg-green-500/30'
+                ? 'bg-white/10 text-white/70 hover:bg-white/20'
+                : 'bg-green-500/20 text-green-300 hover:bg-green-500/30'
           )}
+          type="button"
         >
           {!canMutateDriver
             ? 'Primero completar'
             : driver.activo
-            ? 'Desactivar'
-            : 'Activar'}
+              ? 'Desactivar'
+              : 'Activar'}
         </button>
 
         <button
@@ -290,6 +280,7 @@ function DriverTableRow({
   onEdit,
   onToggleActive,
   onDelete,
+  busy,
 }: {
   driver: UiDriver;
   onEdit: () => void;
@@ -299,7 +290,7 @@ function DriverTableRow({
 }) {
   const inventoryOnly = !!driver.only_in_inventory;
   const synced = !!driver.synced_from_inventory;
-  const canMutateDriver = !!driver.id;
+  const canMutateDriver = !!String(driver.id ?? '').trim();
 
   return (
     <motion.tr
@@ -326,7 +317,7 @@ function DriverTableRow({
           </div>
 
           <div>
-            <div className="font-medium text-white">{driver.nombre}</div>
+            <div className="font-medium text-white">{driver.nombre || 'Sin nombre'}</div>
             <div className="flex flex-wrap items-center gap-2 text-xs text-white/40">
               {driver.firebase_codigo ? (
                 <span className="font-mono">Código: {driver.firebase_codigo}</span>
@@ -342,7 +333,11 @@ function DriverTableRow({
                 <span className="rounded-full border border-emerald-400/20 bg-emerald-400/10 px-2 py-0.5 text-emerald-200">
                   Sincronizado
                 </span>
-              ) : null}
+              ) : (
+                <span className="rounded-full border border-white/10 bg-white/10 px-2 py-0.5 text-white/70">
+                  App entregas
+                </span>
+              )}
             </div>
           </div>
         </div>
@@ -380,25 +375,18 @@ function DriverTableRow({
         </span>
       </td>
 
-      <td className="py-4 pr-3">
-        <div className="flex items-center gap-2 text-sm text-white/50">
-          <Calendar className="h-4 w-4" />
-          {safeDate(driver.created_at)}
-        </div>
-      </td>
-
       <td className="py-4 text-right">
         <div className="inline-flex items-center gap-2">
           <button
             onClick={onToggleActive}
-            disabled={!canMutateDriver}
+            disabled={busy || !canMutateDriver}
             className={cx(
               'rounded-lg px-3 py-2 text-xs font-medium transition-colors',
               !canMutateDriver
                 ? 'cursor-not-allowed bg-white/5 text-white/30'
                 : driver.activo
-                ? 'bg-white/10 text-white/70 hover:bg-white/20'
-                : 'bg-green-500/20 text-green-300 hover:bg-green-500/30'
+                  ? 'bg-white/10 text-white/70 hover:bg-white/20'
+                  : 'bg-green-500/20 text-green-300 hover:bg-green-500/30'
             )}
             title={driver.activo ? 'Desactivar' : 'Activar'}
             type="button"
@@ -406,13 +394,14 @@ function DriverTableRow({
             {!canMutateDriver
               ? 'Primero completar'
               : driver.activo
-              ? 'Desactivar'
-              : 'Activar'}
+                ? 'Desactivar'
+                : 'Activar'}
           </button>
 
           <button
             onClick={onEdit}
-            className="rounded-lg bg-white/10 p-2 text-white/70 transition-colors hover:bg-white/20"
+            disabled={busy}
+            className="rounded-lg bg-white/10 p-2 text-white/70 transition-colors hover:bg-white/20 disabled:opacity-50"
             title="Editar"
             type="button"
           >
@@ -421,7 +410,7 @@ function DriverTableRow({
 
           <button
             onClick={onDelete}
-            disabled={!canMutateDriver}
+            disabled={busy || !canMutateDriver}
             className={cx(
               'rounded-lg p-2 transition-colors',
               canMutateDriver
@@ -542,9 +531,24 @@ export default function AdminChoferesPage() {
     return !!cNombre.trim() && !!cTelefono.trim() && !!cPass.trim();
   }, [cNombre, cTelefono, cPass]);
 
+  function resetCreateForm() {
+    setCNombre('');
+    setCTelefono('');
+    setCPass('');
+    setCActivo(true);
+  }
+
+  function resetEditForm() {
+    setEditRow(null);
+    setENombre('');
+    setETelefono('');
+    setEActivo(true);
+    setENewPass('');
+  }
+
   function openEditFor(r: UiDriver) {
     setEditRow(r);
-    setENombre(r.nombre || '');
+    setENombre(r.nombre || r.firebase_nombre || '');
     setETelefono(r.telefono || '');
     setEActivo(!!r.activo);
     setENewPass('');
@@ -562,10 +566,7 @@ export default function AdminChoferesPage() {
     if (!ok) return;
 
     setOpenCreate(false);
-    setCNombre('');
-    setCTelefono('');
-    setCPass('');
-    setCActivo(true);
+    resetCreateForm();
   }
 
   async function onSaveEdit() {
@@ -577,8 +578,9 @@ export default function AdminChoferesPage() {
 
     if (!nombre || !telefono) return;
 
-    // Si viene solo de inventario, intenta crearlo en entregas con sus datos móviles
     if (!editRow.id) {
+      if (!password) return;
+
       const ok = await createDriver({
         nombre,
         telefono,
@@ -589,11 +591,7 @@ export default function AdminChoferesPage() {
       if (!ok) return;
 
       setOpenEdit(false);
-      setEditRow(null);
-      setENombre('');
-      setETelefono('');
-      setEActivo(true);
-      setENewPass('');
+      resetEditForm();
       return;
     }
 
@@ -607,7 +605,7 @@ export default function AdminChoferesPage() {
     if (!ok) return;
 
     setOpenEdit(false);
-    setEditRow(null);
+    resetEditForm();
   }
 
   async function onToggleActive(r: UiDriver) {
@@ -756,9 +754,9 @@ export default function AdminChoferesPage() {
               <div className="mx-auto mb-4 flex h-20 w-20 items-center justify-center rounded-full bg-white/5">
                 <Truck className="h-10 w-10 text-white/20" />
               </div>
-              <h3 className="mb-2 text-lg font-medium text-white">No hay transportes disponibles</h3>
+              <h3 className="mb-2 text-lg font-medium text-white">No hay choferes disponibles</h3>
               <p className="mb-4 text-sm text-white/50">
-                Verifica que existan usuarios con rol TRANSPORTE en inventario
+                Puede que no existan choferes en entregas ni transportes en inventario, o que tu búsqueda no tenga coincidencias.
               </p>
               <button
                 onClick={() => reload()}
@@ -773,11 +771,11 @@ export default function AdminChoferesPage() {
             <div className="grid grid-cols-1 gap-4 p-4 md:grid-cols-2 lg:grid-cols-3">
               {filtered.map((driver) => (
                 <DriverCard
-                  key={getDriverRowKey(driver as UiDriver)}
-                  driver={driver as UiDriver}
-                  onEdit={() => openEditFor(driver as UiDriver)}
-                  onToggleActive={() => onToggleActive(driver as UiDriver)}
-                  onDelete={() => onDelete(driver as UiDriver)}
+                  key={getDriverRowKey(driver)}
+                  driver={driver}
+                  onEdit={() => openEditFor(driver)}
+                  onToggleActive={() => onToggleActive(driver)}
+                  onDelete={() => onDelete(driver)}
                   busy={busy}
                 />
               ))}
@@ -799,9 +797,6 @@ export default function AdminChoferesPage() {
                     <th className="px-6 py-4 text-xs font-medium uppercase tracking-wider text-white/50">
                       Status
                     </th>
-                    <th className="px-6 py-4 text-xs font-medium uppercase tracking-wider text-white/50">
-                      Creado
-                    </th>
                     <th className="px-6 py-4 text-right text-xs font-medium uppercase tracking-wider text-white/50">
                       Acciones
                     </th>
@@ -811,11 +806,11 @@ export default function AdminChoferesPage() {
                 <tbody className="divide-y divide-white/10">
                   {filtered.map((driver) => (
                     <DriverTableRow
-                      key={getDriverRowKey(driver as UiDriver)}
-                      driver={driver as UiDriver}
-                      onEdit={() => openEditFor(driver as UiDriver)}
-                      onToggleActive={() => onToggleActive(driver as UiDriver)}
-                      onDelete={() => onDelete(driver as UiDriver)}
+                      key={getDriverRowKey(driver)}
+                      driver={driver}
+                      onEdit={() => openEditFor(driver)}
+                      onToggleActive={() => onToggleActive(driver)}
+                      onDelete={() => onDelete(driver)}
                       busy={busy}
                     />
                   ))}
@@ -826,7 +821,15 @@ export default function AdminChoferesPage() {
         </motion.div>
       </div>
 
-      <Modal open={openCreate} title="Nuevo Chofer" onClose={() => !busy && setOpenCreate(false)}>
+      <Modal
+        open={openCreate}
+        title="Nuevo Chofer"
+        onClose={() => {
+          if (busy) return;
+          setOpenCreate(false);
+          resetCreateForm();
+        }}
+      >
         <div className="space-y-4">
           <div>
             <label className="mb-2 block text-sm text-white/70">Nombre completo</label>
@@ -844,7 +847,7 @@ export default function AdminChoferesPage() {
               <Phone className="absolute left-3 top-1/2 h-5 w-5 -translate-y-1/2 text-white/40" />
               <input
                 value={cTelefono}
-                onChange={(e) => setCTelefono(e.target.value)}
+                onChange={(e) => setCTelefono(normalizePhoneInput(e.target.value))}
                 className="w-full rounded-xl border border-white/10 bg-white/5 py-3 pl-10 pr-4 text-white placeholder:text-white/30 focus:outline-none focus:ring-2 focus:ring-[#1E4A7A]"
                 placeholder="Ej: 5551234567"
               />
@@ -887,7 +890,10 @@ export default function AdminChoferesPage() {
 
           <div className="flex gap-3 pt-4">
             <button
-              onClick={() => setOpenCreate(false)}
+              onClick={() => {
+                setOpenCreate(false);
+                resetCreateForm();
+              }}
               className="flex-1 rounded-xl border border-white/10 bg-white/5 px-4 py-3 text-white/70 transition-colors hover:bg-white/10"
               type="button"
             >
@@ -914,7 +920,11 @@ export default function AdminChoferesPage() {
       <Modal
         open={openEdit}
         title={editRow?.id ? 'Editar Chofer' : 'Completar Acceso de Chofer'}
-        onClose={() => !busy && setOpenEdit(false)}
+        onClose={() => {
+          if (busy) return;
+          setOpenEdit(false);
+          resetEditForm();
+        }}
       >
         <div className="space-y-4">
           {editRow?.firebase_codigo ? (
@@ -937,6 +947,7 @@ export default function AdminChoferesPage() {
               value={eNombre}
               onChange={(e) => setENombre(e.target.value)}
               className="w-full rounded-xl border border-white/10 bg-white/5 px-4 py-3 text-white placeholder:text-white/30 focus:outline-none focus:ring-2 focus:ring-[#1E4A7A]"
+              placeholder="Nombre del chofer"
             />
           </div>
 
@@ -946,16 +957,40 @@ export default function AdminChoferesPage() {
               <Phone className="absolute left-3 top-1/2 h-5 w-5 -translate-y-1/2 text-white/40" />
               <input
                 value={eTelefono}
-                onChange={(e) => setETelefono(e.target.value)}
+                onChange={(e) => setETelefono(normalizePhoneInput(e.target.value))}
                 className="w-full rounded-xl border border-white/10 bg-white/5 py-3 pl-10 pr-4 text-white placeholder:text-white/30 focus:outline-none focus:ring-2 focus:ring-[#1E4A7A]"
+                placeholder="Ej: 5551234567"
               />
             </div>
+          </div>
+
+          <div>
+            <label className="mb-2 block text-sm text-white/70">
+              {editRow?.id ? 'Nueva contraseña (opcional)' : 'Contraseña'}
+            </label>
+            <div className="relative">
+              <KeyRound className="absolute left-3 top-1/2 h-5 w-5 -translate-y-1/2 text-white/40" />
+              <input
+                value={eNewPass}
+                onChange={(e) => setENewPass(e.target.value)}
+                type="password"
+                className="w-full rounded-xl border border-white/10 bg-white/5 py-3 pl-10 pr-4 text-white placeholder:text-white/30 focus:outline-none focus:ring-2 focus:ring-[#1E4A7A]"
+                placeholder={editRow?.id ? 'Solo si deseas cambiarla' : 'Obligatoria para acceso móvil'}
+              />
+            </div>
+            {!editRow?.id ? (
+              <p className="mt-2 text-xs text-amber-200/80">
+                Para completar un transporte de inventario como chofer móvil, la contraseña es obligatoria.
+              </p>
+            ) : null}
           </div>
 
           <div className="flex items-center justify-between rounded-xl bg-white/5 p-4">
             <div>
               <p className="text-sm font-medium text-white">Estado</p>
-              <p className="text-xs text-white/50">Desactivar = no puede usar la app</p>
+              <p className="text-xs text-white/50">
+                Activo = puede iniciar sesión y operar
+              </p>
             </div>
 
             <button
@@ -972,29 +1007,12 @@ export default function AdminChoferesPage() {
             </button>
           </div>
 
-          <div>
-            <label className="mb-2 block text-sm text-white/70">
-              {editRow?.id ? 'Nueva contraseña (opcional)' : 'Contraseña de acceso'}
-            </label>
-            <div className="relative">
-              <KeyRound className="absolute left-3 top-1/2 h-5 w-5 -translate-y-1/2 text-white/40" />
-              <input
-                value={eNewPass}
-                onChange={(e) => setENewPass(e.target.value)}
-                type="password"
-                className="w-full rounded-xl border border-white/10 bg-white/5 py-3 pl-10 pr-4 text-white placeholder:text-white/30 focus:outline-none focus:ring-2 focus:ring-[#1E4A7A]"
-                placeholder={
-                  editRow?.id
-                    ? 'Dejar vacío para mantener actual'
-                    : 'Obligatoria para acceso a la app'
-                }
-              />
-            </div>
-          </div>
-
           <div className="flex gap-3 pt-4">
             <button
-              onClick={() => setOpenEdit(false)}
+              onClick={() => {
+                setOpenEdit(false);
+                resetEditForm();
+              }}
               className="flex-1 rounded-xl border border-white/10 bg-white/5 px-4 py-3 text-white/70 transition-colors hover:bg-white/10"
               type="button"
             >
@@ -1003,10 +1021,18 @@ export default function AdminChoferesPage() {
 
             <button
               onClick={onSaveEdit}
-              disabled={busy || !eNombre.trim() || !eTelefono.trim() || (!editRow?.id && !eNewPass.trim())}
+              disabled={
+                busy ||
+                !eNombre.trim() ||
+                !eTelefono.trim() ||
+                (!editRow?.id && !eNewPass.trim())
+              }
               className={cx(
                 'flex-1 rounded-xl px-4 py-3 font-medium transition-all',
-                busy || !eNombre.trim() || !eTelefono.trim() || (!editRow?.id && !eNewPass.trim())
+                busy ||
+                !eNombre.trim() ||
+                !eTelefono.trim() ||
+                (!editRow?.id && !eNewPass.trim())
                   ? 'cursor-not-allowed bg-white/10 text-white/30'
                   : 'bg-gradient-to-r from-[#1E4A7A] to-[#2E6B9E] text-white hover:from-[#2E6B9E] hover:to-[#1E4A7A]'
               )}
@@ -1015,8 +1041,8 @@ export default function AdminChoferesPage() {
               {busy
                 ? 'Guardando...'
                 : editRow?.id
-                ? 'Guardar Cambios'
-                : 'Crear Acceso Móvil'}
+                  ? 'Guardar Cambios'
+                  : 'Completar Acceso'}
             </button>
           </div>
         </div>

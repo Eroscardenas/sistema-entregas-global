@@ -39,7 +39,6 @@ export class DeliveriesAdminService {
    * Obtener una entrega con todos sus items
    */
   async getDetail(deliveryId: string) {
-    // Usamos la view que SÍ existe en tus types
     const { data, error } = await this.sb
       .from('v_delivery_detail')
       .select('*')
@@ -67,13 +66,15 @@ export class DeliveriesAdminService {
    * Cancelar entrega (admin)
    */
   async cancel(deliveryId: string, reason?: string | null) {
+    const now = new Date().toISOString();
+
     const { data, error } = await this.sb
       .from('deliveries')
       .update({
         status: 'cancelled',
         delivery_notes: reason ?? 'Cancelada por admin',
-        updated_at: new Date().toISOString(),
-      })
+        updated_at: now,
+      } as any)
       .eq('id', deliveryId)
       .select('*')
       .single();
@@ -100,12 +101,14 @@ export class DeliveriesAdminService {
    * Cambiar status manualmente (admin override)
    */
   async setStatus(deliveryId: string, status: Delivery['status']) {
+    const now = new Date().toISOString();
+
     const { data, error } = await this.sb
       .from('deliveries')
       .update({
         status,
-        updated_at: new Date().toISOString(),
-      })
+        updated_at: now,
+      } as any)
       .eq('id', deliveryId)
       .select('*')
       .single();
@@ -116,7 +119,7 @@ export class DeliveriesAdminService {
 
   /**
    * Recalcular totales manual (si necesitas forzar)
-   * (Tu trigger ya lo hace automático al actualizar delivery_items)
+   * Tu trigger ya lo hace automático al actualizar delivery_items.
    */
   async recalc(deliveryId: string) {
     const { data, error } = await this.sb

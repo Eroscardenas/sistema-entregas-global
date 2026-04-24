@@ -26,12 +26,24 @@ import {
   TrendingDown,
   Scale,
   CheckCircle2,
+  Link2,
+  Warehouse,
 } from 'lucide-react';
 
 import { useRouter } from 'next/navigation';
 import { PATHS } from '@/lib/constants/paths';
 import { useAdminGuard } from '@/lib/hooks/useAdminGuard';
 import { supabaseBrowser } from '@/lib/supabase/client';
+import { inventoryDb } from '@/lib/firebase/inventory.client';
+import {
+  collection,
+  getDocs,
+  limit as qLimit,
+  orderBy,
+  query,
+  Timestamp,
+  where,
+} from 'firebase/firestore';
 
 const sb = supabaseBrowser as unknown as any;
 
@@ -166,6 +178,69 @@ function fmtSignedQty(n: number) {
   return `${n}`;
 }
 
+function normalizeLooseText(value?: string | null) {
+  return String(value || '')
+    .trim()
+    .toUpperCase()
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .replace(/\s+/g, ' ');
+}
+
+function toDateStart(value: string) {
+  return new Date(`${value}T00:00:00`);
+}
+
+function toDateEndExclusive(value: string) {
+  const d = new Date(`${value}T00:00:00`);
+  d.setDate(d.getDate() + 1);
+  return d;
+}
+
+function inventoryProductDisplayName(item?: InventoryMovementBatchItem | null) {
+  const byName = String(item?.productoNombre || '').trim();
+  if (byName) return byName;
+
+  const codigo = String(item?.productoCodigo || item?.bolsaVaciaCodigo || '').trim();
+  const tipo = String(item?.tipoHielo || '').trim();
+
+  if (codigo && tipo) return `${codigo} ${tipo}`;
+  return codigo || tipo || 'PRODUCTO';
+}
+
+function buildDriverDestinatarioCandidates(driverName?: string | null, driverCode?: string | null) {
+  const name = String(driverName || '').trim();
+  const code = String(driverCode || '').trim();
+
+  const raw = new Set<string>();
+
+  if (name) raw.add(name);
+  if (code) raw.add(code);
+  if (name && code) raw.add(`${name} (${code})`);
+
+  return Array.from(raw).map(normalizeLooseText).filter(Boolean);
+}
+
+function movementMatchesDriver(
+  movement: InventoryMovementDoc,
+  driverName?: string | null,
+  driverCode?: string | null
+) {
+  const normalizedDestinatario = normalizeLooseText(movement.destinatario);
+  const normalizedCliente = normalizeLooseText(movement.clienteNombre);
+  const candidates = buildDriverDestinatarioCandidates(driverName, driverCode);
+
+  if (!candidates.length) return false;
+
+  return candidates.some((candidate) => {
+    if (!candidate) return false;
+    return (
+      normalizedDestinatario.includes(candidate) ||
+      normalizedCliente.includes(candidate)
+    );
+  });
+}
+
 type ReportMode = 'general' | 'driver' | 'assignment';
 
 type DriverRow = {
@@ -212,6 +287,53 @@ type ProductRow = {
   nombre: string | null;
 };
 
+type InventoryEmployeeRow = {
+  firebase_id: string;
+  firebase_codigo: string;
+  firebase_nombre: string;
+  firebase_activo: boolean;
+};
+
+type InventoryMovementBatchItem = {
+  bolsaVaciaCodigo?: string | null;
+  productoCodigo?: string | null;
+  productoNombre?: string | null;
+  tipoHielo?: string | null;
+  cantidad?: number | null;
+  delta?: number | null;
+};
+
+type InventoryMovementDoc = {
+  tipo?: string | null;
+  batch?: boolean | null;
+  salidaSubtipo?: string | null;
+  salidaDestino?: string | null;
+  destinatario?: string | null;
+  clienteNombre?: string | null;
+  fecha?: unknown;
+  createdAt?: unknown;
+  productoNombre?: string | null;
+  productoCodigo?: string | null;
+  tipoHielo?: string | null;
+  cantidad?: number | null;
+  deltaPrincipal?: number | null;
+  items?: InventoryMovementBatchItem[] | null;
+};
+
+type InventoryProductOutput = {
+  nombre: string;
+  cantidad: number;
+};
+
+type InventoryAssignmentOutput = {
+  assignment_id: string;
+  driver_name: string;
+  driver_code: string | null;
+  work_date: string;
+  total_qty: number;
+  products: InventoryProductOutput[];
+};
+
 type DeliveryItemReport = DeliveryItemRow & {
   product_nombre: string;
   subtotal_estimado: number;
@@ -227,19 +349,25 @@ type DeliveryReport = DeliveryRow & {
 
 type AssignmentReport = AssignmentRow & {
   driver_nombre: string | null;
+  driver_firebase_codigo: string | null;
   deliveries: DeliveryReport[];
+  inventory_outputs: InventoryAssignmentOutput;
 };
 
 type DriverSummary = {
   driver_id: string;
   driver_nombre: string;
+  driver_firebase_codigo: string | null;
   assignments_count: number;
   deliveries_count: number;
   customers_count: number;
   total_pieces: number;
+  total_pieces_real: number;
   total_expected: number;
   total_real: number;
   total_difference: number;
+  inventory_total_pieces: number;
+  inventory_vs_expected_diff: number;
   more_count: number;
   less_count: number;
   exact_count: number;
@@ -252,10 +380,149 @@ type ProductSummary = {
   total_qty_real: number;
   total_importe: number;
   total_importe_real: number;
+  inventory_total_qty: number;
+  inventory_vs_expected_diff: number;
   assignments_count: number;
   deliveries_count: number;
   customers_count: number;
 };
+
+type DriverFilterOption = {
+  id: string;
+  nombre: string;
+  firebase_codigo?: string | null;
+  source: 'supabase' | 'inventory_only';
+};
+
+async function listInventoryEmployeesTransport(): Promise<InventoryEmployeeRow[]> {
+  const ref = collection(inventoryDb, 'empleados');
+
+  const qy = query(
+    ref,
+    where('role', '==', 'TRANSPORTE'),
+    orderBy('nombre', 'asc'),
+    qLimit(500)
+  );
+
+  const snap = await getDocs(qy);
+
+  return snap.docs.map((d) => {
+    const data = d.data() as Record<string, unknown>;
+
+    return {
+      firebase_id: d.id,
+      firebase_codigo: String(data.codigo ?? '').trim(),
+      firebase_nombre: String(data.nombre ?? '').trim(),
+      firebase_activo: data.isActive !== false,
+    };
+  });
+}
+
+async function listInventoryOutputsByAssignment(
+  assignments: Array<{
+    assignment_id: string;
+    work_date: string | null;
+    driver_name: string | null;
+    driver_code: string | null;
+  }>
+) {
+  const validAssignments = assignments.filter(
+    (a) => a.work_date && a.driver_name
+  );
+
+  if (validAssignments.length === 0) {
+    return new Map<string, InventoryAssignmentOutput>();
+  }
+
+  const uniqueDates = Array.from(
+    new Set(validAssignments.map((a) => String(a.work_date)))
+  ).sort();
+
+  const minDate = uniqueDates[0];
+  const maxDate = uniqueDates[uniqueDates.length - 1];
+
+  const start = toDateStart(minDate);
+  const endExclusive = toDateEndExclusive(maxDate);
+
+  const qy = query(
+    collection(inventoryDb, 'movimientos'),
+    where('fecha', '>=', Timestamp.fromDate(start)),
+    where('fecha', '<', Timestamp.fromDate(endExclusive)),
+    orderBy('fecha', 'asc'),
+    qLimit(5000)
+  );
+
+  const snap = await getDocs(qy);
+  const docs = snap.docs.map((docSnap) => docSnap.data() as InventoryMovementDoc);
+
+  const out = new Map<string, InventoryAssignmentOutput>();
+
+  for (const assignment of validAssignments) {
+    const productMap = new Map<string, number>();
+
+    for (const raw of docs) {
+      if (String(raw.tipo || '').trim().toUpperCase() !== 'SALIDA_BOLSA') continue;
+      if (String(raw.salidaSubtipo || '').trim().toUpperCase() !== 'ENTREGA_TRANSPORTE') continue;
+      if (!movementMatchesDriver(raw, assignment.driver_name, assignment.driver_code)) continue;
+
+      const rawDate =
+        raw.fecha instanceof Timestamp
+          ? raw.fecha.toDate()
+          : raw.fecha instanceof Date
+          ? raw.fecha
+          : raw.createdAt instanceof Timestamp
+          ? raw.createdAt.toDate()
+          : raw.createdAt instanceof Date
+          ? raw.createdAt
+          : null;
+
+      if (!rawDate) continue;
+
+      const movementDate = rawDate.toISOString().slice(0, 10);
+      if (movementDate !== assignment.work_date) continue;
+
+      if (Array.isArray(raw.items) && raw.items.length > 0) {
+        for (const item of raw.items) {
+          const nombre = inventoryProductDisplayName(item);
+          const cantidad = Math.abs(safeNum(item?.cantidad, safeNum(item?.delta, 0)));
+          if (!nombre || cantidad <= 0) continue;
+
+          productMap.set(nombre, (productMap.get(nombre) ?? 0) + cantidad);
+        }
+        continue;
+      }
+
+      const fallbackNombre = String(raw.productoNombre || raw.productoCodigo || '').trim();
+      const fallbackCantidad = Math.abs(
+        safeNum(raw.cantidad, safeNum(raw.deltaPrincipal, 0))
+      );
+
+      if (fallbackNombre && fallbackCantidad > 0) {
+        productMap.set(
+          fallbackNombre,
+          (productMap.get(fallbackNombre) ?? 0) + fallbackCantidad
+        );
+      }
+    }
+
+    const products = Array.from(productMap.entries())
+      .map(([nombre, cantidad]) => ({ nombre, cantidad }))
+      .sort((a, b) => b.cantidad - a.cantidad || a.nombre.localeCompare(b.nombre));
+
+    const total_qty = products.reduce((acc, p) => acc + p.cantidad, 0);
+
+    out.set(assignment.assignment_id, {
+      assignment_id: assignment.assignment_id,
+      driver_name: assignment.driver_name || 'Chofer',
+      driver_code: assignment.driver_code || null,
+      work_date: assignment.work_date || '',
+      total_qty,
+      products,
+    });
+  }
+
+  return out;
+}
 
 export default function ReportesPage() {
   const router = useRouter();
@@ -279,6 +546,7 @@ export default function ReportesPage() {
   const [pageError, setPageError] = useState('');
 
   const [drivers, setDrivers] = useState<DriverRow[]>([]);
+  const [inventoryDrivers, setInventoryDrivers] = useState<InventoryEmployeeRow[]>([]);
   const [rows, setRows] = useState<AssignmentReport[]>([]);
   const [selectedAssignmentId, setSelectedAssignmentId] = useState('');
 
@@ -288,12 +556,26 @@ export default function ReportesPage() {
   );
 
   const fetchData = useCallback(async () => {
-    const { data: driversData, error: driversErr } = await sb
-      .from(T_DRIVERS)
-      .select('id,nombre,activo,current_status')
-      .order('nombre', { ascending: true });
+    const [driversRes, inventoryDriversRes] = await Promise.all([
+      sb
+        .from(T_DRIVERS)
+        .select('id,nombre,activo,current_status')
+        .order('nombre', { ascending: true }),
+      listInventoryEmployeesTransport(),
+    ]);
 
+    const driversData = driversRes.data ?? [];
+    const driversErr = driversRes.error;
     if (driversErr) throw driversErr;
+
+    const inventoryDriversData = inventoryDriversRes;
+
+    const inventoryByName = new Map<string, InventoryEmployeeRow>();
+    inventoryDriversData.forEach((emp) => {
+      if (emp.firebase_nombre) {
+        inventoryByName.set(normalizeLooseText(emp.firebase_nombre), emp);
+      }
+    });
 
     const assignmentsQuery = sb
       .from(T_ASSIGNMENTS)
@@ -339,7 +621,9 @@ export default function ReportesPage() {
         if (itemsErr) throw itemsErr;
         items = (itemsData ?? []) as DeliveryItemRow[];
 
-        const productIds = Array.from(new Set(items.map((i) => i.product_id).filter(Boolean))) as string[];
+        const productIds = Array.from(
+          new Set(items.map((i) => i.product_id).filter(Boolean))
+        ) as string[];
 
         if (productIds.length > 0) {
           const { data: productsData, error: productsErr } = await sb
@@ -400,12 +684,42 @@ export default function ReportesPage() {
       deliveriesByAssignment.get(delivery.assignment_id)!.push(parsed);
     });
 
-    const merged: AssignmentReport[] = assignments.map((assignment) => ({
-      ...assignment,
-      driver_nombre: assignment.driver_id
+    const baseAssignments = assignments.map((assignment) => {
+      const driverNombre = assignment.driver_id
         ? driverMap.get(assignment.driver_id)?.nombre || 'Chofer'
-        : 'Sin chofer',
-      deliveries: deliveriesByAssignment.get(assignment.id) ?? [],
+        : 'Sin chofer';
+
+      const invDriver =
+        inventoryByName.get(normalizeLooseText(driverNombre)) ?? null;
+
+      return {
+        ...assignment,
+        driver_nombre: driverNombre,
+        driver_firebase_codigo: invDriver?.firebase_codigo || null,
+        deliveries: deliveriesByAssignment.get(assignment.id) ?? [],
+      };
+    });
+
+    const inventoryOutputsByAssignment = await listInventoryOutputsByAssignment(
+      baseAssignments.map((assignment) => ({
+        assignment_id: assignment.id,
+        work_date: assignment.work_date,
+        driver_name: assignment.driver_nombre,
+        driver_code: assignment.driver_firebase_codigo,
+      }))
+    );
+
+    const merged: AssignmentReport[] = baseAssignments.map((assignment) => ({
+      ...assignment,
+      inventory_outputs:
+        inventoryOutputsByAssignment.get(assignment.id) ?? {
+          assignment_id: assignment.id,
+          driver_name: assignment.driver_nombre || 'Chofer',
+          driver_code: assignment.driver_firebase_codigo || null,
+          work_date: assignment.work_date || '',
+          total_qty: 0,
+          products: [],
+        },
     }));
 
     const q = query.trim().toLowerCase();
@@ -414,8 +728,13 @@ export default function ReportesPage() {
       : merged.filter((assignment) => {
           const haystack = [
             assignment.driver_nombre ?? '',
+            assignment.driver_firebase_codigo ?? '',
             assignment.status ?? '',
             assignment.work_date ?? '',
+            ...assignment.inventory_outputs.products.flatMap((p) => [
+              p.nombre,
+              String(p.cantidad),
+            ]),
             ...assignment.deliveries.flatMap((d) => [
               d.customer_nombre_snapshot ?? '',
               d.diner_nombre_snapshot ?? '',
@@ -433,6 +752,7 @@ export default function ReportesPage() {
 
     return {
       drivers: (driversData ?? []) as DriverRow[],
+      inventoryDrivers: inventoryDriversData,
       rows: filtered,
     };
   }, [dateFrom, dateTo, driverFilter, statusFilter, query]);
@@ -444,6 +764,7 @@ export default function ReportesPage() {
 
       const data = await fetchData();
       setDrivers(data.drivers);
+      setInventoryDrivers(data.inventoryDrivers);
       setRows(data.rows);
 
       setSelectedAssignmentId((prev) => {
@@ -473,6 +794,7 @@ export default function ReportesPage() {
 
       const data = await fetchData();
       setDrivers(data.drivers);
+      setInventoryDrivers(data.inventoryDrivers);
       setRows(data.rows);
 
       setSelectedAssignmentId((prev) => {
@@ -504,14 +826,37 @@ export default function ReportesPage() {
     }
   }, [guard.loading, guard.isAuthed, loadData, router]);
 
-  const driverOptions = useMemo(() => {
-    return drivers
+  const driverOptions = useMemo((): DriverFilterOption[] => {
+    const options: DriverFilterOption[] = [];
+    const used = new Set<string>();
+
+    drivers
       .filter((d) => d.activo !== false)
-      .map((d) => ({
-        id: d.id,
-        nombre: d.nombre || 'Chofer',
-      }));
-  }, [drivers]);
+      .forEach((d) => {
+        options.push({
+          id: d.id,
+          nombre: d.nombre || 'Chofer',
+          source: 'supabase',
+        });
+        used.add(normalizeLooseText(d.nombre || 'Chofer'));
+      });
+
+    inventoryDrivers
+      .filter((d) => d.firebase_activo)
+      .forEach((d) => {
+        const normalized = normalizeLooseText(d.firebase_nombre);
+        if (used.has(normalized)) return;
+
+        options.push({
+          id: `inventory:${d.firebase_codigo || d.firebase_id}`,
+          nombre: d.firebase_nombre || 'Transporte',
+          firebase_codigo: d.firebase_codigo || null,
+          source: 'inventory_only',
+        });
+      });
+
+    return options.sort((a, b) => a.nombre.localeCompare(b.nombre, 'es'));
+  }, [drivers, inventoryDrivers]);
 
   const statusOptions = useMemo(() => {
     const set = new Set<string>();
@@ -532,12 +877,16 @@ export default function ReportesPage() {
     let totalPiecesReal = 0;
     let totalExpected = 0;
     let totalReal = 0;
+    let totalInventoryOutput = 0;
     let moreCount = 0;
     let lessCount = 0;
     let exactCount = 0;
 
     rows.forEach((assignment) => {
       if (assignment.driver_id) driverSet.add(assignment.driver_id);
+      else driverSet.add(`inventory:${assignment.driver_nombre}`);
+
+      totalInventoryOutput += assignment.inventory_outputs.total_qty;
 
       assignment.deliveries.forEach((delivery) => {
         if (delivery.customer_id) customerSet.add(delivery.customer_id);
@@ -565,7 +914,9 @@ export default function ReportesPage() {
       totalPiecesReal,
       totalExpected,
       totalReal,
+      totalInventoryOutput,
       totalDifference: totalReal - totalExpected,
+      inventoryVsExpectedDifference: totalInventoryOutput - totalPieces,
       moreCount,
       lessCount,
       exactCount,
@@ -576,20 +927,24 @@ export default function ReportesPage() {
     const map = new Map<string, DriverSummary & { customerSet: Set<string> }>();
 
     rows.forEach((assignment) => {
-      const driverId = assignment.driver_id || 'sin-chofer';
+      const driverId = assignment.driver_id || `inventory:${assignment.driver_nombre || 'sin-chofer'}`;
       const driverNombre = assignment.driver_nombre || 'Sin chofer';
 
       if (!map.has(driverId)) {
         map.set(driverId, {
           driver_id: driverId,
           driver_nombre: driverNombre,
+          driver_firebase_codigo: assignment.driver_firebase_codigo || null,
           assignments_count: 0,
           deliveries_count: 0,
           customers_count: 0,
           total_pieces: 0,
+          total_pieces_real: 0,
           total_expected: 0,
           total_real: 0,
           total_difference: 0,
+          inventory_total_pieces: 0,
+          inventory_vs_expected_diff: 0,
           more_count: 0,
           less_count: 0,
           exact_count: 0,
@@ -599,6 +954,7 @@ export default function ReportesPage() {
 
       const row = map.get(driverId)!;
       row.assignments_count += 1;
+      row.inventory_total_pieces += assignment.inventory_outputs.total_qty;
 
       assignment.deliveries.forEach((delivery) => {
         row.deliveries_count += 1;
@@ -614,20 +970,27 @@ export default function ReportesPage() {
 
         delivery.items.forEach((item) => {
           row.total_pieces += safeNum(item.qty_assigned, 0);
+          row.total_pieces_real += safeNum(item.qty_real, safeNum(item.qty_assigned, 0));
         });
       });
+
+      row.inventory_vs_expected_diff = row.inventory_total_pieces - row.total_pieces;
     });
 
     const out = Array.from(map.values()).map((r) => ({
       driver_id: r.driver_id,
       driver_nombre: r.driver_nombre,
+      driver_firebase_codigo: r.driver_firebase_codigo,
       assignments_count: r.assignments_count,
       deliveries_count: r.deliveries_count,
       customers_count: r.customerSet.size,
       total_pieces: r.total_pieces,
+      total_pieces_real: r.total_pieces_real,
       total_expected: r.total_expected,
       total_real: r.total_real,
       total_difference: r.total_difference,
+      inventory_total_pieces: r.inventory_total_pieces,
+      inventory_vs_expected_diff: r.inventory_vs_expected_diff,
       more_count: r.more_count,
       less_count: r.less_count,
       exact_count: r.exact_count,
@@ -656,7 +1019,7 @@ export default function ReportesPage() {
     rows.forEach((assignment) => {
       assignment.deliveries.forEach((delivery) => {
         delivery.items.forEach((item) => {
-          const key = item.product_id || item.id;
+          const key = item.product_id || item.product_nombre || item.id;
 
           if (!map.has(key)) {
             map.set(key, {
@@ -666,6 +1029,8 @@ export default function ReportesPage() {
               total_qty_real: 0,
               total_importe: 0,
               total_importe_real: 0,
+              inventory_total_qty: 0,
+              inventory_vs_expected_diff: 0,
               assignments_count: 0,
               deliveries_count: 0,
               customers_count: 0,
@@ -685,6 +1050,32 @@ export default function ReportesPage() {
           if (delivery.customer_id) row.customerSet.add(delivery.customer_id);
         });
       });
+
+      assignment.inventory_outputs.products.forEach((p) => {
+        const key = normalizeLooseText(p.nombre) || p.nombre;
+
+        if (!map.has(key)) {
+          map.set(key, {
+            product_id: key,
+            nombre: p.nombre || 'Producto',
+            total_qty: 0,
+            total_qty_real: 0,
+            total_importe: 0,
+            total_importe_real: 0,
+            inventory_total_qty: 0,
+            inventory_vs_expected_diff: 0,
+            assignments_count: 0,
+            deliveries_count: 0,
+            customers_count: 0,
+            assignmentSet: new Set<string>(),
+            deliverySet: new Set<string>(),
+            customerSet: new Set<string>(),
+          });
+        }
+
+        const row = map.get(key)!;
+        row.inventory_total_qty += safeNum(p.cantidad, 0);
+      });
     });
 
     const out: ProductSummary[] = Array.from(map.values()).map((r) => ({
@@ -694,6 +1085,8 @@ export default function ReportesPage() {
       total_qty_real: r.total_qty_real,
       total_importe: r.total_importe,
       total_importe_real: r.total_importe_real,
+      inventory_total_qty: r.inventory_total_qty,
+      inventory_vs_expected_diff: r.inventory_total_qty - r.total_qty,
       assignments_count: r.assignmentSet.size,
       deliveries_count: r.deliverySet.size,
       customers_count: r.customerSet.size,
@@ -701,7 +1094,7 @@ export default function ReportesPage() {
 
     out.sort(
       (a, b) =>
-        b.total_qty - a.total_qty ||
+        Math.max(b.total_qty, b.inventory_total_qty) - Math.max(a.total_qty, a.inventory_total_qty) ||
         b.total_importe - a.total_importe ||
         a.nombre.localeCompare(b.nombre)
     );
@@ -767,8 +1160,10 @@ export default function ReportesPage() {
           <tr>
             <td>${escapeHtml(formatOnlyDate(a.work_date))}</td>
             <td>${escapeHtml(a.driver_nombre || '—')}</td>
+            <td>${escapeHtml(a.driver_firebase_codigo || '—')}</td>
             <td>${a.deliveries.length}</td>
             <td>${totalPieces}</td>
+            <td>${a.inventory_outputs.total_qty}</td>
             <td>${escapeHtml(money(totalExpected))}</td>
             <td>${escapeHtml(money(totalReal))}</td>
             <td>${escapeHtml(money(totalDifference))}</td>
@@ -784,10 +1179,13 @@ export default function ReportesPage() {
         (d) => `
           <tr>
             <td>${escapeHtml(d.driver_nombre)}</td>
+            <td>${escapeHtml(d.driver_firebase_codigo || '—')}</td>
             <td>${d.assignments_count}</td>
             <td>${d.deliveries_count}</td>
             <td>${d.customers_count}</td>
             <td>${d.total_pieces}</td>
+            <td>${d.inventory_total_pieces}</td>
+            <td>${d.total_pieces_real}</td>
             <td>${escapeHtml(money(d.total_expected))}</td>
             <td>${escapeHtml(money(d.total_real))}</td>
             <td>${escapeHtml(money(d.total_difference))}</td>
@@ -800,15 +1198,17 @@ export default function ReportesPage() {
       .join('');
 
     const productsRows = productSummary
-      .slice(0, 20)
+      .slice(0, 25)
       .map(
         (p) => `
           <tr>
             <td>${escapeHtml(p.nombre)}</td>
             <td>${p.total_qty}</td>
+            <td>${p.inventory_total_qty}</td>
             <td>${p.total_qty_real}</td>
             <td>${escapeHtml(money(p.total_importe))}</td>
             <td>${escapeHtml(money(p.total_importe_real))}</td>
+            <td>${fmtSignedQty(p.inventory_vs_expected_diff)}</td>
             <td>${p.assignments_count}</td>
             <td>${p.deliveries_count}</td>
             <td>${p.customers_count}</td>
@@ -825,9 +1225,39 @@ export default function ReportesPage() {
           <div class="meta-grid">
             <div><strong>Fecha:</strong> ${escapeHtml(formatOnlyDate(selectedAssignment.work_date))}</div>
             <div><strong>Chofer:</strong> ${escapeHtml(selectedAssignment.driver_nombre || '—')}</div>
+            <div><strong>Código inventario:</strong> ${escapeHtml(selectedAssignment.driver_firebase_codigo || '—')}</div>
             <div><strong>Estatus:</strong> ${escapeHtml(selectedAssignment.status || '—')}</div>
             <div><strong>Entregas:</strong> ${selectedAssignment.deliveries.length}</div>
+            <div><strong>Salida inventario:</strong> ${selectedAssignment.inventory_outputs.total_qty} pzas</div>
           </div>
+        </section>
+
+        <section class="block">
+          <h2>Salidas inventario por producto</h2>
+          <table>
+            <thead>
+              <tr>
+                <th>Producto</th>
+                <th>Cantidad salida inventario</th>
+              </tr>
+            </thead>
+            <tbody>
+              ${
+                selectedAssignment.inventory_outputs.products.length === 0
+                  ? '<tr><td colspan="2">Sin salidas de inventario registradas para este chofer en la fecha.</td></tr>'
+                  : selectedAssignment.inventory_outputs.products
+                      .map(
+                        (p) => `
+                          <tr>
+                            <td>${escapeHtml(p.nombre)}</td>
+                            <td>${p.cantidad}</td>
+                          </tr>
+                        `
+                      )
+                      .join('')
+              }
+            </tbody>
+          </table>
         </section>
 
         <section class="block">
@@ -957,7 +1387,7 @@ export default function ReportesPage() {
           <div class="header">
             <h1 class="title">${escapeHtml(reportLabel)}</h1>
             <div class="subtitle">
-              Sistema de Entregas • Generado el ${escapeHtml(formatDate(new Date().toISOString()))}
+              Sistema de Entregas + Inventario • Generado el ${escapeHtml(formatDate(new Date().toISOString()))}
             </div>
           </div>
 
@@ -978,12 +1408,12 @@ export default function ReportesPage() {
             <div class="kpi"><div class="kpi-label">Choferes</div><div class="kpi-value">${kpis.driversCount}</div></div>
             <div class="kpi"><div class="kpi-label">Piezas esperadas</div><div class="kpi-value">${kpis.totalPieces}</div></div>
             <div class="kpi"><div class="kpi-label">Piezas reales</div><div class="kpi-value">${kpis.totalPiecesReal}</div></div>
+            <div class="kpi"><div class="kpi-label">Salida inventario</div><div class="kpi-value">${kpis.totalInventoryOutput}</div></div>
             <div class="kpi"><div class="kpi-label">Total esperado</div><div class="kpi-value">${escapeHtml(money(kpis.totalExpected))}</div></div>
             <div class="kpi"><div class="kpi-label">Total real</div><div class="kpi-value">${escapeHtml(money(kpis.totalReal))}</div></div>
-            <div class="kpi"><div class="kpi-label">Diferencia</div><div class="kpi-value">${escapeHtml(money(kpis.totalDifference))}</div></div>
-            <div class="kpi"><div class="kpi-label">Dejó más</div><div class="kpi-value">${kpis.moreCount}</div></div>
-            <div class="kpi"><div class="kpi-label">Exactas</div><div class="kpi-value">${kpis.exactCount}</div></div>
-            <div class="kpi"><div class="kpi-label">Dejó menos</div><div class="kpi-value">${kpis.lessCount}</div></div>
+            <div class="kpi"><div class="kpi-label">Diferencia real</div><div class="kpi-value">${escapeHtml(money(kpis.totalDifference))}</div></div>
+            <div class="kpi"><div class="kpi-label">Inv vs esperado</div><div class="kpi-value">${kpis.inventoryVsExpectedDifference}</div></div>
+            <div class="kpi"><div class="kpi-label">Más / Exacto / Menos</div><div class="kpi-value">${kpis.moreCount} / ${kpis.exactCount} / ${kpis.lessCount}</div></div>
           </section>
 
           <section class="block">
@@ -993,8 +1423,10 @@ export default function ReportesPage() {
                 <tr>
                   <th>Fecha</th>
                   <th>Chofer</th>
+                  <th>Código inv.</th>
                   <th>Entregas</th>
-                  <th>Piezas</th>
+                  <th>Piezas esperadas</th>
+                  <th>Salida inventario</th>
                   <th>Total esperado</th>
                   <th>Total real</th>
                   <th>Diferencia</th>
@@ -1003,7 +1435,7 @@ export default function ReportesPage() {
                 </tr>
               </thead>
               <tbody>
-                ${assignmentsRows || '<tr><td colspan="9">Sin datos</td></tr>'}
+                ${assignmentsRows || '<tr><td colspan="11">Sin datos</td></tr>'}
               </tbody>
             </table>
           </section>
@@ -1014,10 +1446,13 @@ export default function ReportesPage() {
               <thead>
                 <tr>
                   <th>Chofer</th>
+                  <th>Código inv.</th>
                   <th>Asignaciones</th>
                   <th>Entregas</th>
                   <th>Clientes</th>
-                  <th>Piezas</th>
+                  <th>Pzas esp.</th>
+                  <th>Salida inventario</th>
+                  <th>Pzas reales</th>
                   <th>Total esperado</th>
                   <th>Total real</th>
                   <th>Diferencia</th>
@@ -1027,7 +1462,7 @@ export default function ReportesPage() {
                 </tr>
               </thead>
               <tbody>
-                ${driversRows || '<tr><td colspan="11">Sin datos</td></tr>'}
+                ${driversRows || '<tr><td colspan="14">Sin datos</td></tr>'}
               </tbody>
             </table>
           </section>
@@ -1039,16 +1474,18 @@ export default function ReportesPage() {
                 <tr>
                   <th>Producto</th>
                   <th>Pzas esperadas</th>
+                  <th>Salida inventario</th>
                   <th>Pzas reales</th>
                   <th>Importe esperado</th>
                   <th>Importe real</th>
+                  <th>Inv vs esperado</th>
                   <th>Asignaciones</th>
                   <th>Entregas</th>
                   <th>Clientes</th>
                 </tr>
               </thead>
               <tbody>
-                ${productsRows || '<tr><td colspan="8">Sin datos</td></tr>'}
+                ${productsRows || '<tr><td colspan="10">Sin datos</td></tr>'}
               </tbody>
             </table>
           </section>
@@ -1099,6 +1536,7 @@ export default function ReportesPage() {
   if (!guard.isAuthed) return null;
 
   const totalDiffPresentation = getDiffPresentation(kpis.totalDifference);
+  const inventoryExpectedTone = getDiffPresentation(kpis.inventoryVsExpectedDifference);
 
   return (
     <div className="min-h-screen bg-gradient-to-br from-[#0A1A2F] via-[#1E4A7A]/90 to-[#2D1B3A]">
@@ -1112,7 +1550,7 @@ export default function ReportesPage() {
               <div>
                 <h1 className="text-2xl font-bold text-white">Reportes</h1>
                 <p className="text-sm text-white/55">
-                  Vista ejecutiva de asignaciones, entregas, choferes y productos.
+                  Vista ejecutiva de entregas + inventario por chofer, asignación y producto.
                 </p>
               </div>
             </div>
@@ -1213,6 +1651,8 @@ export default function ReportesPage() {
                 {driverOptions.map((d) => (
                   <option key={d.id} value={d.id} className="bg-[#0A1A2F] text-white">
                     {d.nombre}
+                    {d.firebase_codigo ? ` • ${d.firebase_codigo}` : ''}
+                    {d.source === 'inventory_only' ? ' • solo inventario' : ''}
                   </option>
                 ))}
               </select>
@@ -1239,7 +1679,7 @@ export default function ReportesPage() {
                 <input
                   value={query}
                   onChange={(e) => setQuery(e.target.value)}
-                  placeholder="Chofer, cliente, folio, dejó más..."
+                  placeholder="Chofer, cliente, folio, producto..."
                   className="w-full rounded-xl border border-white/10 bg-white/5 pl-9 pr-3 py-3 text-white placeholder:text-white/40 focus:outline-none focus:ring-2 focus:ring-[#1E4A7A]"
                 />
               </div>
@@ -1275,22 +1715,24 @@ export default function ReportesPage() {
           </div>
         </div>
 
-        <div className="mb-5 grid grid-cols-1 gap-3 md:grid-cols-2 xl:grid-cols-8">
+        <div className="mb-5 grid grid-cols-1 gap-3 md:grid-cols-2 xl:grid-cols-9">
           <TopStat label="Asignaciones" value={kpis.assignmentsCount} icon={<ClipboardList className="h-4 w-4" />} />
           <TopStat label="Entregas" value={kpis.deliveriesCount} icon={<ListOrdered className="h-4 w-4" />} />
           <TopStat label="Clientes" value={kpis.customersCount} icon={<Users className="h-4 w-4" />} />
           <TopStat label="Choferes" value={kpis.driversCount} icon={<Truck className="h-4 w-4" />} />
           <TopStat label="Piezas esp." value={kpis.totalPieces} icon={<Boxes className="h-4 w-4" />} />
           <TopStat label="Piezas reales" value={kpis.totalPiecesReal} icon={<Boxes className="h-4 w-4" />} />
+          <TopStat label="Salida inventario" value={kpis.totalInventoryOutput} icon={<Warehouse className="h-4 w-4" />} />
           <TopStat label="Total esperado" value={money(kpis.totalExpected)} icon={<DollarSign className="h-4 w-4" />} />
           <TopStat label="Total real" value={money(kpis.totalReal)} icon={<CircleDollarSign className="h-4 w-4" />} />
         </div>
 
-        <div className="mb-5 grid grid-cols-1 gap-3 md:grid-cols-5">
+        <div className="mb-5 grid grid-cols-1 gap-3 md:grid-cols-6">
           <TopStat label="Diferencia total" value={money(kpis.totalDifference)} icon={<Scale className="h-4 w-4" />} />
           <TopStat label="Estado general" value={totalDiffPresentation.label} icon={totalDiffPresentation.icon} />
+          <TopStat label="Inv vs esperado" value={kpis.inventoryVsExpectedDifference} icon={<Warehouse className="h-4 w-4" />} />
+          <TopStat label="Estado inventario" value={inventoryExpectedTone.label} icon={inventoryExpectedTone.icon} />
           <TopStat label="Dejó más" value={kpis.moreCount} icon={<TrendingUp className="h-4 w-4" />} />
-          <TopStat label="Exactas" value={kpis.exactCount} icon={<CheckCircle2 className="h-4 w-4" />} />
           <TopStat label="Dejó menos" value={kpis.lessCount} icon={<TrendingDown className="h-4 w-4" />} />
         </div>
 
@@ -1331,6 +1773,8 @@ export default function ReportesPage() {
                     );
                     const totalDifference = totalReal - totalExpected;
                     const diffTone = getDiffPresentation(totalDifference);
+                    const inventoryExpectedDiff = a.inventory_outputs.total_qty - totalPieces;
+                    const invTone = getDiffPresentation(inventoryExpectedDiff);
 
                     return (
                       <button
@@ -1354,6 +1798,7 @@ export default function ReportesPage() {
                                 </p>
                                 <p className="text-xs text-white/50 mt-1">
                                   {formatOnlyDate(a.work_date)}
+                                  {a.driver_firebase_codigo ? ` • ${a.driver_firebase_codigo}` : ''}
                                 </p>
                               </div>
 
@@ -1367,7 +1812,10 @@ export default function ReportesPage() {
                                 {a.deliveries.length} entregas
                               </span>
                               <span className="text-[11px] px-2 py-1 rounded-full border bg-blue-500/10 border-blue-400/20 text-blue-100">
-                                {totalPieces} piezas
+                                Esp: {totalPieces} pzas
+                              </span>
+                              <span className="text-[11px] px-2 py-1 rounded-full border bg-cyan-500/10 border-cyan-400/20 text-cyan-100">
+                                Inv: {a.inventory_outputs.total_qty} pzas
                               </span>
                               <span className="text-[11px] px-2 py-1 rounded-full border bg-emerald-500/10 border-emerald-400/20 text-emerald-100">
                                 Esp: {money(totalExpected)}
@@ -1377,6 +1825,9 @@ export default function ReportesPage() {
                               </span>
                               <span className={cx('text-[11px] px-2 py-1 rounded-full border', diffTone.chip)}>
                                 {diffTone.shortLabel}: {money(totalDifference)}
+                              </span>
+                              <span className={cx('text-[11px] px-2 py-1 rounded-full border', invTone.chip)}>
+                                Inv vs esp: {fmtSignedQty(inventoryExpectedDiff)}
                               </span>
                             </div>
                           </div>
@@ -1432,17 +1883,18 @@ export default function ReportesPage() {
                     entregas,{' '}
                     <span className="font-semibold text-white">{kpis.totalPieces}</span> piezas esperadas,
                     {' '}<span className="font-semibold text-white">{kpis.totalPiecesReal}</span> piezas reales,
-                    un total esperado de{' '}
+                    {' '}<span className="font-semibold text-white">{kpis.totalInventoryOutput}</span> piezas
+                    registradas como salida en inventario, un total esperado de{' '}
                     <span className="font-semibold text-white">{money(kpis.totalExpected)}</span>,
                     un total real de{' '}
                     <span className="font-semibold text-white">{money(kpis.totalReal)}</span> y una
                     diferencia de{' '}
                     <span className={cx('font-semibold', totalDiffPresentation.text)}>
                       {money(kpis.totalDifference)}
-                    </span>{' '}
-                    con estado general{' '}
-                    <span className={cx('font-semibold', totalDiffPresentation.text)}>
-                      {totalDiffPresentation.label.toLowerCase()}
+                    </span>.
+                    {' '}Contra inventario, la diferencia vs piezas esperadas es{' '}
+                    <span className={cx('font-semibold', inventoryExpectedTone.text)}>
+                      {fmtSignedQty(kpis.inventoryVsExpectedDifference)}
                     </span>.
                     {executiveSummary.topDriver ? (
                       <>
@@ -1472,7 +1924,7 @@ export default function ReportesPage() {
                   Resumen por chofer
                 </p>
                 <p className="text-xs text-white/50 mt-1">
-                  Consolidado operativo por responsable de ruta.
+                  Consolidado operativo por responsable de ruta e inventario.
                 </p>
               </div>
 
@@ -1483,21 +1935,33 @@ export default function ReportesPage() {
                   <div className="divide-y divide-white/10">
                     {driverSummary.map((d) => (
                       <div key={d.driver_id} className="px-4 py-4 space-y-3">
-                        <div className="grid grid-cols-1 gap-3 md:grid-cols-8">
+                        <div className="grid grid-cols-1 gap-3 md:grid-cols-10">
                           <MiniResume label="Chofer" value={d.driver_nombre} icon={<UserRound className="h-4 w-4" />} />
+                          <MiniResume label="Código inv." value={d.driver_firebase_codigo || '—'} icon={<Link2 className="h-4 w-4" />} />
                           <MiniResume label="Asignaciones" value={d.assignments_count} icon={<ClipboardList className="h-4 w-4" />} />
                           <MiniResume label="Entregas" value={d.deliveries_count} icon={<ListOrdered className="h-4 w-4" />} />
                           <MiniResume label="Clientes" value={d.customers_count} icon={<Users className="h-4 w-4" />} />
-                          <MiniResume label="Piezas" value={d.total_pieces} icon={<Boxes className="h-4 w-4" />} />
+                          <MiniResume label="Piezas esp." value={d.total_pieces} icon={<Boxes className="h-4 w-4" />} />
+                          <MiniResume label="Inv" value={d.inventory_total_pieces} icon={<Warehouse className="h-4 w-4" />} />
+                          <MiniResume label="Piezas reales" value={d.total_pieces_real} icon={<Boxes className="h-4 w-4" />} />
                           <MiniResume label="Esperado" value={money(d.total_expected)} icon={<DollarSign className="h-4 w-4" />} />
                           <MiniResume label="Real" value={money(d.total_real)} icon={<CircleDollarSign className="h-4 w-4" />} />
-                          <MiniResume label="Diferencia" value={money(d.total_difference)} icon={<Scale className="h-4 w-4" />} />
                         </div>
 
                         <div className="flex flex-wrap gap-2">
                           <StatusChip label={`Dejó más: ${d.more_count}`} tone="more" />
                           <StatusChip label={`Exactas: ${d.exact_count}`} tone="exact" />
                           <StatusChip label={`Dejó menos: ${d.less_count}`} tone="less" />
+                          <StatusChip
+                            label={`Inv vs esp: ${fmtSignedQty(d.inventory_vs_expected_diff)}`}
+                            tone={
+                              d.inventory_vs_expected_diff > 0
+                                ? 'more'
+                                : d.inventory_vs_expected_diff < 0
+                                ? 'less'
+                                : 'exact'
+                            }
+                          />
                         </div>
                       </div>
                     ))}
@@ -1513,7 +1977,7 @@ export default function ReportesPage() {
                   Consolidado por producto
                 </p>
                 <p className="text-xs text-white/50 mt-1">
-                  Productos con mayor movimiento dentro del rango filtrado.
+                  Productos con movimiento en entregas y salidas de inventario.
                 </p>
               </div>
 
@@ -1521,9 +1985,10 @@ export default function ReportesPage() {
                 {productSummary.length === 0 ? (
                   <div className="p-6 text-center text-white/50">Sin datos.</div>
                 ) : (
-                  productSummary.slice(0, 20).map((p) => {
+                  productSummary.slice(0, 25).map((p) => {
                     const importeDiff = p.total_importe_real - p.total_importe;
                     const tone = getDiffPresentation(importeDiff);
+                    const invTone = getDiffPresentation(p.inventory_vs_expected_diff);
 
                     return (
                       <div key={p.product_id} className="px-4 py-4">
@@ -1537,11 +2002,17 @@ export default function ReportesPage() {
                               <span className="text-[11px] px-2 py-1 rounded-full border bg-blue-500/10 border-blue-400/20 text-blue-100">
                                 Esp: {p.total_qty} pzas
                               </span>
+                              <span className="text-[11px] px-2 py-1 rounded-full border bg-cyan-500/10 border-cyan-400/20 text-cyan-100">
+                                Inv: {p.inventory_total_qty} pzas
+                              </span>
                               <span className="text-[11px] px-2 py-1 rounded-full border bg-violet-500/10 border-violet-400/20 text-violet-100">
                                 Real: {p.total_qty_real} pzas
                               </span>
                               <span className={cx('text-[11px] px-2 py-1 rounded-full border', tone.chip)}>
                                 {tone.label}: {money(importeDiff)}
+                              </span>
+                              <span className={cx('text-[11px] px-2 py-1 rounded-full border', invTone.chip)}>
+                                Inv vs esp: {fmtSignedQty(p.inventory_vs_expected_diff)}
                               </span>
                             </div>
                           </div>
@@ -1582,11 +2053,16 @@ export default function ReportesPage() {
                 </div>
               ) : (
                 <div className="p-4 space-y-4">
-                  <div className="grid grid-cols-1 md:grid-cols-7 gap-3">
+                  <div className="grid grid-cols-1 md:grid-cols-9 gap-3">
                     <SideKpi
                       title="Chofer"
                       value={selectedAssignment.driver_nombre || '—'}
                       icon={<Truck className="h-4 w-4" />}
+                    />
+                    <SideKpi
+                      title="Código inv."
+                      value={selectedAssignment.driver_firebase_codigo || '—'}
+                      icon={<Link2 className="h-4 w-4" />}
                     />
                     <SideKpi
                       title="Fecha"
@@ -1619,6 +2095,11 @@ export default function ReportesPage() {
                       icon={<CircleDollarSign className="h-4 w-4" />}
                     />
                     <SideKpi
+                      title="Salida inventario"
+                      value={`${selectedAssignment.inventory_outputs.total_qty} pzas`}
+                      icon={<Warehouse className="h-4 w-4" />}
+                    />
+                    <SideKpi
                       title="Diferencia"
                       value={money(
                         selectedAssignment.deliveries.reduce(
@@ -1637,6 +2118,43 @@ export default function ReportesPage() {
                         selectedAssignment.deliveries.reduce((acc, d) => acc + d.total_diff, 0)
                       ).icon}
                     />
+                  </div>
+
+                  <div className="rounded-2xl bg-black/10 border border-white/10 overflow-hidden">
+                    <div className="border-b border-white/10 px-4 py-3">
+                      <p className="text-white font-medium flex items-center gap-2">
+                        <Warehouse className="h-4 w-4" />
+                        Salidas inventario del chofer en esa fecha
+                      </p>
+                      <p className="text-xs text-white/50">
+                        Lo que producción le dio al chofer en inventario.
+                      </p>
+                    </div>
+
+                    <div className="p-4">
+                      {selectedAssignment.inventory_outputs.products.length === 0 ? (
+                        <div className="text-center text-white/50 py-6">
+                          Sin salidas de inventario registradas para este chofer en la fecha.
+                        </div>
+                      ) : (
+                        <div className="grid grid-cols-1 gap-2 md:grid-cols-2">
+                          {selectedAssignment.inventory_outputs.products.map((p) => (
+                            <div
+                              key={`${selectedAssignment.id}-${p.nombre}`}
+                              className="rounded-xl bg-white/5 border border-white/10 p-3 flex items-center justify-between gap-3"
+                            >
+                              <div className="min-w-0">
+                                <p className="text-sm text-white font-medium">{p.nombre}</p>
+                                <p className="text-xs text-white/45 mt-1">Salida inventario</p>
+                              </div>
+                              <div className="text-right shrink-0">
+                                <p className="text-sm font-semibold text-cyan-100">{p.cantidad} pzas</p>
+                              </div>
+                            </div>
+                          ))}
+                        </div>
+                      )}
+                    </div>
                   </div>
 
                   {selectedAssignment.deliveries.length === 0 ? (
@@ -1788,8 +2306,7 @@ export default function ReportesPage() {
                       <Eye className="h-4 w-4 mt-0.5 shrink-0" />
                       <p className="text-sm leading-6">
                         Este módulo resume la operación logística por fecha, chofer, asignación, cliente y producto,
-                        incorporando control entre lo esperado y lo real para facilitar auditoría, revisión
-                        operativa y seguimiento financiero de la ruta.
+                        incorporando comparación entre lo esperado, lo real y las salidas registradas en inventario para facilitar auditoría y control operativo.
                       </p>
                     </div>
                   </div>
