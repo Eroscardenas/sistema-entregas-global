@@ -79,7 +79,7 @@ class PrinterService {
 
   DateTime _parseDate(String? iso) {
     if (iso == null || iso.trim().isEmpty) return DateTime.now();
-    return DateTime.tryParse(iso) ?? DateTime.now();
+    return DateTime.tryParse(iso)?.toLocal() ?? DateTime.now();
   }
 
   String _safeDate(String? iso) {
@@ -160,54 +160,38 @@ class PrinterService {
     bytes.addAll(generator.feed(1));
     bytes.addAll(generator.hr());
 
-    bytes.addAll(
-      generator.text(
-        'DEBO Y PAGARE LA ORDEN DE GLOBAL ICE MEXICO S.A. DE C.V. EN ESTA',
-        styles: const PosStyles(align: PosAlign.left),
-      ),
-    );
-    bytes.addAll(
-      generator.text(
-        'CIUDAD DE GUADALAJARA, JAL. EL DIA $day DE $month DEL $year',
-        styles: const PosStyles(align: PosAlign.left),
-      ),
-    );
-    bytes.addAll(
-      generator.text(
-        'LA CANTIDAD EXPRESADA EN ESTA REMISION DE VALOR DE LAS',
-        styles: const PosStyles(align: PosAlign.left),
-      ),
-    );
-    bytes.addAll(
-      generator.text(
-        'MERCANCIAS ARRIBA DESCRITAS, QUE HE RECIBIDO A MI ENTERA',
-        styles: const PosStyles(align: PosAlign.left),
-      ),
-    );
-    bytes.addAll(
-      generator.text(
-        'SATISFACCION, ESTE PAGARE MERCANTIL Y ESTA REGIDO POR LA LEY',
-        styles: const PosStyles(align: PosAlign.left),
-      ),
-    );
-    bytes.addAll(
-      generator.text(
-        'GENERAL DE TITULOS Y OPERACIONES DE CREDITO EN SU ARTICULO 173',
-        styles: const PosStyles(align: PosAlign.left),
-      ),
-    );
-    bytes.addAll(
-      generator.text(
-        'PARTE FINAL Y ARTICULOS CORRELATIVOS POR NO SER PAGARE',
-        styles: const PosStyles(align: PosAlign.left),
-      ),
-    );
-    bytes.addAll(
-      generator.text(
-        'DOMICILIADO.',
-        styles: const PosStyles(align: PosAlign.left),
-      ),
-    );
+    bytes.addAll(generator.text(
+      'DEBO Y PAGARE LA ORDEN DE GLOBAL ICE MEXICO S.A. DE C.V. EN ESTA',
+      styles: const PosStyles(align: PosAlign.left),
+    ));
+    bytes.addAll(generator.text(
+      'CIUDAD DE GUADALAJARA, JAL. EL DIA $day DE $month DEL $year',
+      styles: const PosStyles(align: PosAlign.left),
+    ));
+    bytes.addAll(generator.text(
+      'LA CANTIDAD EXPRESADA EN ESTA REMISION DE VALOR DE LAS',
+      styles: const PosStyles(align: PosAlign.left),
+    ));
+    bytes.addAll(generator.text(
+      'MERCANCIAS ARRIBA DESCRITAS, QUE HE RECIBIDO A MI ENTERA',
+      styles: const PosStyles(align: PosAlign.left),
+    ));
+    bytes.addAll(generator.text(
+      'SATISFACCION, ESTE PAGARE MERCANTIL Y ESTA REGIDO POR LA LEY',
+      styles: const PosStyles(align: PosAlign.left),
+    ));
+    bytes.addAll(generator.text(
+      'GENERAL DE TITULOS Y OPERACIONES DE CREDITO EN SU ARTICULO 173',
+      styles: const PosStyles(align: PosAlign.left),
+    ));
+    bytes.addAll(generator.text(
+      'PARTE FINAL Y ARTICULOS CORRELATIVOS POR NO SER PAGARE',
+      styles: const PosStyles(align: PosAlign.left),
+    ));
+    bytes.addAll(generator.text(
+      'DOMICILIADO.',
+      styles: const PosStyles(align: PosAlign.left),
+    ));
 
     return bytes;
   }
@@ -225,6 +209,7 @@ class PrinterService {
   }) {
     final bytes = <int>[];
     final mergedItems = _mergeItems(items);
+    final normalizedCopyLabel = copyLabel.trim().toUpperCase();
 
     bytes.addAll(generator.reset());
 
@@ -232,91 +217,75 @@ class PrinterService {
       final resized = img.copyResize(logo, width: 260);
       bytes.addAll(generator.image(resized, align: PosAlign.center));
     } else {
-      bytes.addAll(
-        generator.text(
-          'GLOBAL ICE',
-          styles: const PosStyles(
-            align: PosAlign.center,
-            bold: true,
-            height: PosTextSize.size2,
-            width: PosTextSize.size2,
-          ),
-        ),
-      );
-    }
-
-    bytes.addAll(
-      generator.text(
-        'GLOBAL ICE DE MEXICO S.A. DE C.V.',
+      bytes.addAll(generator.text(
+        'GLOBAL ICE',
         styles: const PosStyles(
           align: PosAlign.center,
           bold: true,
           height: PosTextSize.size2,
           width: PosTextSize.size2,
         ),
-      ),
-    );
+      ));
+    }
 
-    bytes.addAll(
-      generator.text(
-        'EMILIANO ZAPATA No. 32 COL. LOMAS DEL COLLI',
-        styles: const PosStyles(align: PosAlign.center),
+    bytes.addAll(generator.text(
+      'GLOBAL ICE DE MEXICO S.A. DE C.V.',
+      styles: const PosStyles(
+        align: PosAlign.center,
+        bold: true,
+        height: PosTextSize.size2,
+        width: PosTextSize.size2,
       ),
-    );
-    bytes.addAll(
-      generator.text(
-        'TEL. 33 36 66 01 60 / 61',
-        styles: const PosStyles(align: PosAlign.center),
-      ),
-    );
-    bytes.addAll(
-      generator.text(
-        'ZAPOPAN, JALISCO. C.P. 45010',
-        styles: const PosStyles(align: PosAlign.center),
-      ),
-    );
-    bytes.addAll(
-      generator.text(
-        'facturasglobalice@gmail.com',
-        styles: const PosStyles(align: PosAlign.center),
-      ),
-    );
+    ));
+
+    bytes.addAll(generator.text(
+      'EMILIANO ZAPATA No. 32 COL. LOMAS DEL COLLI',
+      styles: const PosStyles(align: PosAlign.center),
+    ));
+    bytes.addAll(generator.text(
+      'TEL. 33 36 66 01 60 / 61',
+      styles: const PosStyles(align: PosAlign.center),
+    ));
+    bytes.addAll(generator.text(
+      'ZAPOPAN, JALISCO. C.P. 45010',
+      styles: const PosStyles(align: PosAlign.center),
+    ));
+    bytes.addAll(generator.text(
+      'facturasglobalice@gmail.com',
+      styles: const PosStyles(align: PosAlign.center),
+    ));
 
     bytes.addAll(generator.feed(1));
 
-    bytes.addAll(
-      generator.text(
-        copyLabel,
-        styles: const PosStyles(
-          align: PosAlign.center,
-          bold: true,
-          height: PosTextSize.size2,
-          width: PosTextSize.size2,
-        ),
+    bytes.addAll(generator.text(
+      normalizedCopyLabel == 'COPIA' ? '*** COPIA ***' : 'ORIGINAL',
+      styles: const PosStyles(
+        align: PosAlign.center,
+        bold: true,
+        height: PosTextSize.size2,
+        width: PosTextSize.size2,
       ),
-    );
+    ));
 
     bytes.addAll(generator.hr(ch: '='));
 
-    bytes.addAll(
-      generator.row([
-        PosColumn(
-          text: 'REMISION:',
-          width: 4,
-          styles: const PosStyles(bold: true),
+    bytes.addAll(generator.row([
+      PosColumn(
+        text: 'REMISION:',
+        width: 4,
+        styles: const PosStyles(bold: true),
+      ),
+      PosColumn(
+        text: folio,
+        width: 8,
+        styles: const PosStyles(
+          bold: true,
+          align: PosAlign.right,
+          width: PosTextSize.size2,
+          height: PosTextSize.size2,
         ),
-        PosColumn(
-          text: folio,
-          width: 8,
-          styles: const PosStyles(
-            bold: true,
-            align: PosAlign.right,
-            width: PosTextSize.size2,
-            height: PosTextSize.size2,
-          ),
-        ),
-      ]),
-    );
+      ),
+    ]));
 
     bytes.addAll(generator.text('FECHA: ${_safeDate(deliveredAt)}'));
     bytes.addAll(generator.text('NOMBRE: ${_normalizeText(customerName, max: 64)}'));
@@ -324,127 +293,101 @@ class PrinterService {
 
     bytes.addAll(generator.hr());
 
-    bytes.addAll(
-      generator.row([
-        PosColumn(
-          text: 'CANT',
-          width: 2,
-          styles: const PosStyles(
-            bold: true,
-            align: PosAlign.center,
-          ),
-        ),
-        PosColumn(
-          text: 'DESCRIPCION',
-          width: 5,
-          styles: const PosStyles(
-            bold: true,
-            align: PosAlign.left,
-          ),
-        ),
-        PosColumn(
-          text: 'P.U.',
-          width: 2,
-          styles: const PosStyles(
-            bold: true,
-            align: PosAlign.right,
-          ),
-        ),
-        PosColumn(
-          text: 'IMPORTE',
-          width: 3,
-          styles: const PosStyles(
-            bold: true,
-            align: PosAlign.right,
-          ),
-        ),
-      ]),
-    );
+    bytes.addAll(generator.row([
+      PosColumn(
+        text: 'CANT',
+        width: 2,
+        styles: const PosStyles(bold: true, align: PosAlign.center),
+      ),
+      PosColumn(
+        text: 'DESCRIPCION',
+        width: 5,
+        styles: const PosStyles(bold: true, align: PosAlign.left),
+      ),
+      PosColumn(
+        text: 'P.U.',
+        width: 2,
+        styles: const PosStyles(bold: true, align: PosAlign.right),
+      ),
+      PosColumn(
+        text: 'IMPORTE',
+        width: 3,
+        styles: const PosStyles(bold: true, align: PosAlign.right),
+      ),
+    ]));
 
     bytes.addAll(generator.hr());
 
     if (mergedItems.isEmpty) {
-      bytes.addAll(
-        generator.text(
-          'SIN PRODUCTOS',
-          styles: const PosStyles(align: PosAlign.center),
-        ),
-      );
+      bytes.addAll(generator.text(
+        'SIN PRODUCTOS',
+        styles: const PosStyles(align: PosAlign.center),
+      ));
     } else {
       for (final item in mergedItems) {
-        bytes.addAll(
-          generator.row([
-            PosColumn(
-              text: '${item.qtyReal}',
-              width: 2,
-              styles: const PosStyles(align: PosAlign.center),
-            ),
-            PosColumn(
-              text: _normalizeText(item.description, max: 28),
-              width: 5,
-              styles: const PosStyles(align: PosAlign.left),
-            ),
-            PosColumn(
-              text: _fmtMoney(item.unitPrice),
-              width: 2,
-              styles: const PosStyles(align: PosAlign.right),
-            ),
-            PosColumn(
-              text: _fmtMoney(item.amount),
-              width: 3,
-              styles: const PosStyles(align: PosAlign.right),
-            ),
-          ]),
-        );
+        bytes.addAll(generator.row([
+          PosColumn(
+            text: '${item.qtyReal}',
+            width: 2,
+            styles: const PosStyles(align: PosAlign.center),
+          ),
+          PosColumn(
+            text: _normalizeText(item.description, max: 28),
+            width: 5,
+            styles: const PosStyles(align: PosAlign.left),
+          ),
+          PosColumn(
+            text: _fmtMoney(item.unitPrice),
+            width: 2,
+            styles: const PosStyles(align: PosAlign.right),
+          ),
+          PosColumn(
+            text: _fmtMoney(item.amount),
+            width: 3,
+            styles: const PosStyles(align: PosAlign.right),
+          ),
+        ]));
       }
     }
 
     bytes.addAll(generator.hr());
 
-    bytes.addAll(
-      generator.row([
-        PosColumn(
-          text: 'TOTAL',
-          width: 4,
-          styles: const PosStyles(
-            bold: true,
-            width: PosTextSize.size2,
-          ),
+    bytes.addAll(generator.row([
+      PosColumn(
+        text: 'TOTAL',
+        width: 4,
+        styles: const PosStyles(
+          bold: true,
+          width: PosTextSize.size2,
         ),
-        PosColumn(
-          text: _fmtMoney(totalReal),
-          width: 8,
-          styles: const PosStyles(
-            bold: true,
-            align: PosAlign.right,
-            width: PosTextSize.size2,
-            height: PosTextSize.size2,
-          ),
-        ),
-      ]),
-    );
-
-    bytes.addAll(
-      _buildLegalBlock(
-        generator: generator,
-        deliveredAt: deliveredAt,
       ),
-    );
+      PosColumn(
+        text: _fmtMoney(totalReal),
+        width: 8,
+        styles: const PosStyles(
+          bold: true,
+          align: PosAlign.right,
+          width: PosTextSize.size2,
+          height: PosTextSize.size2,
+        ),
+      ),
+    ]));
+
+    bytes.addAll(_buildLegalBlock(
+      generator: generator,
+      deliveredAt: deliveredAt,
+    ));
 
     bytes.addAll(generator.feed(2));
 
-    bytes.addAll(
-      generator.text(
-        '_______________________________________________',
-        styles: const PosStyles(align: PosAlign.center),
-      ),
-    );
-    bytes.addAll(
-      generator.text(
-        'Firma',
-        styles: const PosStyles(align: PosAlign.center),
-      ),
-    );
+    bytes.addAll(generator.text(
+      '_______________________________________________',
+      styles: const PosStyles(align: PosAlign.center),
+    ));
+    bytes.addAll(generator.text(
+      'Firma',
+      styles: const PosStyles(align: PosAlign.center),
+    ));
 
     bytes.addAll(generator.feed(3));
     bytes.addAll(generator.cut());
@@ -460,7 +403,8 @@ class PrinterService {
     required String? deliveredAt,
     required List<PrinterTicketItem> items,
     required double totalReal,
-    int copies = 3,
+    int copies = 1,
+    String copyLabel = 'ORIGINAL',
     PaperSize paper = PaperSize.mm80,
   }) async {
     final profile = await CapabilityProfile.load();
@@ -469,13 +413,9 @@ class PrinterService {
 
     final logo = await _loadLogoImage();
 
-    for (int copy = 0; copy < copies; copy++) {
-      final copyLabel = copy == 0
-          ? 'ORIGINAL'
-          : copy == 1
-              ? 'COPIA'
-              : 'COPIA 2';
+    final safeCopies = copies < 1 ? 1 : copies;
 
+    for (int copy = 0; copy < safeCopies; copy++) {
       bytes.addAll(
         _buildCopyTicket(
           generator: generator,
@@ -502,7 +442,8 @@ class PrinterService {
     required String? deliveredAt,
     required List<PrinterTicketItem> items,
     required double totalReal,
-    int copies = 3,
+    int copies = 1,
+    String copyLabel = 'ORIGINAL',
   }) async {
     final connected = await isConnected;
     if (!connected) {
@@ -518,6 +459,7 @@ class PrinterService {
       items: items,
       totalReal: totalReal,
       copies: copies,
+      copyLabel: copyLabel,
       paper: PaperSize.mm80,
     );
 

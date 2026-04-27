@@ -520,22 +520,14 @@ class _DriverDeliveryDetailPageState extends State<DriverDeliveryDetailPage> {
                       ),
                     ),
                     pw.SizedBox(height: 2),
-                    pw.Text(
-                      'EMILIANO ZAPATA No. 32 COL. LOMAS DEL COLLI',
-                      style: const pw.TextStyle(fontSize: 8),
-                    ),
-                    pw.Text(
-                      'TEL. 33 36 66 01 60 / 61',
-                      style: const pw.TextStyle(fontSize: 8),
-                    ),
-                    pw.Text(
-                      'ZAPOPAN, JALISCO. C.P. 45010',
-                      style: const pw.TextStyle(fontSize: 8),
-                    ),
-                    pw.Text(
-                      'facturasglobalice@gmail.com',
-                      style: const pw.TextStyle(fontSize: 8),
-                    ),
+                    pw.Text('EMILIANO ZAPATA No. 32 COL. LOMAS DEL COLLI',
+                        style: const pw.TextStyle(fontSize: 8)),
+                    pw.Text('TEL. 33 36 66 01 60 / 61',
+                        style: const pw.TextStyle(fontSize: 8)),
+                    pw.Text('ZAPOPAN, JALISCO. C.P. 45010',
+                        style: const pw.TextStyle(fontSize: 8)),
+                    pw.Text('facturasglobalice@gmail.com',
+                        style: const pw.TextStyle(fontSize: 8)),
                   ],
                 ),
               ),
@@ -556,33 +548,13 @@ class _DriverDeliveryDetailPageState extends State<DriverDeliveryDetailPage> {
                 flex: 7,
                 child: pw.Row(
                   children: [
-                    pw.Expanded(
-                      child: _boxedField(
-                        label: 'Día',
-                        value: _safeDatePartDay(_deliveredAt),
-                      ),
-                    ),
+                    pw.Expanded(child: _boxedField(label: 'Día', value: _safeDatePartDay(_deliveredAt))),
                     pw.SizedBox(width: 4),
-                    pw.Expanded(
-                      child: _boxedField(
-                        label: 'Mes',
-                        value: _safeDatePartMonth(_deliveredAt),
-                      ),
-                    ),
+                    pw.Expanded(child: _boxedField(label: 'Mes', value: _safeDatePartMonth(_deliveredAt))),
                     pw.SizedBox(width: 4),
-                    pw.Expanded(
-                      child: _boxedField(
-                        label: 'Año',
-                        value: _safeDatePartYear(_deliveredAt),
-                      ),
-                    ),
+                    pw.Expanded(child: _boxedField(label: 'Año', value: _safeDatePartYear(_deliveredAt))),
                     pw.SizedBox(width: 4),
-                    pw.Expanded(
-                      child: _boxedField(
-                        label: 'Hora',
-                        value: _safeDatePartHour(_deliveredAt),
-                      ),
-                    ),
+                    pw.Expanded(child: _boxedField(label: 'Hora', value: _safeDatePartHour(_deliveredAt))),
                   ],
                 ),
               ),
@@ -603,10 +575,8 @@ class _DriverDeliveryDetailPageState extends State<DriverDeliveryDetailPage> {
                   children: [
                     pw.SizedBox(
                       width: 65,
-                      child: pw.Text(
-                        'Nombre:',
-                        style: pw.TextStyle(fontSize: 8, fontWeight: pw.FontWeight.bold),
-                      ),
+                      child: pw.Text('Nombre:',
+                          style: pw.TextStyle(fontSize: 8, fontWeight: pw.FontWeight.bold)),
                     ),
                     pw.Expanded(
                       child: pw.Text(widget.customerName, style: const pw.TextStyle(fontSize: 9)),
@@ -618,10 +588,8 @@ class _DriverDeliveryDetailPageState extends State<DriverDeliveryDetailPage> {
                   children: [
                     pw.SizedBox(
                       width: 65,
-                      child: pw.Text(
-                        'Dirección:',
-                        style: pw.TextStyle(fontSize: 8, fontWeight: pw.FontWeight.bold),
-                      ),
+                      child: pw.Text('Dirección:',
+                          style: pw.TextStyle(fontSize: 8, fontWeight: pw.FontWeight.bold)),
                     ),
                     pw.Expanded(
                       child: pw.Text(
@@ -636,16 +604,11 @@ class _DriverDeliveryDetailPageState extends State<DriverDeliveryDetailPage> {
                   children: [
                     pw.SizedBox(
                       width: 65,
-                      child: pw.Text(
-                        'Pago:',
-                        style: pw.TextStyle(fontSize: 8, fontWeight: pw.FontWeight.bold),
-                      ),
+                      child: pw.Text('Pago:',
+                          style: pw.TextStyle(fontSize: 8, fontWeight: pw.FontWeight.bold)),
                     ),
                     pw.Expanded(
-                      child: pw.Text(
-                        _paymentMethod,
-                        style: const pw.TextStyle(fontSize: 9),
-                      ),
+                      child: pw.Text(_paymentMethod, style: const pw.TextStyle(fontSize: 9)),
                     ),
                   ],
                 ),
@@ -663,7 +626,6 @@ class _DriverDeliveryDetailPageState extends State<DriverDeliveryDetailPage> {
             },
             children: [
               pw.TableRow(
-                decoration: const pw.BoxDecoration(color: PdfColors.white),
                 children: [
                   _ticketCell('Cant.', bold: true, align: pw.TextAlign.center),
                   _ticketCell('Descripción', bold: true, align: pw.TextAlign.center),
@@ -674,19 +636,10 @@ class _DriverDeliveryDetailPageState extends State<DriverDeliveryDetailPage> {
               ...shownLines.map(
                 (line) => pw.TableRow(
                   children: [
-                    _ticketCell(
-                      line.qty == 0 ? '' : '${line.qty}',
-                      align: pw.TextAlign.center,
-                    ),
+                    _ticketCell(line.qty == 0 ? '' : '${line.qty}', align: pw.TextAlign.center),
                     _ticketCell(line.description),
-                    _ticketCell(
-                      line.qty == 0 ? '' : _fmtMoney2(line.unitPrice),
-                      align: pw.TextAlign.center,
-                    ),
-                    _ticketCell(
-                      line.qty == 0 ? '' : _fmtMoney2(line.amount),
-                      align: pw.TextAlign.center,
-                    ),
+                    _ticketCell(line.qty == 0 ? '' : _fmtMoney2(line.unitPrice), align: pw.TextAlign.center),
+                    _ticketCell(line.qty == 0 ? '' : _fmtMoney2(line.amount), align: pw.TextAlign.center),
                   ],
                 ),
               ),
@@ -743,10 +696,8 @@ class _DriverDeliveryDetailPageState extends State<DriverDeliveryDetailPage> {
                       child: pw.Column(
                         crossAxisAlignment: pw.CrossAxisAlignment.start,
                         children: [
-                          pw.Text(
-                            'Chofer:',
-                            style: pw.TextStyle(fontSize: 7, fontWeight: pw.FontWeight.bold),
-                          ),
+                          pw.Text('Chofer:',
+                              style: pw.TextStyle(fontSize: 7, fontWeight: pw.FontWeight.bold)),
                           pw.SizedBox(height: 3),
                           pw.Text(_driverName, style: const pw.TextStyle(fontSize: 8)),
                         ],
@@ -790,7 +741,7 @@ class _DriverDeliveryDetailPageState extends State<DriverDeliveryDetailPage> {
     final lines = _buildTicketLines();
     final logo = await _loadLogoForPdf();
 
-    final copies = ['ORIGINAL', 'COPIA 1', 'COPIA 2'];
+    final copies = ['ORIGINAL'];
 
     for (final copy in copies) {
       doc.addPage(
@@ -850,18 +801,53 @@ class _DriverDeliveryDetailPageState extends State<DriverDeliveryDetailPage> {
         driverName: _driverName,
         deliveredAt: _deliveredAt,
         totalReal: _isDelivered ? _totalReal : _previewTotalReal,
-        copies: 3,
+        copies: 1,
+        copyLabel: 'ORIGINAL',
         items: items,
       );
 
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Ticket enviado a impresora Bluetooth.')),
+        const SnackBar(content: Text('Original enviado a impresora Bluetooth.')),
       );
     } catch (e) {
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('No se pudo imprimir: $e')),
+        SnackBar(content: Text('No se pudo imprimir original: $e')),
+      );
+    } finally {
+      if (mounted) setState(() => _busy = false);
+    }
+  }
+
+  Future<void> _printBluetoothCopy() async {
+    if (_busy) return;
+
+    try {
+      if (mounted) setState(() => _busy = true);
+
+      final items = _buildPrinterItems();
+
+      await PrinterService.instance.printDeliveryTicket(
+        folio: widget.folio,
+        customerName: widget.customerName,
+        dinerName: _dinerName,
+        driverName: _driverName,
+        deliveredAt: _deliveredAt,
+        totalReal: _isDelivered ? _totalReal : _previewTotalReal,
+        copies: 1,
+        copyLabel: 'COPIA',
+        items: items,
+      );
+
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Copia enviada a impresora Bluetooth.')),
+      );
+    } catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('No se pudo imprimir copia: $e')),
       );
     } finally {
       if (mounted) setState(() => _busy = false);
@@ -981,10 +967,7 @@ class _DriverDeliveryDetailPageState extends State<DriverDeliveryDetailPage> {
                                       ),
                                     ),
                                     Container(
-                                      padding: const EdgeInsets.symmetric(
-                                        horizontal: 10,
-                                        vertical: 6,
-                                      ),
+                                      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
                                       decoration: BoxDecoration(
                                         borderRadius: BorderRadius.circular(999),
                                         color: statusColor.withOpacity(0.15),
@@ -1040,28 +1023,16 @@ class _DriverDeliveryDetailPageState extends State<DriverDeliveryDetailPage> {
                                 const SizedBox(height: 12),
                                 Row(
                                   children: [
-                                    Expanded(
-                                      child: _StatChip(
-                                        label: 'Esperado',
-                                        value: _money(_totalExpected),
-                                      ),
-                                    ),
+                                    Expanded(child: _StatChip(label: 'Esperado', value: _money(_totalExpected))),
                                     const SizedBox(width: 10),
                                     Expanded(
                                       child: _StatChip(
                                         label: isDelivered ? 'Real' : 'Real preview',
-                                        value: _money(
-                                          isDelivered ? _totalReal : _previewTotalReal,
-                                        ),
+                                        value: _money(isDelivered ? _totalReal : _previewTotalReal),
                                       ),
                                     ),
                                     const SizedBox(width: 10),
-                                    Expanded(
-                                      child: _StatChip(
-                                        label: 'Piezas',
-                                        value: '$_previewTotalPieces',
-                                      ),
-                                    ),
+                                    Expanded(child: _StatChip(label: 'Piezas', value: '$_previewTotalPieces')),
                                   ],
                                 ),
                                 const SizedBox(height: 12),
@@ -1124,10 +1095,26 @@ class _DriverDeliveryDetailPageState extends State<DriverDeliveryDetailPage> {
                                           child: ElevatedButton.icon(
                                             onPressed: _busy ? null : _printBluetoothTicket,
                                             icon: const Icon(Icons.print),
-                                            label: const Text('Imprimir Bluetooth (3 copias)'),
+                                            label: const Text('Imprimir original'),
                                             style: ElevatedButton.styleFrom(
                                               backgroundColor: _royal,
                                               foregroundColor: Colors.white,
+                                              shape: RoundedRectangleBorder(
+                                                borderRadius: BorderRadius.circular(14),
+                                              ),
+                                            ),
+                                          ),
+                                        ),
+                                        const SizedBox(height: 10),
+                                        SizedBox(
+                                          width: double.infinity,
+                                          child: OutlinedButton.icon(
+                                            onPressed: _busy ? null : _printBluetoothCopy,
+                                            icon: const Icon(Icons.copy),
+                                            label: const Text('Imprimir copia'),
+                                            style: OutlinedButton.styleFrom(
+                                              foregroundColor: Colors.white,
+                                              side: BorderSide(color: Colors.white.withOpacity(0.35)),
                                               shape: RoundedRectangleBorder(
                                                 borderRadius: BorderRadius.circular(14),
                                               ),
@@ -1151,9 +1138,7 @@ class _DriverDeliveryDetailPageState extends State<DriverDeliveryDetailPage> {
                                 final subtotal = it.qtyReal * it.precioAplicado;
                                 final controller = _qtyControllers[it.productId];
 
-                                if (controller == null) {
-                                  return const SizedBox.shrink();
-                                }
+                                if (controller == null) return const SizedBox.shrink();
 
                                 return _GlassCard(
                                   child: Column(
@@ -1182,10 +1167,7 @@ class _DriverDeliveryDetailPageState extends State<DriverDeliveryDetailPage> {
                                           _MiniInfo(label: 'Asignado', value: '${it.qtyAssigned}'),
                                           _MiniInfo(label: 'Real', value: '${it.qtyReal}'),
                                           _MiniInfo(label: 'Precio', value: _money(it.precioAplicado)),
-                                          _MiniInfo(
-                                            label: 'Subtotal real',
-                                            value: _money(subtotal),
-                                          ),
+                                          _MiniInfo(label: 'Subtotal real', value: _money(subtotal)),
                                         ],
                                       ),
                                       const SizedBox(height: 12),
@@ -1195,10 +1177,7 @@ class _DriverDeliveryDetailPageState extends State<DriverDeliveryDetailPage> {
                                             onPressed: isDelivered || _busy
                                                 ? null
                                                 : () => _setQty(i, it.qtyReal - 1),
-                                            icon: const Icon(
-                                              Icons.remove_circle_outline,
-                                              color: Colors.white,
-                                            ),
+                                            icon: const Icon(Icons.remove_circle_outline, color: Colors.white),
                                           ),
                                           SizedBox(
                                             width: 84,
@@ -1236,16 +1215,11 @@ class _DriverDeliveryDetailPageState extends State<DriverDeliveryDetailPage> {
                                             onPressed: isDelivered || _busy
                                                 ? null
                                                 : () => _setQty(i, it.qtyReal + 1),
-                                            icon: const Icon(
-                                              Icons.add_circle_outline,
-                                              color: Colors.white,
-                                            ),
+                                            icon: const Icon(Icons.add_circle_outline, color: Colors.white),
                                           ),
                                           const Spacer(),
                                           TextButton(
-                                            onPressed: isDelivered || _busy
-                                                ? null
-                                                : () => _setQty(i, 0),
+                                            onPressed: isDelivered || _busy ? null : () => _setQty(i, 0),
                                             child: const Text('No dejó'),
                                           ),
                                           const SizedBox(width: 6),

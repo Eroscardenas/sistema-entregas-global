@@ -30,6 +30,14 @@ dev_dependencies:
   flutter_test:
     sdk: flutter
   flutter_lints: ^6.0.0
+  flutter_launcher_icons: ^0.14.4
+
+flutter_launcher_icons:
+  android: true
+  ios: false
+  image_path: "assets/images/Ice.png"
+  adaptive_icon_background: "#FFFFFF"
+  adaptive_icon_foreground: "assets/images/Ice.png"
 
 flutter:
   uses-material-design: true
@@ -39,3 +47,4 @@ flutter:
     - assets/images/global_ice.png
     - assets/images/app_b.jpg
     - assets/images/background_app.jpg
+    - assets/images/Ice.png
