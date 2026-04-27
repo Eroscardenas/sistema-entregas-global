@@ -318,6 +318,8 @@ type InventoryMovementBatchItem = {
   productoCodigo?: string | null;
   productoNombre?: string | null;
   tipoHielo?: string | null;
+  pesoKg?: number | null;
+  inventoryKey?: string | null;
   cantidad?: number | null;
   delta?: number | null;
 };
@@ -334,9 +336,17 @@ type InventoryMovementDoc = {
   productoNombre?: string | null;
   productoCodigo?: string | null;
   tipoHielo?: string | null;
+  pesoKg?: number | null;
+  inventoryKey?: string | null;
   cantidad?: number | null;
   deltaPrincipal?: number | null;
   items?: InventoryMovementBatchItem[] | null;
+};
+
+type InventoryGlobalOutputsPdf = {
+  qtyByKey: Map<string, number>;
+  labelByKey: Map<string, string>;
+  keyByAlias: Map<string, string>;
 };
 
 function hasRealDriverId(value: unknown) {
@@ -354,15 +364,70 @@ function toDateEndExclusive(value: string) {
   return d;
 }
 
-function inventoryProductDisplayName(item?: InventoryMovementBatchItem | null) {
+function normalizeProductAlias(value?: string | null) {
+  return normalizeLooseText(value)
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+
+function buildInventoryPdfKeyFromParts(
+  bolsaVaciaCodigo?: string | null,
+  tipoHielo?: string | null,
+  pesoKg?: number | null
+) {
+  const bv = String(bolsaVaciaCodigo || '').trim().toUpperCase();
+  const tipo = String(tipoHielo || '').trim().toUpperCase();
+  const kg = safeNum(pesoKg, 0);
+
+  if (bv && tipo && kg > 0) return `${bv}__${tipo}__${kg}`;
+  if (bv && tipo) return `${bv}__${tipo}`;
+  return '';
+}
+
+function getInventoryItemLabel(item?: InventoryMovementBatchItem | null) {
   const byName = String(item?.productoNombre || '').trim();
   if (byName) return byName;
 
   const codigo = String(item?.productoCodigo || item?.bolsaVaciaCodigo || '').trim();
   const tipo = String(item?.tipoHielo || '').trim();
+  const kg = safeNum(item?.pesoKg, 0);
 
+  if (codigo && tipo && kg > 0) return `${tipo} ${kg}KG`;
   if (codigo && tipo) return `${codigo} ${tipo}`;
   return codigo || tipo || 'PRODUCTO';
+}
+
+function getInventoryItemKey(item?: InventoryMovementBatchItem | null) {
+  const explicit = String(item?.inventoryKey || '').trim();
+  if (explicit) return explicit.toUpperCase();
+
+  const byParts = buildInventoryPdfKeyFromParts(
+    item?.bolsaVaciaCodigo || item?.productoCodigo,
+    item?.tipoHielo,
+    item?.pesoKg
+  );
+
+  if (byParts) return byParts;
+
+  return normalizeProductAlias(getInventoryItemLabel(item));
+}
+
+function addInventoryAlias(
+  keyByAlias: Map<string, string>,
+  key: string,
+  value?: string | null
+) {
+  const alias = normalizeProductAlias(value);
+  if (!alias || !key) return;
+  keyByAlias.set(alias, key);
+}
+
+function resolvePdfProductKey(
+  productName: string,
+  inventory: InventoryGlobalOutputsPdf
+) {
+  const alias = normalizeProductAlias(productName);
+  return inventory.keyByAlias.get(alias) || alias;
 }
 
 function buildDriverDestinatarioCandidates(driverName?: string | null, driverCode?: string | null) {
@@ -402,9 +467,13 @@ async function getInventoryGlobalOutputsForDriverPdf(
   workDate: string,
   driverName?: string | null,
   driverCode?: string | null
-) {
+): Promise<InventoryGlobalOutputsPdf> {
+  const qtyByKey = new Map<string, number>();
+  const labelByKey = new Map<string, string>();
+  const keyByAlias = new Map<string, string>();
+
   if (!workDate || !driverName) {
-    return new Map<string, number>();
+    return { qtyByKey, labelByKey, keyByAlias };
   }
 
   const start = toDateStart(workDate);
@@ -420,8 +489,6 @@ async function getInventoryGlobalOutputsForDriverPdf(
 
   const snap = await getDocs(qy);
 
-  const byProduct = new Map<string, number>();
-
   for (const docSnap of snap.docs) {
     const raw = docSnap.data() as InventoryMovementDoc;
 
@@ -431,24 +498,55 @@ async function getInventoryGlobalOutputsForDriverPdf(
 
     if (Array.isArray(raw.items) && raw.items.length > 0) {
       for (const item of raw.items) {
-        const nombre = inventoryProductDisplayName(item);
+        const key = getInventoryItemKey(item);
+        const label = getInventoryItemLabel(item);
         const cantidad = Math.abs(firstNumeric(item?.cantidad, item?.delta, 0));
-        if (!nombre || cantidad <= 0) continue;
 
-        byProduct.set(nombre, (byProduct.get(nombre) ?? 0) + cantidad);
+        if (!key || cantidad <= 0) continue;
+
+        qtyByKey.set(key, (qtyByKey.get(key) ?? 0) + cantidad);
+        if (!labelByKey.has(key)) labelByKey.set(key, label);
+
+        addInventoryAlias(keyByAlias, key, label);
+        addInventoryAlias(keyByAlias, key, item?.productoNombre);
+        addInventoryAlias(keyByAlias, key, item?.productoCodigo);
+        addInventoryAlias(keyByAlias, key, item?.bolsaVaciaCodigo);
+        addInventoryAlias(
+          keyByAlias,
+          key,
+          `${item?.productoCodigo || item?.bolsaVaciaCodigo || ''} ${item?.tipoHielo || ''}`
+        );
       }
+
       continue;
     }
 
-    const fallbackNombre = String(raw.productoNombre || raw.productoCodigo || '').trim();
-    const fallbackCantidad = Math.abs(firstNumeric(raw.cantidad, raw.deltaPrincipal, 0));
+    const fallbackItem: InventoryMovementBatchItem = {
+      bolsaVaciaCodigo: raw.productoCodigo,
+      productoCodigo: raw.productoCodigo,
+      productoNombre: raw.productoNombre,
+      tipoHielo: raw.tipoHielo,
+      pesoKg: raw.pesoKg,
+      inventoryKey: raw.inventoryKey,
+      cantidad: raw.cantidad,
+      delta: raw.deltaPrincipal,
+    };
 
-    if (fallbackNombre && fallbackCantidad > 0) {
-      byProduct.set(fallbackNombre, (byProduct.get(fallbackNombre) ?? 0) + fallbackCantidad);
+    const key = getInventoryItemKey(fallbackItem);
+    const label = getInventoryItemLabel(fallbackItem);
+    const cantidad = Math.abs(firstNumeric(raw.cantidad, raw.deltaPrincipal, 0));
+
+    if (key && cantidad > 0) {
+      qtyByKey.set(key, (qtyByKey.get(key) ?? 0) + cantidad);
+      if (!labelByKey.has(key)) labelByKey.set(key, label);
+
+      addInventoryAlias(keyByAlias, key, label);
+      addInventoryAlias(keyByAlias, key, raw.productoNombre);
+      addInventoryAlias(keyByAlias, key, raw.productoCodigo);
     }
   }
 
-  return byProduct;
+  return { qtyByKey, labelByKey, keyByAlias };
 }
 
 export default function AdminAsignacionesPage() {
@@ -912,7 +1010,7 @@ export default function AdminAsignacionesPage() {
     const driverCodeForInventory =
       String(driverMeta?.firebase_codigo || '').trim() || null;
 
-    const inventoryGlobalByProduct = await getInventoryGlobalOutputsForDriverPdf(
+    const inventoryGlobal = await getInventoryGlobalOutputsForDriverPdf(
       workDate,
       driverName,
       driverCodeForInventory
@@ -936,38 +1034,56 @@ export default function AdminAsignacionesPage() {
       return af.localeCompare(bf, 'es', { numeric: true });
     });
 
-    const productNames = Array.from(
-      new Set([
-        ...deliveries.flatMap((delivery) =>
-          (delivery.items || [])
-            .map((item) => String(item?.product_nombre || '').trim())
-            .filter(Boolean)
-        ),
-        ...Array.from(inventoryGlobalByProduct.keys()),
-      ])
-    ).sort((a, b) => a.localeCompare(b, 'es', { sensitivity: 'base' }));
+    const productKeyLabelMap = new Map<string, string>();
+
+    for (const [key, label] of inventoryGlobal.labelByKey.entries()) {
+      productKeyLabelMap.set(key, label);
+    }
+
+    for (const delivery of deliveries) {
+      for (const item of delivery.items || []) {
+        const productName = String(item?.product_nombre || '').trim();
+        if (!productName) continue;
+
+        const productKey = resolvePdfProductKey(productName, inventoryGlobal);
+
+        if (!productKeyLabelMap.has(productKey)) {
+          productKeyLabelMap.set(productKey, productName);
+        }
+
+        addInventoryAlias(inventoryGlobal.keyByAlias, productKey, productName);
+      }
+    }
+
+    const productKeys = Array.from(productKeyLabelMap.keys()).sort((a, b) => {
+      const an = productKeyLabelMap.get(a) || a;
+      const bn = productKeyLabelMap.get(b) || b;
+      return an.localeCompare(bn, 'es', { sensitivity: 'base' });
+    });
 
     const assignedByProduct = new Map<string, number>();
     const soldByProduct = new Map<string, number>();
 
-    for (const productName of productNames) {
-      assignedByProduct.set(productName, 0);
-      soldByProduct.set(productName, 0);
+    for (const productKey of productKeys) {
+      assignedByProduct.set(productKey, 0);
+      soldByProduct.set(productKey, 0);
     }
 
     let totalEfectivo = 0;
     let totalCredito = 0;
     let totalVenta = 0;
 
-    const headerTopHtml = productNames
-      .map(
-        (productName) => `
-          <th colspan="2" class="center product-group">${escapeHtml(productName)}</th>
-        `
-      )
+    const headerTopHtml = productKeys
+      .map((productKey) => {
+        const productLabel = productKeyLabelMap.get(productKey) || productKey;
+
+        return `
+          <th colspan="2" class="center product-group">${escapeHtml(productLabel)}</th>
+        `;
+      })
       .join('');
 
-    const headerBottomHtml = productNames
+    const headerBottomHtml = productKeys
       .map(
         () => `
           <th class="center mini-col"> </th>
@@ -990,8 +1106,8 @@ export default function AdminAsignacionesPage() {
           }
         >();
 
-        for (const productName of productNames) {
-          rowByProduct.set(productName, {
+        for (const productKey of productKeys) {
+          rowByProduct.set(productKey, {
             qtyAssigned: 0,
             qtyReal: 0,
             unitPrice: 0,
@@ -1002,8 +1118,10 @@ export default function AdminAsignacionesPage() {
           const productName = String(item?.product_nombre || '').trim();
           if (!productName) continue;
 
-          if (!rowByProduct.has(productName)) {
-            rowByProduct.set(productName, {
+          const productKey = resolvePdfProductKey(productName, inventoryGlobal);
+
+          if (!rowByProduct.has(productKey)) {
+            rowByProduct.set(productKey, {
               qtyAssigned: 0,
               qtyReal: 0,
               unitPrice: 0,
@@ -1014,7 +1132,7 @@ export default function AdminAsignacionesPage() {
           const qtyReal = firstNumeric(item?.qty_real, qtyAssigned, 0);
           const unitPrice = getItemUnitPrice(item, confirmed);
 
-          const current = rowByProduct.get(productName)!;
+          const current = rowByProduct.get(productKey)!;
           current.qtyAssigned += qtyAssigned;
           current.qtyReal += qtyReal;
 
@@ -1023,14 +1141,14 @@ export default function AdminAsignacionesPage() {
           }
 
           assignedByProduct.set(
-            productName,
-            (assignedByProduct.get(productName) ?? 0) + qtyAssigned
+            productKey,
+            (assignedByProduct.get(productKey) ?? 0) + qtyAssigned
           );
 
           if (confirmed && !cancelled) {
             soldByProduct.set(
-              productName,
-              (soldByProduct.get(productName) ?? 0) + qtyReal
+              productKey,
+              (soldByProduct.get(productKey) ?? 0) + qtyReal
             );
           }
         }
@@ -1069,9 +1187,9 @@ export default function AdminAsignacionesPage() {
           totalVenta += rowRealTotal;
         }
 
-        const productCells = productNames
-          .map((productName) => {
-            const row = rowByProduct.get(productName) ?? {
+        const productCells = productKeys
+          .map((productKey) => {
+            const row = rowByProduct.get(productKey) ?? {
               qtyAssigned: 0,
               qtyReal: 0,
               unitPrice: 0,
@@ -1127,7 +1245,7 @@ export default function AdminAsignacionesPage() {
 
     const minRows = 22;
     const blankRowsCount = Math.max(0, minRows - deliveries.length);
-    const blankProductCells = productNames.map(() => `<td></td><td></td>`).join('');
+    const blankProductCells = productKeys.map(() => `<td></td><td></td>`).join('');
 
     const blankRowsHtml = Array.from({ length: blankRowsCount })
       .map(
@@ -1144,29 +1262,29 @@ export default function AdminAsignacionesPage() {
       )
       .join('');
 
-    const soldRowProducts = productNames
-      .map((productName) => {
-        const qty = inventoryGlobalByProduct.get(productName) ?? 0;
+    const soldRowProducts = productKeys
+      .map((productKey) => {
+        const qty = inventoryGlobal.qtyByKey.get(productKey) ?? 0;
         return `
           <td colspan="2" class="center summary-qty summary-cell-summary summary-merge-cell">${qty}</td>
         `;
       })
       .join('');
 
-    const diffRowProducts = productNames
-      .map((productName) => {
-        const salidasGlobal = inventoryGlobalByProduct.get(productName) ?? 0;
-        const assigned = assignedByProduct.get(productName) ?? 0;
-        const diff = salidasGlobal - assigned;
+const diffRowProducts = productKeys
+  .map((productKey) => {
+    const salidasGlobal = inventoryGlobal.qtyByKey.get(productKey) ?? 0;
+    const vendidoReal = soldByProduct.get(productKey) ?? 0;
+    const diff = salidasGlobal - vendidoReal;
 
-        const cls =
-          diff > 0 ? 'diff-positive' : diff < 0 ? 'diff-negative' : 'diff-zero';
+    const cls =
+      diff > 0 ? 'diff-positive' : diff < 0 ? 'diff-negative' : 'diff-zero';
 
-        return `
-          <td colspan="2" class="center summary-qty summary-cell-summary summary-merge-cell ${cls}">${signedQty(diff)}</td>
-        `;
-      })
-      .join('');
+    return `
+      <td colspan="2" class="center summary-qty summary-cell-summary summary-merge-cell ${cls}">${signedQty(diff)}</td>
+    `;
+  })
+  .join('');
 
     const summaryRowsHtml = `
       <tr class="summary-row summary-row-dark">
