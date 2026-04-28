@@ -1,9 +1,12 @@
+import 'dart:io';
 import 'dart:typed_data';
 
+import 'package:flutter/foundation.dart';
 import 'package:flutter/services.dart' show rootBundle;
 import 'package:bluetooth_print_plus/bluetooth_print_plus.dart';
 import 'package:esc_pos_utils_plus/esc_pos_utils_plus.dart';
 import 'package:image/image.dart' as img;
+import 'package:permission_handler/permission_handler.dart';
 
 class PrinterService {
   PrinterService._();
@@ -14,27 +17,115 @@ class PrinterService {
   Stream<dynamic> get blueState => BluetoothPrintPlus.blueState;
   Stream<dynamic> get connectState => BluetoothPrintPlus.connectState;
 
-  Future<void> startScan({
+  String? lastError;
+
+  void _setError(Object e) {
+    lastError = e.toString();
+    debugPrint('PrinterService error: $lastError');
+  }
+
+  Future<bool> requestBluetoothPermissions() async {
+    try {
+      if (!Platform.isAndroid) return true;
+
+      final statuses = await [
+        Permission.bluetoothScan,
+        Permission.bluetoothConnect,
+      ].request();
+
+      final bluetoothScanOk =
+          statuses[Permission.bluetoothScan]?.isGranted ?? false;
+      final bluetoothConnectOk =
+          statuses[Permission.bluetoothConnect]?.isGranted ?? false;
+
+      return bluetoothScanOk && bluetoothConnectOk;
+    } catch (e) {
+      _setError(e);
+      return false;
+    }
+  }
+
+  Future<bool> ensureBluetoothPermissions() async {
+    final ok = await requestBluetoothPermissions();
+
+    if (!ok) {
+      _setError(
+        'Faltan permisos de Bluetooth. Activa Dispositivos cercanos/Bluetooth en permisos de la app.',
+      );
+      return false;
+    }
+
+    return true;
+  }
+
+  Future<bool> startScan({
     Duration timeout = const Duration(seconds: 10),
   }) async {
-    await BluetoothPrintPlus.startScan(timeout: timeout);
+    try {
+      lastError = null;
+
+      final hasPermissions = await ensureBluetoothPermissions();
+      if (!hasPermissions) return false;
+
+      try {
+        await BluetoothPrintPlus.stopScan();
+      } catch (e) {
+        debugPrint('stopScan ignorado: $e');
+      }
+
+      await Future.delayed(const Duration(milliseconds: 400));
+
+      await BluetoothPrintPlus.startScan(timeout: timeout);
+      return true;
+    } catch (e) {
+      _setError('No se pudo buscar impresoras Bluetooth: $e');
+      return false;
+    }
   }
 
-  Future<void> stopScan() async {
-    await BluetoothPrintPlus.stopScan();
+  Future<bool> stopScan() async {
+    try {
+      await BluetoothPrintPlus.stopScan();
+      return true;
+    } catch (e) {
+      _setError(e);
+      return false;
+    }
   }
 
-  Future<void> connect(BluetoothDevice device) async {
-    await BluetoothPrintPlus.connect(device);
+  Future<bool> connect(BluetoothDevice device) async {
+    try {
+      lastError = null;
+
+      final hasPermissions = await ensureBluetoothPermissions();
+      if (!hasPermissions) return false;
+
+      await BluetoothPrintPlus.connect(device);
+      return true;
+    } catch (e) {
+      _setError('No se pudo conectar la impresora: $e');
+      return false;
+    }
   }
 
-  Future<void> disconnect() async {
-    await BluetoothPrintPlus.disconnect();
+  Future<bool> disconnect() async {
+    try {
+      await BluetoothPrintPlus.disconnect();
+      return true;
+    } catch (e) {
+      _setError(e);
+      return false;
+    }
   }
 
   Future<bool> get isConnected async {
-    final v = await BluetoothPrintPlus.isConnected;
-    return v ?? false;
+    try {
+      final v = await BluetoothPrintPlus.isConnected;
+      return v ?? false;
+    } catch (e) {
+      _setError(e);
+      return false;
+    }
   }
 
   String normalizeAddress(String? value) {
@@ -63,6 +154,7 @@ class PrinterService {
         return device;
       }
     }
+
     return null;
   }
 
@@ -109,6 +201,7 @@ class PrinterService {
       11: 'NOVIEMBRE',
       12: 'DICIEMBRE',
     };
+
     return months[_parseDate(iso).month] ?? '—';
   }
 
@@ -412,7 +505,6 @@ class PrinterService {
     final bytes = <int>[];
 
     final logo = await _loadLogoImage();
-
     final safeCopies = copies < 1 ? 1 : copies;
 
     for (int copy = 0; copy < safeCopies; copy++) {
@@ -434,7 +526,7 @@ class PrinterService {
     return bytes;
   }
 
-  Future<void> printDeliveryTicket({
+  Future<bool> printDeliveryTicket({
     required String folio,
     required String customerName,
     required String dinerName,
@@ -445,25 +537,37 @@ class PrinterService {
     int copies = 1,
     String copyLabel = 'ORIGINAL',
   }) async {
-    final connected = await isConnected;
-    if (!connected) {
-      throw Exception('No hay impresora conectada.');
+    try {
+      lastError = null;
+
+      final hasPermissions = await ensureBluetoothPermissions();
+      if (!hasPermissions) return false;
+
+      final connected = await isConnected;
+      if (!connected) {
+        _setError('No hay impresora conectada.');
+        return false;
+      }
+
+      final bytes = await buildDeliveryTicketBytes(
+        folio: folio,
+        customerName: customerName,
+        dinerName: dinerName,
+        driverName: driverName,
+        deliveredAt: deliveredAt,
+        items: items,
+        totalReal: totalReal,
+        copies: copies,
+        copyLabel: copyLabel,
+        paper: PaperSize.mm80,
+      );
+
+      await BluetoothPrintPlus.write(Uint8List.fromList(bytes));
+      return true;
+    } catch (e) {
+      _setError('No se pudo imprimir el ticket: $e');
+      return false;
     }
-
-    final bytes = await buildDeliveryTicketBytes(
-      folio: folio,
-      customerName: customerName,
-      dinerName: dinerName,
-      driverName: driverName,
-      deliveredAt: deliveredAt,
-      items: items,
-      totalReal: totalReal,
-      copies: copies,
-      copyLabel: copyLabel,
-      paper: PaperSize.mm80,
-    );
-
-    await BluetoothPrintPlus.write(Uint8List.fromList(bytes));
   }
 }
 

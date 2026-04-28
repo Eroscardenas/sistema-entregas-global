@@ -3,22 +3,29 @@
     <!-- Internet / red -->
     <uses-permission android:name="android.permission.INTERNET" />
 
-    <!-- Bluetooth legacy -->
+    <!-- Bluetooth legacy Android 11 o menor -->
     <uses-permission android:name="android.permission.BLUETOOTH" android:maxSdkVersion="30" />
     <uses-permission android:name="android.permission.BLUETOOTH_ADMIN" android:maxSdkVersion="30" />
 
-    <!-- Bluetooth Android 12+ -->
-    <uses-permission android:name="android.permission.BLUETOOTH_SCAN" />
-    <uses-permission android:name="android.permission.BLUETOOTH_CONNECT" />
-
-    <!-- Ubicación para escaneo en varios dispositivos -->
+    <!-- Ubicación legacy para escaneo Bluetooth en Android 11 o menor -->
     <uses-permission android:name="android.permission.ACCESS_FINE_LOCATION" android:maxSdkVersion="30" />
     <uses-permission android:name="android.permission.ACCESS_COARSE_LOCATION" android:maxSdkVersion="30" />
+
+    <!-- Bluetooth Android 12+ -->
+    <uses-permission
+        android:name="android.permission.BLUETOOTH_SCAN"
+        android:usesPermissionFlags="neverForLocation" />
+
+    <uses-permission android:name="android.permission.BLUETOOTH_CONNECT" />
+
+    <!-- Opcional, pero ayuda si algún plugin lo solicita internamente -->
+    <uses-permission android:name="android.permission.BLUETOOTH_ADVERTISE" />
 
     <application
         android:label="Global Ice"
         android:name="${applicationName}"
-        android:icon="@mipmap/ic_launcher">
+        android:icon="@mipmap/ic_launcher"
+        android:usesCleartextTraffic="true">
 
         <activity
             android:name=".MainActivity"
@@ -30,7 +37,6 @@
             android:hardwareAccelerated="true"
             android:windowSoftInputMode="adjustResize">
 
-            <!-- Tema visible mientras Flutter inicializa -->
             <meta-data
                 android:name="io.flutter.embedding.android.NormalTheme"
                 android:resource="@style/NormalTheme" />
@@ -41,20 +47,17 @@
             </intent-filter>
         </activity>
 
-        <!-- Flutter embedding -->
         <meta-data
             android:name="flutterEmbedding"
             android:value="2" />
     </application>
 
     <queries>
-        <!-- Process text -->
         <intent>
             <action android:name="android.intent.action.PROCESS_TEXT" />
             <data android:mimeType="text/plain" />
         </intent>
 
-        <!-- Compartir / abrir PDF / imprimir -->
         <intent>
             <action android:name="android.intent.action.SEND" />
             <data android:mimeType="application/pdf" />
@@ -70,4 +73,5 @@
             <data android:scheme="tel" />
         </intent>
     </queries>
+
 </manifest>

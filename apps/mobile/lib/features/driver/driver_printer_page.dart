@@ -69,79 +69,103 @@ class _DriverPrinterPageState extends State<DriverPrinterPage> {
   }
 
   void _initStreams() {
-    _scanSub = _printer.scanResults.listen((List<BluetoothDevice> event) async {
-      if (!mounted) return;
+    _scanSub = _printer.scanResults.listen(
+      (List<BluetoothDevice> event) async {
+        if (!mounted) return;
 
-      final devices = List<BluetoothDevice>.from(event);
+        final devices = List<BluetoothDevice>.from(event);
 
-      setState(() {
-        _devices = devices;
-      });
+        setState(() {
+          _devices = devices;
+        });
 
-      await _tryAutoReconnectIfPossible();
-    });
+        await _tryAutoReconnectIfPossible();
+      },
+      onError: (Object e) {
+        if (!mounted) return;
+        setState(() {
+          _errorText = 'Error leyendo dispositivos: $e';
+          _statusText = 'No se pudieron leer dispositivos Bluetooth.';
+        });
+      },
+    );
 
-    _scanStateSub = _printer.isScanning.listen((event) {
-      if (!mounted) return;
+    _scanStateSub = _printer.isScanning.listen(
+      (event) {
+        if (!mounted) return;
 
-      setState(() {
-        _scanning = event == true;
+        final scanning = event == true;
 
-        if (_scanning) {
-          _statusText = 'Buscando dispositivos Bluetooth cercanos...';
-          _errorText = null;
-          _autoReconnectTried = false;
-        } else {
-          _statusText = _devices.isEmpty
-              ? 'No se encontraron dispositivos Bluetooth.'
-              : 'Búsqueda finalizada. Puedes conectarte a cualquier dispositivo detectado.';
-        }
-      });
-    });
+        setState(() {
+          _scanning = scanning;
 
-    _connectStateSub = _printer.connectState.listen((event) {
-      if (!mounted) return;
+          if (_scanning) {
+            _statusText = 'Buscando dispositivos Bluetooth cercanos...';
+            _errorText = null;
+            _autoReconnectTried = false;
+          } else {
+            _statusText = _devices.isEmpty
+                ? 'No se encontraron dispositivos Bluetooth.'
+                : 'Búsqueda finalizada. Puedes conectarte a cualquier dispositivo detectado.';
+          }
+        });
+      },
+      onError: (Object e) {
+        if (!mounted) return;
+        setState(() {
+          _scanning = false;
+          _errorText = 'Error de escaneo Bluetooth: $e';
+          _statusText = 'Error al buscar dispositivos.';
+        });
+      },
+    );
 
-      final stateText = '$event'.toUpperCase();
-      final isConnected = stateText.contains('CONNECTED') ||
-          stateText.contains('CONNECT_SUCCESS') ||
-          stateText.contains('TRUE');
+    _connectStateSub = _printer.connectState.listen(
+      (event) {
+        if (!mounted) return;
 
-      setState(() {
-        _connected = isConnected;
-        _statusText = 'Estado de conexión: $event';
+        final stateText = '$event'.toUpperCase();
+        final isConnected = stateText.contains('CONNECTED') ||
+            stateText.contains('CONNECT_SUCCESS') ||
+            stateText.contains('TRUE');
 
-        if (!isConnected &&
-            (stateText.contains('DISCONNECT') ||
-                stateText.contains('FAIL') ||
-                stateText.contains('ERROR'))) {
+        setState(() {
+          _connected = isConnected;
+          _statusText = 'Estado de conexión: $event';
+
+          if (!isConnected &&
+              (stateText.contains('DISCONNECT') ||
+                  stateText.contains('FAIL') ||
+                  stateText.contains('ERROR'))) {
+            _selected = null;
+          }
+        });
+      },
+      onError: (Object e) {
+        if (!mounted) return;
+        setState(() {
+          _connected = false;
           _selected = null;
-        }
-      });
-    });
+          _errorText = 'Error de conexión Bluetooth: $e';
+          _statusText = 'Error de conexión.';
+        });
+      },
+    );
   }
 
   Future<void> _syncInitialState() async {
-    try {
-      final connected = await _printer.isConnected;
-      if (!mounted) return;
+    final connected = await _printer.isConnected;
+    if (!mounted) return;
 
-      setState(() {
-        _connected = connected;
-        _statusText = connected
-            ? 'Ya hay un dispositivo Bluetooth conectado.'
-            : _savedAddress != null && _savedAddress!.isNotEmpty
-                ? 'Hay un dispositivo guardado. Puedes buscarlo para reconectar.'
-                : 'Sin dispositivo Bluetooth conectado.';
-        _errorText = null;
-      });
-    } catch (e) {
-      if (!mounted) return;
-      setState(() {
-        _statusText = 'No se pudo consultar el estado del Bluetooth.';
-        _errorText = e.toString().replaceFirst('Exception: ', '');
-      });
-    }
+    setState(() {
+      _connected = connected;
+      _statusText = connected
+          ? 'Ya hay un dispositivo Bluetooth conectado.'
+          : _savedAddress != null && _savedAddress!.isNotEmpty
+              ? 'Hay un dispositivo guardado. Puedes buscarlo para reconectar.'
+              : 'Sin dispositivo Bluetooth conectado.';
+      _errorText = null;
+    });
   }
 
   Future<void> _saveSelectedDevice(BluetoothDevice device) async {
@@ -170,7 +194,8 @@ class _DriverPrinterPageState extends State<DriverPrinterPage> {
     final savedAddress = prefs.getString(_prefDeviceAddress);
     final savedName = prefs.getString(_prefDeviceName);
 
-    _savedAddress = (savedAddress != null && savedAddress.isNotEmpty) ? savedAddress : null;
+    _savedAddress =
+        (savedAddress != null && savedAddress.isNotEmpty) ? savedAddress : null;
     _savedName = (savedName != null && savedName.isNotEmpty) ? savedName : null;
 
     if (!mounted) return;
@@ -194,6 +219,7 @@ class _DriverPrinterPageState extends State<DriverPrinterPage> {
     if (_devices.isEmpty) return;
 
     BluetoothDevice? matched;
+
     for (final d in _devices) {
       if ((d.address ?? '') == _savedAddress) {
         matched = d;
@@ -208,56 +234,59 @@ class _DriverPrinterPageState extends State<DriverPrinterPage> {
   }
 
   Future<void> _startScan() async {
-    try {
-      setState(() {
-        _busy = true;
-        _devices = <BluetoothDevice>[];
-        _statusText = 'Iniciando búsqueda de dispositivos...';
-        _errorText = null;
-        _autoReconnectTried = false;
-      });
+    if (_busy) return;
 
-      await _printer.startScan(timeout: const Duration(seconds: 10));
-    } catch (e) {
-      final msg =
-          'Error al escanear: ${e.toString().replaceFirst('Exception: ', '')}';
-      if (!mounted) return;
-      setState(() {
-        _errorText = msg;
-      });
-      _show(msg);
-    } finally {
-      if (mounted) {
-        setState(() => _busy = false);
+    setState(() {
+      _busy = true;
+      _devices = <BluetoothDevice>[];
+      _statusText = 'Iniciando búsqueda de dispositivos...';
+      _errorText = null;
+      _autoReconnectTried = false;
+    });
+
+    final ok = await _printer.startScan(timeout: const Duration(seconds: 10));
+
+    if (!mounted) return;
+
+    setState(() {
+      _busy = false;
+
+      if (!ok) {
+        _errorText =
+            _printer.lastError ?? 'No se pudo iniciar la búsqueda Bluetooth.';
+        _statusText = 'Error al buscar dispositivos.';
       }
+    });
+
+    if (!ok) {
+      _show(_printer.lastError ?? 'No se pudo buscar dispositivos Bluetooth.');
     }
   }
 
   Future<void> _stopScan() async {
-    try {
-      setState(() {
-        _busy = true;
-        _errorText = null;
-      });
+    if (_busy) return;
 
-      await _printer.stopScan();
+    setState(() {
+      _busy = true;
+      _errorText = null;
+    });
 
-      if (!mounted) return;
-      setState(() {
-        _statusText = 'Búsqueda detenida.';
-      });
-    } catch (e) {
-      final msg =
-          'No se pudo detener el escaneo: ${e.toString().replaceFirst('Exception: ', '')}';
-      if (!mounted) return;
-      setState(() {
-        _errorText = msg;
-      });
-      _show(msg);
-    } finally {
-      if (mounted) {
-        setState(() => _busy = false);
+    final ok = await _printer.stopScan();
+
+    if (!mounted) return;
+
+    setState(() {
+      _busy = false;
+      _statusText =
+          ok ? 'Búsqueda detenida.' : 'No se pudo detener la búsqueda.';
+
+      if (!ok) {
+        _errorText = _printer.lastError ?? 'No se pudo detener el escaneo.';
       }
+    });
+
+    if (!ok) {
+      _show(_printer.lastError ?? 'No se pudo detener el escaneo.');
     }
   }
 
@@ -266,129 +295,127 @@ class _DriverPrinterPageState extends State<DriverPrinterPage> {
     bool silent = false,
     bool autoReconnect = false,
   }) async {
-    try {
-      setState(() {
-        _busy = true;
-        _errorText = null;
-        _statusText = autoReconnect
-            ? 'Reconectando a ${device.name ?? 'dispositivo Bluetooth'}...'
-            : 'Conectando a ${device.name ?? 'dispositivo Bluetooth'}...';
-      });
+    if (_busy) return;
 
-      await _printer.connect(device);
-      final connected = await _printer.isConnected;
+    setState(() {
+      _busy = true;
+      _errorText = null;
+      _statusText = autoReconnect
+          ? 'Reconectando a ${device.name ?? 'dispositivo Bluetooth'}...'
+          : 'Conectando a ${device.name ?? 'dispositivo Bluetooth'}...';
+    });
 
-      if (!mounted) return;
-      setState(() {
-        _selected = connected ? device : null;
-        _connected = connected;
-        _statusText = connected
-            ? 'Conectado: ${device.name ?? device.address ?? 'dispositivo Bluetooth'}'
-            : 'No se pudo confirmar la conexión.';
-      });
+    final ok = await _printer.connect(device);
+    final connected = ok ? await _printer.isConnected : false;
 
-      if (connected) {
-        await _saveSelectedDevice(device);
-        if (!silent) {
-          _show('Dispositivo Bluetooth conectado correctamente.');
-        }
+    if (!mounted) return;
+
+    setState(() {
+      _busy = false;
+      _selected = connected ? device : null;
+      _connected = connected;
+      _statusText = connected
+          ? 'Conectado: ${device.name ?? device.address ?? 'dispositivo Bluetooth'}'
+          : 'No se pudo conectar.';
+
+      if (!connected) {
+        _errorText = _printer.lastError ?? 'No se pudo conectar la impresora.';
       }
-    } catch (e) {
-      final msg =
-          'No se pudo conectar: ${e.toString().replaceFirst('Exception: ', '')}';
-      if (!mounted) return;
-      setState(() {
-        _errorText = msg;
-      });
+    });
+
+    if (connected) {
+      await _saveSelectedDevice(device);
       if (!silent) {
-        _show(msg);
+        _show('Dispositivo Bluetooth conectado correctamente.');
       }
-    } finally {
-      if (mounted) {
-        setState(() => _busy = false);
-      }
+    } else if (!silent) {
+      _show(_printer.lastError ?? 'No se pudo conectar la impresora.');
     }
   }
 
   Future<void> _disconnect() async {
-    try {
-      setState(() {
-        _busy = true;
-        _errorText = null;
-        _statusText = 'Desconectando dispositivo...';
-      });
+    if (_busy) return;
 
-      await _printer.disconnect();
+    setState(() {
+      _busy = true;
+      _errorText = null;
+      _statusText = 'Desconectando dispositivo...';
+    });
+
+    final ok = await _printer.disconnect();
+
+    if (ok) {
       await _clearSavedDevice();
+    }
 
-      if (!mounted) return;
-      setState(() {
+    if (!mounted) return;
+
+    setState(() {
+      _busy = false;
+
+      if (ok) {
         _selected = null;
         _connected = false;
         _statusText = 'Dispositivo desconectado.';
-      });
-
-      _show('Dispositivo desconectado.');
-    } catch (e) {
-      final msg =
-          'No se pudo desconectar: ${e.toString().replaceFirst('Exception: ', '')}';
-      if (!mounted) return;
-      setState(() {
-        _errorText = msg;
-      });
-      _show(msg);
-    } finally {
-      if (mounted) {
-        setState(() => _busy = false);
+      } else {
+        _errorText = _printer.lastError ?? 'No se pudo desconectar.';
+        _statusText = 'No se pudo desconectar.';
       }
-    }
+    });
+
+    _show(
+      ok
+          ? 'Dispositivo desconectado.'
+          : (_printer.lastError ?? 'No se pudo desconectar.'),
+    );
   }
 
   Future<void> _testPrint() async {
-    try {
-      setState(() {
-        _busy = true;
-        _errorText = null;
-        _statusText = 'Enviando impresión de prueba...';
-      });
+    if (_busy) return;
 
-      await _printer.printDeliveryTicket(
-        folio: 'PRUEBA-001',
-        customerName: 'Cliente de prueba',
-        dinerName: '',
-        driverName: widget.driverName,
-        deliveredAt: DateTime.now().toIso8601String(),
-        totalReal: 1050,
-        copies: 3,
-        items: [
-          PrinterTicketItem(
-            qtyReal: 30,
-            description: 'BOLSA 5 KG. GOURMET',
-            unitPrice: 35,
-            amount: 1050,
-          ),
-        ],
-      );
+    setState(() {
+      _busy = true;
+      _errorText = null;
+      _statusText = 'Enviando impresión de prueba...';
+    });
 
-      if (!mounted) return;
-      setState(() {
+    final ok = await _printer.printDeliveryTicket(
+      folio: 'PRUEBA-001',
+      customerName: 'Cliente de prueba',
+      dinerName: '',
+      driverName: widget.driverName,
+      deliveredAt: DateTime.now().toIso8601String(),
+      totalReal: 1050,
+      copies: 1,
+      items: [
+        PrinterTicketItem(
+          qtyReal: 30,
+          description: 'BOLSA 5 KG. GOURMET',
+          unitPrice: 35,
+          amount: 1050,
+        ),
+      ],
+    );
+
+    if (!mounted) return;
+
+    setState(() {
+      _busy = false;
+
+      if (ok) {
         _statusText = 'Impresión de prueba enviada correctamente.';
-      });
-
-      _show('Prueba de impresión enviada.');
-    } catch (e) {
-      final msg =
-          'No se pudo imprimir. Este dispositivo puede no ser una impresora compatible: ${e.toString().replaceFirst('Exception: ', '')}';
-      if (!mounted) return;
-      setState(() {
-        _errorText = msg;
-      });
-      _show(msg);
-    } finally {
-      if (mounted) {
-        setState(() => _busy = false);
+      } else {
+        _errorText = _printer.lastError ??
+            'No se pudo imprimir. Este dispositivo puede no ser compatible.';
+        _statusText = 'No se pudo imprimir.';
       }
-    }
+    });
+
+    _show(
+      ok
+          ? 'Prueba de impresión enviada.'
+          : (_printer.lastError ?? 'No se pudo imprimir.'),
+    );
   }
 
   Future<void> _refreshState() async {
@@ -398,6 +425,7 @@ class _DriverPrinterPageState extends State<DriverPrinterPage> {
 
   void _show(String msg) {
     if (!mounted) return;
+
     ScaffoldMessenger.of(context).showSnackBar(
       SnackBar(content: Text(msg)),
     );
@@ -411,20 +439,24 @@ class _DriverPrinterPageState extends State<DriverPrinterPage> {
         s.contains('correctamente')) {
       return _success;
     }
+
     if (s.contains('buscando') ||
         s.contains('escaneando') ||
         s.contains('búsqueda') ||
         s.contains('reconectando')) {
       return _warning;
     }
+
     if (s.contains('desconectado') ||
         s.contains('desconectada') ||
         s.contains('sin dispositivo')) {
       return Colors.white70;
     }
+
     if (s.contains('error') || s.contains('no se pudo')) {
       return _danger;
     }
+
     return _accent;
   }
 
@@ -433,8 +465,8 @@ class _DriverPrinterPageState extends State<DriverPrinterPage> {
       return const SizedBox.shrink();
     }
 
-    final isCurrentSelected = _selected != null &&
-        (_selected!.address ?? '') == (_savedAddress ?? '');
+    final isCurrentSelected =
+        _selected != null && (_selected!.address ?? '') == (_savedAddress ?? '');
 
     return Container(
       width: double.infinity,
