@@ -1,9 +1,10 @@
+import 'dart:async';
 import 'dart:io';
 import 'dart:typed_data';
 
 import 'package:flutter/foundation.dart';
 import 'package:flutter/services.dart' show rootBundle;
-import 'package:bluetooth_print_plus/bluetooth_print_plus.dart';
+import 'package:blue_thermal_printer/blue_thermal_printer.dart' as thermal;
 import 'package:esc_pos_utils_plus/esc_pos_utils_plus.dart';
 import 'package:image/image.dart' as img;
 import 'package:permission_handler/permission_handler.dart';
@@ -12,10 +13,27 @@ class PrinterService {
   PrinterService._();
   static final PrinterService instance = PrinterService._();
 
-  Stream<List<BluetoothDevice>> get scanResults => BluetoothPrintPlus.scanResults;
-  Stream<dynamic> get isScanning => BluetoothPrintPlus.isScanning;
-  Stream<dynamic> get blueState => BluetoothPrintPlus.blueState;
-  Stream<dynamic> get connectState => BluetoothPrintPlus.connectState;
+  final thermal.BlueThermalPrinter _bluetooth =
+      thermal.BlueThermalPrinter.instance;
+
+  final StreamController<List<thermal.BluetoothDevice>> _scanResultsController =
+      StreamController<List<thermal.BluetoothDevice>>.broadcast();
+
+  final StreamController<bool> _isScanningController =
+      StreamController<bool>.broadcast();
+
+  final StreamController<dynamic> _blueStateController =
+      StreamController<dynamic>.broadcast();
+
+  final StreamController<dynamic> _connectStateController =
+      StreamController<dynamic>.broadcast();
+
+  Stream<List<thermal.BluetoothDevice>> get scanResults =>
+      _scanResultsController.stream;
+
+  Stream<dynamic> get isScanning => _isScanningController.stream;
+  Stream<dynamic> get blueState => _blueStateController.stream;
+  Stream<dynamic> get connectState => _connectStateController.stream;
 
   String? lastError;
 
@@ -28,17 +46,19 @@ class PrinterService {
     try {
       if (!Platform.isAndroid) return true;
 
-      final statuses = await [
-        Permission.bluetoothScan,
-        Permission.bluetoothConnect,
-      ].request();
+      final bluetoothScanOk = await Permission.bluetoothScan.isGranted;
+      final bluetoothConnectOk = await Permission.bluetoothConnect.isGranted;
+      final locationOk = await Permission.locationWhenInUse.isGranted;
 
-      final bluetoothScanOk =
-          statuses[Permission.bluetoothScan]?.isGranted ?? false;
-      final bluetoothConnectOk =
-          statuses[Permission.bluetoothConnect]?.isGranted ?? false;
+      final ok = bluetoothScanOk && bluetoothConnectOk && locationOk;
 
-      return bluetoothScanOk && bluetoothConnectOk;
+      if (!ok) {
+        _setError(
+          'Faltan permisos. Activa manualmente Dispositivos cercanos y Ubicación en Ajustes > Apps > Global Ice > Permisos.',
+        );
+      }
+
+      return ok;
     } catch (e) {
       _setError(e);
       return false;
@@ -50,7 +70,7 @@ class PrinterService {
 
     if (!ok) {
       _setError(
-        'Faltan permisos de Bluetooth. Activa Dispositivos cercanos/Bluetooth en permisos de la app.',
+        'Faltan permisos. Activa manualmente Dispositivos cercanos y Ubicación en Ajustes > Apps > Global Ice > Permisos.',
       );
       return false;
     }
@@ -67,25 +87,28 @@ class PrinterService {
       final hasPermissions = await ensureBluetoothPermissions();
       if (!hasPermissions) return false;
 
-      try {
-        await BluetoothPrintPlus.stopScan();
-      } catch (e) {
-        debugPrint('stopScan ignorado: $e');
-      }
+      _isScanningController.add(true);
+      _blueStateController.add('BUSCANDO_DISPOSITIVOS_VINCULADOS');
 
-      await Future.delayed(const Duration(milliseconds: 400));
+      await Future.delayed(const Duration(milliseconds: 300));
 
-      await BluetoothPrintPlus.startScan(timeout: timeout);
+      final devices = await _bluetooth.getBondedDevices();
+
+      _scanResultsController.add(devices);
+      _isScanningController.add(false);
+      _blueStateController.add('LISTO');
+
       return true;
     } catch (e) {
-      _setError('No se pudo buscar impresoras Bluetooth: $e');
+      _isScanningController.add(false);
+      _setError('No se pudieron obtener impresoras Bluetooth vinculadas: $e');
       return false;
     }
   }
 
   Future<bool> stopScan() async {
     try {
-      await BluetoothPrintPlus.stopScan();
+      _isScanningController.add(false);
       return true;
     } catch (e) {
       _setError(e);
@@ -93,16 +116,34 @@ class PrinterService {
     }
   }
 
-  Future<bool> connect(BluetoothDevice device) async {
+  Future<bool> connect(thermal.BluetoothDevice device) async {
     try {
       lastError = null;
 
       final hasPermissions = await ensureBluetoothPermissions();
       if (!hasPermissions) return false;
 
-      await BluetoothPrintPlus.connect(device);
+      final connectedNow = await isConnected;
+      if (connectedNow) {
+        await disconnect();
+        await Future.delayed(const Duration(milliseconds: 300));
+      }
+
+      await _bluetooth.connect(device);
+
+      await Future.delayed(const Duration(milliseconds: 500));
+
+      final connected = await isConnected;
+      _connectStateController.add(connected ? 'CONNECTED' : 'CONNECT_FAIL');
+
+      if (!connected) {
+        _setError('No se pudo confirmar la conexión con la impresora.');
+        return false;
+      }
+
       return true;
     } catch (e) {
+      _connectStateController.add('CONNECT_ERROR');
       _setError('No se pudo conectar la impresora: $e');
       return false;
     }
@@ -110,7 +151,8 @@ class PrinterService {
 
   Future<bool> disconnect() async {
     try {
-      await BluetoothPrintPlus.disconnect();
+      await _bluetooth.disconnect();
+      _connectStateController.add('DISCONNECTED');
       return true;
     } catch (e) {
       _setError(e);
@@ -120,7 +162,7 @@ class PrinterService {
 
   Future<bool> get isConnected async {
     try {
-      final v = await BluetoothPrintPlus.isConnected;
+      final v = await _bluetooth.isConnected;
       return v ?? false;
     } catch (e) {
       _setError(e);
@@ -142,8 +184,8 @@ class PrinterService {
     return normalizeAddress(a) == normalizeAddress(b);
   }
 
-  BluetoothDevice? findDeviceByAddress(
-    List<BluetoothDevice> devices,
+  thermal.BluetoothDevice? findDeviceByAddress(
+    List<thermal.BluetoothDevice> devices,
     String? address,
   ) {
     final normalized = normalizeAddress(address);
@@ -344,7 +386,7 @@ class PrinterService {
       styles: const PosStyles(align: PosAlign.center),
     ));
     bytes.addAll(generator.text(
-      'facturasglobalice@gmail.com',
+      'facturas@globalice.com.mx',
       styles: const PosStyles(align: PosAlign.center),
     ));
 
@@ -562,7 +604,7 @@ class PrinterService {
         paper: PaperSize.mm80,
       );
 
-      await BluetoothPrintPlus.write(Uint8List.fromList(bytes));
+      await _bluetooth.writeBytes(Uint8List.fromList(bytes));
       return true;
     } catch (e) {
       _setError('No se pudo imprimir el ticket: $e');

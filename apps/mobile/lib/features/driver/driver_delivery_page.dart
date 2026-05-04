@@ -14,6 +14,8 @@ class _DriverDeliveriesPageState extends State<DriverDeliveriesPage> {
   static const _navy = Color(0xFF0A1A2F);
   static const _royal = Color(0xFF1E4A7A);
   static const _accent = Color(0xFF4DADFF);
+  static const _success = Color(0xFF10B981);
+  static const _warning = Color(0xFFF59E0B);
 
   final _sb = Supabase.instance.client;
 
@@ -56,7 +58,9 @@ class _DriverDeliveriesPageState extends State<DriverDeliveriesPage> {
 
       for (final raw in (allDrivers as List)) {
         final telefono = _normalizePhone((raw['telefono'] ?? '').toString());
-        if (telefono == phoneDigits) {
+        final activo = (raw['activo'] ?? true) == true;
+
+        if (activo && telefono == phoneDigits) {
           return (raw['id'] ?? '').toString();
         }
       }
@@ -71,6 +75,8 @@ class _DriverDeliveriesPageState extends State<DriverDeliveriesPage> {
   }
 
   Future<void> _load({bool silent = false}) async {
+    if (!mounted) return;
+
     if (!silent) {
       setState(() {
         _loading = true;
@@ -84,6 +90,7 @@ class _DriverDeliveriesPageState extends State<DriverDeliveriesPage> {
 
     try {
       final driverId = await _resolveDriverId();
+
       if (driverId == null || driverId.isEmpty) {
         throw Exception('No se pudo identificar el chofer actual.');
       }
@@ -125,7 +132,7 @@ class _DriverDeliveriesPageState extends State<DriverDeliveriesPage> {
               customerName: (raw['customer_nombre_snapshot'] ?? 'Cliente').toString(),
               dinerName: (raw['diner_nombre_snapshot'] ?? '').toString(),
               status: (raw['status'] ?? 'PENDIENTE').toString(),
-              paymentMethod: ((raw['payment_method'] ?? '').toString()),
+              paymentMethod: (raw['payment_method'] ?? '').toString(),
               deliveredAt: raw['delivered_at']?.toString(),
               totalExpected: ((raw['total_expected'] ?? 0) as num).toDouble(),
               totalReal: ((raw['total_real'] ?? 0) as num).toDouble(),
@@ -134,6 +141,7 @@ class _DriverDeliveriesPageState extends State<DriverDeliveriesPage> {
           .toList();
 
       if (!mounted) return;
+
       setState(() {
         _rows = mapped;
         _loading = false;
@@ -141,6 +149,7 @@ class _DriverDeliveriesPageState extends State<DriverDeliveriesPage> {
       });
     } catch (e) {
       if (!mounted) return;
+
       setState(() {
         _error = e.toString().replaceFirst('Exception: ', '');
         _loading = false;
@@ -150,7 +159,7 @@ class _DriverDeliveriesPageState extends State<DriverDeliveriesPage> {
   }
 
   Future<void> _openDetail(_DeliveryCardRow row) async {
-    final changed = await Navigator.of(context).push<bool>(
+    await Navigator.of(context).push<bool>(
       MaterialPageRoute(
         builder: (_) => DriverDeliveryDetailPage(
           deliveryId: row.id,
@@ -160,9 +169,8 @@ class _DriverDeliveriesPageState extends State<DriverDeliveriesPage> {
       ),
     );
 
-    if (changed == true) {
-      await _load(silent: true);
-    }
+    if (!mounted) return;
+    await _load(silent: true);
   }
 
   String _normalizeStatus(String? status) {
@@ -204,9 +212,9 @@ class _DriverDeliveriesPageState extends State<DriverDeliveriesPage> {
       case 'CONFIRMADA':
       case 'FINALIZADA':
       case 'COMPLETADA':
-        return Colors.green;
+        return _success;
       case 'EN_RUTA':
-        return Colors.orange;
+        return _warning;
       case 'CANCELADA':
         return Colors.redAccent;
       default:
@@ -218,6 +226,7 @@ class _DriverDeliveriesPageState extends State<DriverDeliveriesPage> {
 
   String _formatDateTime(String? iso) {
     if (iso == null || iso.isEmpty) return '—';
+
     final dt = DateTime.tryParse(iso);
     if (dt == null) return '—';
 
@@ -250,7 +259,10 @@ class _DriverDeliveriesPageState extends State<DriverDeliveriesPage> {
                 ? const SizedBox(
                     width: 18,
                     height: 18,
-                    child: CircularProgressIndicator(strokeWidth: 2),
+                    child: CircularProgressIndicator(
+                      strokeWidth: 2,
+                      color: Colors.white,
+                    ),
                   )
                 : const Icon(Icons.refresh),
           ),
@@ -317,12 +329,14 @@ class _DriverDeliveriesPageState extends State<DriverDeliveriesPage> {
                                   decoration: BoxDecoration(
                                     borderRadius: BorderRadius.circular(14),
                                     color: Colors.white.withOpacity(0.06),
-                                    border: Border.all(color: Colors.white.withOpacity(0.10)),
+                                    border: Border.all(
+                                      color: Colors.white.withOpacity(0.10),
+                                    ),
                                   ),
                                   child: Column(
                                     children: [
                                       Text(
-                                        'Fecha operativa',
+                                        'Control de stock',
                                         style: TextStyle(
                                           color: Colors.white.withOpacity(0.60),
                                           fontSize: 11,
@@ -330,7 +344,8 @@ class _DriverDeliveriesPageState extends State<DriverDeliveriesPage> {
                                       ),
                                       const SizedBox(height: 4),
                                       const Text(
-                                        'La define el sistema',
+                                        'Validado al capturar',
+                                        textAlign: TextAlign.center,
                                         style: TextStyle(
                                           color: Colors.white,
                                           fontWeight: FontWeight.w900,
@@ -341,6 +356,38 @@ class _DriverDeliveriesPageState extends State<DriverDeliveriesPage> {
                                 ),
                               ),
                             ],
+                          ),
+                          const SizedBox(height: 10),
+                          Container(
+                            width: double.infinity,
+                            padding: const EdgeInsets.all(10),
+                            decoration: BoxDecoration(
+                              borderRadius: BorderRadius.circular(14),
+                              color: _accent.withOpacity(0.10),
+                              border: Border.all(
+                                color: _accent.withOpacity(0.25),
+                              ),
+                            ),
+                            child: Row(
+                              children: [
+                                const Icon(
+                                  Icons.verified_user_outlined,
+                                  color: Colors.white,
+                                  size: 18,
+                                ),
+                                const SizedBox(width: 8),
+                                Expanded(
+                                  child: Text(
+                                    'Las cantidades se bloquean en el detalle: no negativos, no letras y no más de lo asignado.',
+                                    style: TextStyle(
+                                      color: Colors.white.withOpacity(0.82),
+                                      fontSize: 12,
+                                      fontWeight: FontWeight.w700,
+                                    ),
+                                  ),
+                                ),
+                              ],
+                            ),
                           ),
                         ],
                       ),
@@ -416,12 +463,36 @@ class _DriverDeliveriesPageState extends State<DriverDeliveriesPage> {
                                 Row(
                                   crossAxisAlignment: CrossAxisAlignment.start,
                                   children: [
+                                    Container(
+                                      width: 34,
+                                      height: 34,
+                                      alignment: Alignment.center,
+                                      decoration: BoxDecoration(
+                                        shape: BoxShape.circle,
+                                        color: isDelivered
+                                            ? _success.withOpacity(0.18)
+                                            : _accent.withOpacity(0.18),
+                                        border: Border.all(
+                                          color: isDelivered
+                                              ? _success.withOpacity(0.35)
+                                              : _accent.withOpacity(0.35),
+                                        ),
+                                      ),
+                                      child: Text(
+                                        '${i + 1}',
+                                        style: const TextStyle(
+                                          color: Colors.white,
+                                          fontWeight: FontWeight.w900,
+                                        ),
+                                      ),
+                                    ),
+                                    const SizedBox(width: 10),
                                     Expanded(
                                       child: Column(
                                         crossAxisAlignment: CrossAxisAlignment.start,
                                         children: [
                                           Text(
-                                            '${i + 1}. ${row.customerName}',
+                                            row.customerName,
                                             style: const TextStyle(
                                               color: Colors.white,
                                               fontSize: 16,
@@ -447,11 +518,15 @@ class _DriverDeliveriesPageState extends State<DriverDeliveriesPage> {
                                           ],
                                           const SizedBox(height: 6),
                                           Text(
-                                            'Hora entrega: ${_formatDateTime(row.deliveredAt)}',
+                                            isDelivered
+                                                ? 'Hora entrega: ${_formatDateTime(row.deliveredAt)}'
+                                                : 'Pendiente de captura',
                                             style: TextStyle(
-                                              color: Colors.white.withOpacity(0.62),
+                                              color: isDelivered
+                                                  ? Colors.white.withOpacity(0.62)
+                                                  : _warning.withOpacity(0.95),
                                               fontSize: 12,
-                                              fontWeight: FontWeight.w700,
+                                              fontWeight: FontWeight.w800,
                                             ),
                                           ),
                                         ],
@@ -491,7 +566,8 @@ class _DriverDeliveriesPageState extends State<DriverDeliveriesPage> {
                                     ),
                                     _MiniPill(
                                       label: isDelivered ? 'Real' : 'Preview',
-                                      value: '\$ ${_money(isDelivered ? row.totalReal : row.totalExpected)}',
+                                      value:
+                                          '\$ ${_money(isDelivered ? row.totalReal : row.totalExpected)}',
                                     ),
                                     _MiniPill(
                                       label: 'Pago',
@@ -513,11 +589,12 @@ class _DriverDeliveriesPageState extends State<DriverDeliveriesPage> {
                                     ),
                                     label: Text(
                                       isDelivered
-                                          ? 'Ver comprobante'
+                                          ? 'Ver comprobante / imprimir'
                                           : 'Capturar entrega',
                                     ),
                                     style: ElevatedButton.styleFrom(
-                                      backgroundColor: _accent,
+                                      backgroundColor:
+                                          isDelivered ? _success : _accent,
                                       foregroundColor: Colors.white,
                                       shape: RoundedRectangleBorder(
                                         borderRadius: BorderRadius.circular(14),
@@ -567,6 +644,7 @@ class _DeliveryCardRow {
 
 class _GlassCard extends StatelessWidget {
   final Widget child;
+
   const _GlassCard({required this.child});
 
   @override
@@ -605,11 +683,15 @@ class _TopStat extends StatelessWidget {
         children: [
           Text(
             label,
-            style: TextStyle(color: Colors.white.withOpacity(0.60), fontSize: 11),
+            style: TextStyle(
+              color: Colors.white.withOpacity(0.60),
+              fontSize: 11,
+            ),
           ),
           const SizedBox(height: 4),
           Text(
             value,
+            textAlign: TextAlign.center,
             style: const TextStyle(
               color: Colors.white,
               fontWeight: FontWeight.w900,

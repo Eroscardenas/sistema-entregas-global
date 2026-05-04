@@ -42,12 +42,9 @@ import {
   Ban,
 } from 'lucide-react';
 
-import { collection, getDocs, limit as qLimit, orderBy, query, Timestamp, where } from 'firebase/firestore';
-
 import { PATHS } from '@/lib/constants/paths';
 import { useAdminGuard } from '@/lib/hooks/useAdminGuard';
 import { supabaseBrowser } from '@/lib/supabase/client';
-import { inventoryDb } from '@/lib/firebase/inventory.client';
 import {
   useAssignmentsBuilderAdmin,
   type BatchCustomer,
@@ -196,6 +193,162 @@ function normalizeLooseText(value?: string | null) {
     .replace(/[\u0300-\u036f]/g, '')
     .replace(/\s+/g, ' ');
 }
+
+function normalizeIceTypeForPdf(value?: string | null) {
+  const t = normalizeLooseText(value);
+  if (!t) return '';
+  if (t.includes('BARRA')) return 'BARRA';
+  if (t.includes('GOURMET')) return 'GOURMET';
+  if (t.includes('FRAP')) return 'FRAP';
+  if (t.includes('ENFRIAR')) return 'ENFRIAR';
+  if (t.includes('ROLITO')) return 'ROLITO';
+  if (t.includes('NORMAL')) return 'ROLITO';
+  return t.replace(/[^A-Z0-9]+/g, '_').replace(/^_+|_+$/g, '');
+}
+
+function extractKgForPdf(...values: Array<string | number | null | undefined>) {
+  for (const value of values) {
+    if (typeof value === 'number' && Number.isFinite(value) && value > 0) {
+      return Number.isInteger(value) ? String(value) : String(value).replace(/\.0+$/, '');
+    }
+
+    const text = normalizeLooseText(String(value ?? ''));
+    const match = text.match(/(\d+(?:\.\d+)?)\s*(?:KG|KILO|KILOS)/);
+    if (match?.[1]) return match[1].replace(/\.0+$/, '');
+  }
+
+  return '';
+}
+
+function buildProductKeyForPdf(input: {
+  name?: string | null;
+  iceType?: string | null;
+  kg?: number | string | null;
+  kind?: string | null;
+  productId?: string | null;
+}) {
+  const name = normalizeLooseText(input.name);
+  const iceType = normalizeIceTypeForPdf(input.iceType);
+  const kind = normalizeLooseText(input.kind);
+
+  if (iceType === 'BARRA' || name.includes('BARRA') || kind.includes('BARRA')) {
+    return 'BARRA';
+  }
+
+  const kg = extractKgForPdf(input.kg as string | number | null | undefined, input.name);
+
+  let type = iceType;
+  if (!type) {
+    if (name.includes('GOURMET')) type = 'GOURMET';
+    else if (name.includes('FRAP')) type = 'FRAP';
+    else if (name.includes('ENFRIAR')) type = 'ENFRIAR';
+    else if (name.includes('ROLITO') || name.includes('BOLSA') || name.includes('HIELO')) type = 'ROLITO';
+  }
+
+  if (type && kg) return `${type}_${kg}`;
+  if (type) return type;
+
+  const fallback = name || String(input.productId || '').trim().toUpperCase();
+  return fallback || '';
+}
+
+function labelFromProductKeyForPdf(key: string, fallback?: string | null) {
+  const clean = String(key || '').trim().toUpperCase();
+  if (clean === 'BARRA') return 'BARRA';
+
+  const [typeRaw, kg] = clean.split('_');
+  const type = typeRaw === 'FRAPPE' ? 'FRAP' : typeRaw;
+
+  if (type && kg) return `${type} ${kg}KG`;
+  return String(fallback || clean || 'PRODUCTO').trim();
+}
+
+function productSortWeightForPdf(key: string) {
+  const order = [
+    'ROLITO_3',
+    'ROLITO_5',
+    'ROLITO_15',
+    'FRAP_5',
+    'FRAP_15',
+    'BARRA',
+    'GOURMET_5',
+    'ENFRIAR_5',
+  ];
+
+  const idx = order.indexOf(String(key || '').toUpperCase());
+  return idx === -1 ? 999 : idx;
+}
+
+type PdfProductMeta = {
+  id: string;
+  nombre?: string | null;
+  nombre_comercial?: string | null;
+  firebase_tipo_hielo?: string | null;
+  peso_kg?: number | string | null;
+  kind?: string | null;
+  ice_type?: string | null;
+  kg_por_unidad?: number | string | null;
+};
+
+function getPdfProductNameFromMeta(meta?: PdfProductMeta | null) {
+  const direct = String(meta?.nombre || meta?.nombre_comercial || '').trim();
+  if (direct && normalizeLooseText(direct) !== 'PRODUCTO') return direct;
+
+  const key = buildProductKeyForPdf({
+    name: direct,
+    iceType: meta?.ice_type || meta?.firebase_tipo_hielo || null,
+    kg: meta?.kg_por_unidad || meta?.peso_kg || null,
+    kind: meta?.kind || null,
+    productId: meta?.id || null,
+  });
+
+  return labelFromProductKeyForPdf(key, direct || 'PRODUCTO');
+}
+
+function getPdfItemProductName(item: any, productById: Map<string, PdfProductMeta>) {
+  const productId = String(item?.product_id || '').trim();
+  const meta = productById.get(productId);
+  const fromMeta = getPdfProductNameFromMeta(meta);
+
+  if (fromMeta && normalizeLooseText(fromMeta) !== 'PRODUCTO') return fromMeta;
+
+  const fromItem = String(
+    item?.product_nombre ||
+      item?.nombre ||
+      item?.product_name ||
+      item?.producto_nombre ||
+      item?.products?.nombre ||
+      ''
+  ).trim();
+
+  return fromItem || fromMeta || 'PRODUCTO';
+}
+
+function getPdfItemProductKey(item: any, productById: Map<string, PdfProductMeta>) {
+  const productId = String(item?.product_id || '').trim();
+  const meta = productById.get(productId);
+  const name = getPdfItemProductName(item, productById);
+
+  return buildProductKeyForPdf({
+    name,
+    iceType: meta?.ice_type || meta?.firebase_tipo_hielo || null,
+    kg: meta?.kg_por_unidad || meta?.peso_kg || null,
+    kind: meta?.kind || null,
+    productId,
+  });
+}
+
+function buildInventoryProductKeyForPdf(item?: InventoryMovementBatchItem | null) {
+  const label = getInventoryItemLabel(item);
+  return buildProductKeyForPdf({
+    name: label,
+    iceType: item?.tipoHielo || null,
+    kg: item?.pesoKg || null,
+    kind: null,
+    productId: item?.productoCodigo || item?.bolsaVaciaCodigo || null,
+  });
+}
+
 
 function firstNumeric(...values: unknown[]) {
   for (const value of values) {
@@ -443,6 +596,10 @@ function buildDriverDestinatarioCandidates(driverName?: string | null, driverCod
   return Array.from(raw).map(normalizeLooseText).filter(Boolean);
 }
 
+function compactPdfText(value?: string | null) {
+  return normalizeLooseText(value).replace(/[^A-Z0-9]+/g, '');
+}
+
 function movementMatchesDriver(
   movement: InventoryMovementDoc,
   driverName?: string | null,
@@ -450,21 +607,43 @@ function movementMatchesDriver(
 ) {
   const normalizedDestinatario = normalizeLooseText(movement.destinatario);
   const normalizedCliente = normalizeLooseText(movement.clienteNombre);
+  const combined = normalizeLooseText(`${movement.destinatario || ''} ${movement.clienteNombre || ''}`);
+  const compactCombined = compactPdfText(`${movement.destinatario || ''} ${movement.clienteNombre || ''}`);
+
   const candidates = buildDriverDestinatarioCandidates(driverName, driverCode);
 
   if (!candidates.length) return false;
 
-  return candidates.some((candidate) => {
+  const directMatch = candidates.some((candidate) => {
     if (!candidate) return false;
     return (
       normalizedDestinatario.includes(candidate) ||
-      normalizedCliente.includes(candidate)
+      normalizedCliente.includes(candidate) ||
+      compactCombined.includes(compactPdfText(candidate))
     );
   });
+
+  if (directMatch) return true;
+
+  const code = compactPdfText(driverCode);
+  if (code && compactCombined.includes(code)) return true;
+
+  const nameTokens = normalizeLooseText(driverName)
+    .split(' ')
+    .map((x) => x.trim())
+    .filter((x) => x.length >= 3);
+
+  if (nameTokens.length >= 2) {
+    const matches = nameTokens.filter((token) => combined.includes(token)).length;
+    return matches >= Math.min(2, nameTokens.length);
+  }
+
+  return false;
 }
 
 async function getInventoryGlobalOutputsForDriverPdf(
   workDate: string,
+  driverId?: string | null,
   driverName?: string | null,
   driverCode?: string | null
 ): Promise<InventoryGlobalOutputsPdf> {
@@ -472,81 +651,62 @@ async function getInventoryGlobalOutputsForDriverPdf(
   const labelByKey = new Map<string, string>();
   const keyByAlias = new Map<string, string>();
 
-  if (!workDate || !driverName) {
+  if (!workDate || (!driverName && !driverCode && !driverId)) {
     return { qtyByKey, labelByKey, keyByAlias };
   }
 
-  const start = toDateStart(workDate);
-  const endExclusive = toDateEndExclusive(workDate);
+  try {
+    const params = new URLSearchParams();
+    params.set('date', workDate);
 
-  const qy = query(
-    collection(inventoryDb, 'movimientos'),
-    where('fecha', '>=', Timestamp.fromDate(start)),
-    where('fecha', '<', Timestamp.fromDate(endExclusive)),
-    orderBy('fecha', 'asc'),
-    qLimit(2000)
-  );
+    // Si el hook todavía no trae firebase_codigo, mandamos driverId como valor técnico.
+    // Esto evita que el route haga match contra todas las salidas cuando falta código.
+    // El filtro real queda por driverName.
+    const safeDriverCode = String(driverCode || driverId || '').trim();
 
-  const snap = await getDocs(qy);
+    if (safeDriverCode) params.set('driverCode', safeDriverCode);
+    if (driverName) params.set('driverName', driverName);
 
-  for (const docSnap of snap.docs) {
-    const raw = docSnap.data() as InventoryMovementDoc;
+    const response = await fetch(`/api/inventory/global-outputs?${params.toString()}`, {
+      method: 'GET',
+      cache: 'no-store',
+    });
 
-    if (String(raw.tipo || '').trim().toUpperCase() !== 'SALIDA_BOLSA') continue;
-    if (String(raw.salidaSubtipo || '').trim().toUpperCase() !== 'ENTREGA_TRANSPORTE') continue;
-    if (!movementMatchesDriver(raw, driverName, driverCode)) continue;
+    const json = await response.json().catch(() => null);
 
-    if (Array.isArray(raw.items) && raw.items.length > 0) {
-      for (const item of raw.items) {
-        const key = getInventoryItemKey(item);
-        const label = getInventoryItemLabel(item);
-        const cantidad = Math.abs(firstNumeric(item?.cantidad, item?.delta, 0));
-
-        if (!key || cantidad <= 0) continue;
-
-        qtyByKey.set(key, (qtyByKey.get(key) ?? 0) + cantidad);
-        if (!labelByKey.has(key)) labelByKey.set(key, label);
-
-        addInventoryAlias(keyByAlias, key, label);
-        addInventoryAlias(keyByAlias, key, item?.productoNombre);
-        addInventoryAlias(keyByAlias, key, item?.productoCodigo);
-        addInventoryAlias(keyByAlias, key, item?.bolsaVaciaCodigo);
-        addInventoryAlias(
-          keyByAlias,
-          key,
-          `${item?.productoCodigo || item?.bolsaVaciaCodigo || ''} ${item?.tipoHielo || ''}`
-        );
-      }
-
-      continue;
+    if (!response.ok || !json?.ok) {
+      console.error('[PDF SALIDAS GLOBAL] Error leyendo /api/inventory/global-outputs:', json);
+      return { qtyByKey, labelByKey, keyByAlias };
     }
 
-    const fallbackItem: InventoryMovementBatchItem = {
-      bolsaVaciaCodigo: raw.productoCodigo,
-      productoCodigo: raw.productoCodigo,
-      productoNombre: raw.productoNombre,
-      tipoHielo: raw.tipoHielo,
-      pesoKg: raw.pesoKg,
-      inventoryKey: raw.inventoryKey,
-      cantidad: raw.cantidad,
-      delta: raw.deltaPrincipal,
-    };
+    const rawQtyByKey = json.qtyByKey || {};
+    const rawLabelByKey = json.labelByKey || {};
 
-    const key = getInventoryItemKey(fallbackItem);
-    const label = getInventoryItemLabel(fallbackItem);
-    const cantidad = Math.abs(firstNumeric(raw.cantidad, raw.deltaPrincipal, 0));
+    for (const [keyRaw, qtyRaw] of Object.entries(rawQtyByKey)) {
+      const key = String(keyRaw || '').trim().toUpperCase();
+      const qty = Math.abs(firstNumeric(qtyRaw, 0));
 
-    if (key && cantidad > 0) {
-      qtyByKey.set(key, (qtyByKey.get(key) ?? 0) + cantidad);
+      if (!key || qty <= 0) continue;
+
+      const label = String(
+        rawLabelByKey[keyRaw] ||
+          rawLabelByKey[key] ||
+          labelFromProductKeyForPdf(key)
+      ).trim();
+
+      qtyByKey.set(key, (qtyByKey.get(key) ?? 0) + qty);
       if (!labelByKey.has(key)) labelByKey.set(key, label);
 
+      addInventoryAlias(keyByAlias, key, key);
       addInventoryAlias(keyByAlias, key, label);
-      addInventoryAlias(keyByAlias, key, raw.productoNombre);
-      addInventoryAlias(keyByAlias, key, raw.productoCodigo);
+      addInventoryAlias(keyByAlias, key, labelFromProductKeyForPdf(key, label));
     }
-  }
 
-  return { qtyByKey, labelByKey, keyByAlias };
+    return { qtyByKey, labelByKey, keyByAlias };
+  } catch (error) {
+    console.error('[PDF SALIDAS GLOBAL] No se pudo leer /api/inventory/global-outputs:', error);
+    return { qtyByKey, labelByKey, keyByAlias };
+  }
 }
 
 export default function AdminAsignacionesPage() {
@@ -1012,6 +1172,7 @@ export default function AdminAsignacionesPage() {
 
     const inventoryGlobal = await getInventoryGlobalOutputsForDriverPdf(
       workDate,
+      api.selectedAssignment.driver_id,
       driverName,
       driverCodeForInventory
     );
@@ -1034,31 +1195,88 @@ export default function AdminAsignacionesPage() {
       return af.localeCompare(bf, 'es', { numeric: true });
     });
 
-    const productKeyLabelMap = new Map<string, string>();
+    const deliveryProductIds = Array.from(
+      new Set(
+        deliveries
+          .flatMap((delivery) => delivery.items || [])
+          .map((item) => String(item?.product_id || '').trim())
+          .filter(Boolean)
+      )
+    );
 
-    for (const [key, label] of inventoryGlobal.labelByKey.entries()) {
-      productKeyLabelMap.set(key, label);
+    const productById = new Map<string, PdfProductMeta>();
+
+    for (const p of api.products || []) {
+      productById.set(String(p.id), {
+        id: String(p.id),
+        nombre: p.nombre,
+        kind: p.kind,
+        ice_type: p.ice_type,
+        kg_por_unidad: p.kg_por_unidad,
+      });
     }
+
+    const missingProductIds = deliveryProductIds.filter((id) => !productById.has(id));
+
+    if (missingProductIds.length > 0) {
+      const { data: settingRows } = await (supabaseBrowser as never as any)
+        .from('inventory_product_settings')
+        .select('id,nombre_comercial,firebase_tipo_hielo,peso_kg')
+        .in('id', missingProductIds);
+
+      for (const p of settingRows ?? []) {
+        productById.set(String(p.id), {
+          id: String(p.id),
+          nombre_comercial: p.nombre_comercial ?? null,
+          firebase_tipo_hielo: p.firebase_tipo_hielo ?? null,
+          peso_kg: p.peso_kg ?? null,
+        });
+      }
+    }
+
+    const stillMissingProductIds = deliveryProductIds.filter((id) => !productById.has(id));
+
+    if (stillMissingProductIds.length > 0) {
+      const { data: productRows } = await (supabaseBrowser as never as any)
+        .from('products')
+        .select('id,nombre,kind,ice_type,kg_por_unidad')
+        .in('id', stillMissingProductIds);
+
+      for (const p of productRows ?? []) {
+        productById.set(String(p.id), {
+          id: String(p.id),
+          nombre: p.nombre ?? null,
+          kind: p.kind ?? null,
+          ice_type: p.ice_type ?? null,
+          kg_por_unidad: p.kg_por_unidad ?? null,
+        });
+      }
+    }
+
+    const productKeyLabelMap = new Map<string, string>();
 
     for (const delivery of deliveries) {
       for (const item of delivery.items || []) {
-        const productName = String(item?.product_nombre || '').trim();
-        if (!productName) continue;
+        const productKey = getPdfItemProductKey(item, productById);
+        if (!productKey) continue;
 
-        const productKey = resolvePdfProductKey(productName, inventoryGlobal);
+        const productName = getPdfItemProductName(item, productById);
+        const label = labelFromProductKeyForPdf(productKey, productName);
 
         if (!productKeyLabelMap.has(productKey)) {
-          productKeyLabelMap.set(productKey, productName);
+          productKeyLabelMap.set(productKey, label);
         }
-
-        addInventoryAlias(inventoryGlobal.keyByAlias, productKey, productName);
       }
     }
 
     const productKeys = Array.from(productKeyLabelMap.keys()).sort((a, b) => {
+      const wa = productSortWeightForPdf(a);
+      const wb = productSortWeightForPdf(b);
+      if (wa !== wb) return wa - wb;
+
       const an = productKeyLabelMap.get(a) || a;
       const bn = productKeyLabelMap.get(b) || b;
-      return an.localeCompare(bn, 'es', { sensitivity: 'base' });
+      return an.localeCompare(bn, 'es', { sensitivity: 'base', numeric: true });
     });
 
     const assignedByProduct = new Map<string, number>();
@@ -1078,19 +1296,11 @@ export default function AdminAsignacionesPage() {
         const productLabel = productKeyLabelMap.get(productKey) || productKey;
 
         return `
-          <th colspan="2" class="center product-group">${escapeHtml(productLabel)}</th>
+          <th rowspan="2" class="center product-group">${escapeHtml(productLabel)}</th>
         `;
       })
       .join('');
 
-    const headerBottomHtml = productKeys
-      .map(
-        () => `
-          <th class="center mini-col"> </th>
-          <th class="center mini-col"> </th>
-        `
-      )
-      .join('');
 
     const rowsHtml = deliveries
       .map((delivery, idx) => {
@@ -1115,10 +1325,8 @@ export default function AdminAsignacionesPage() {
         }
 
         for (const item of delivery.items || []) {
-          const productName = String(item?.product_nombre || '').trim();
-          if (!productName) continue;
-
-          const productKey = resolvePdfProductKey(productName, inventoryGlobal);
+          const productKey = getPdfItemProductKey(item, productById);
+          if (!productKey) continue;
 
           if (!rowByProduct.has(productKey)) {
             rowByProduct.set(productKey, {
@@ -1203,14 +1411,8 @@ export default function AdminAsignacionesPage() {
 
             const qtyLabel = qtyDelivered > 0 ? `${qtyDelivered}` : '';
 
-            const priceLabel =
-              !cancelled && qtyDelivered > 0 && row.unitPrice > 0
-                ? `$ ${moneyPlain(row.unitPrice)}`
-                : '';
-
             return `
               <td class="center qty-cell">${qtyLabel}</td>
-              <td class="money price-cell">${priceLabel}</td>
             `;
           })
           .join('');
@@ -1245,7 +1447,7 @@ export default function AdminAsignacionesPage() {
 
     const minRows = 22;
     const blankRowsCount = Math.max(0, minRows - deliveries.length);
-    const blankProductCells = productKeys.map(() => `<td></td><td></td>`).join('');
+    const blankProductCells = productKeys.map(() => `<td></td>`).join('');
 
     const blankRowsHtml = Array.from({ length: blankRowsCount })
       .map(
@@ -1262,34 +1464,35 @@ export default function AdminAsignacionesPage() {
       )
       .join('');
 
-    const soldRowProducts = productKeys
+    const salidasGlobalRowProducts = productKeys
       .map((productKey) => {
         const qty = inventoryGlobal.qtyByKey.get(productKey) ?? 0;
         return `
-          <td colspan="2" class="center summary-qty summary-cell-summary summary-merge-cell">${qty}</td>
+          <td class="center summary-qty summary-cell-summary summary-merge-cell">${qty}</td>
         `;
       })
       .join('');
 
-const diffRowProducts = productKeys
-  .map((productKey) => {
-    const salidasGlobal = inventoryGlobal.qtyByKey.get(productKey) ?? 0;
-    const vendidoReal = soldByProduct.get(productKey) ?? 0;
-    const diff = salidasGlobal - vendidoReal;
 
-    const cls =
-      diff > 0 ? 'diff-positive' : diff < 0 ? 'diff-negative' : 'diff-zero';
+    const diffRowProducts = productKeys
+      .map((productKey) => {
+        const salidasGlobal = inventoryGlobal.qtyByKey.get(productKey) ?? 0;
+        const vendidoReal = soldByProduct.get(productKey) ?? 0;
+        const diff = salidasGlobal - vendidoReal;
 
-    return `
-      <td colspan="2" class="center summary-qty summary-cell-summary summary-merge-cell ${cls}">${signedQty(diff)}</td>
-    `;
-  })
-  .join('');
+        const cls =
+          diff > 0 ? 'diff-positive' : diff < 0 ? 'diff-negative' : 'diff-zero';
+
+        return `
+          <td class="center summary-qty summary-cell-summary summary-merge-cell ${cls}">${signedQty(diff)}</td>
+        `;
+      })
+      .join('');
 
     const summaryRowsHtml = `
       <tr class="summary-row summary-row-dark">
         <th colspan="3" class="summary-label summary-dark">SALIDAS GLOBAL:</th>
-        ${soldRowProducts}
+        ${salidasGlobalRowProducts}
         <td class="summary-dark"></td>
         <td class="summary-dark"></td>
       </tr>
@@ -1510,9 +1713,6 @@ const diffRowProducts = productKeys
               <div class="left-meta">
 NOMBRE:
 FECHA:
-VEHÍCULO:
-KILOMETRAJE INICIAL:
-KILOMETRAJE FINAL:
               </div>
 
               <div class="center-meta">
@@ -1543,9 +1743,7 @@ KM RECORRIDOS: ${escapeHtml(
                   <th rowspan="2" style="width:86px;">EFECTIVO</th>
                   <th rowspan="2" style="width:86px;">CRÉDITO</th>
                 </tr>
-                <tr>
-                  ${headerBottomHtml}
-                </tr>
+
               </thead>
               <tbody>
                 ${rowsHtml}
@@ -1600,6 +1798,7 @@ KM RECORRIDOS: ${escapeHtml(
     api.selectedAssignment,
     api.workDate,
     api.drivers,
+    api.products,
     selectedAssignmentDeliveriesAll,
   ]);
 
@@ -1775,9 +1974,6 @@ KM RECORRIDOS: ${escapeHtml(
             <div class="left-meta">
 NOMBRE: ${escapeHtml(driverName)}
 FECHA: ${escapeHtml(formatOnlyDate(api.workDate))}
-VEHÍCULO: —
-KILOMETRAJE INICIAL: —
-KILOMETRAJE FINAL: —
             </div>
 
             <div class="center-meta">

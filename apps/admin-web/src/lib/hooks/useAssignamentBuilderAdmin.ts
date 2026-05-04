@@ -2,14 +2,16 @@
 
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { supabaseBrowser } from '@/lib/supabase/client';
+import { useCommercialInventoryProduct } from '@/lib/hooks/useCommercialInventoryProducts';
 
 const sb = supabaseBrowser as unknown as any;
 
 const T_DRIVERS = 'drivers';
 const T_CUSTOMERS = 'customers';
 const T_DINERS = 'diners';
-const T_PRODUCTS = 'products';
-const T_CPP = 'customer_products';
+
+const T_PRODUCTS = 'inventory_product_settings';
+const T_CPP = 'customer_inventory_products';
 
 const T_ASSIGNMENTS = 'assignments';
 const T_ROUTES = 'routes';
@@ -30,6 +32,10 @@ export type DriverUI = {
   nombre: string;
   activo: boolean;
   current_status: string;
+  firebase_codigo?: string | null;
+  firebase_nombre?: string | null;
+  synced_from_inventory?: boolean;
+  only_in_inventory?: boolean;
 };
 
 export type CustomerUI = {
@@ -65,11 +71,9 @@ export type ProductForCustomerUI = {
   kind: string | null;
   ice_type: string | null;
   kg_por_unidad: number;
-
   precio_base: number;
   precio_override: number | null;
   precio_cliente_final: number;
-
   stock_actual: number;
   suggested_qty: number;
 };
@@ -127,6 +131,7 @@ export type DeliveryDetailedUI = DeliveryUI & {
 
 function todayMx() {
   const now = new Date();
+
   return new Intl.DateTimeFormat('en-CA', {
     timeZone: 'America/Mexico_City',
     year: 'numeric',
@@ -137,6 +142,7 @@ function todayMx() {
 
 function safeErr(e: unknown) {
   const anyE = e as any;
+
   return (
     (typeof anyE?.message === 'string' && anyE.message) ||
     (typeof anyE?.error_description === 'string' && anyE.error_description) ||
@@ -167,15 +173,20 @@ function calcSuggestedQty(
 
   let suggested = 1;
 
-  if (maxUnitsByCapacity <= 2) suggested = Math.ceil(maxUnitsByCapacity);
-  else if (maxUnitsByCapacity <= 6) suggested = Math.ceil(maxUnitsByCapacity * 0.8);
-  else suggested = Math.ceil(maxUnitsByCapacity * 0.5);
+  if (maxUnitsByCapacity <= 2) {
+    suggested = Math.ceil(maxUnitsByCapacity);
+  } else if (maxUnitsByCapacity <= 6) {
+    suggested = Math.ceil(maxUnitsByCapacity * 0.8);
+  } else {
+    suggested = Math.ceil(maxUnitsByCapacity * 0.5);
+  }
 
   return clamp(Math.max(1, suggested), 1, stock);
 }
 
 function toNullableNumber(value: unknown): number | null {
   if (value === null || value === undefined || value === '') return null;
+
   const n = Number(value);
   return Number.isFinite(n) ? n : null;
 }
@@ -186,6 +197,12 @@ function normalizePaymentMethod(value: unknown): string {
 }
 
 export function useAssignmentsBuilderAdmin() {
+  const {
+    products: commercialProducts,
+    loading: commercialProductsLoading,
+    error: commercialProductsError,
+  } = useCommercialInventoryProduct();
+
   const [loading, setLoading] = useState(true);
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState('');
@@ -204,13 +221,17 @@ export function useAssignmentsBuilderAdmin() {
 
   const productsById = useMemo(() => {
     const m = new Map<string, ProductUI>();
-    for (const p of products) m.set(p.id, p);
+    for (const p of products) {
+      m.set(p.id, p);
+    }
     return m;
   }, [products]);
 
   const customersById = useMemo(() => {
     const m = new Map<string, CustomerUI>();
-    for (const c of customers) m.set(c.id, c);
+    for (const c of customers) {
+      m.set(c.id, c);
+    }
     return m;
   }, [customers]);
 
@@ -226,10 +247,12 @@ export function useAssignmentsBuilderAdmin() {
   }, [deliveriesOfSelected, itemsByDelivery]);
 
   const loadCatalog = useCallback(async () => {
-    const [driversRes, dinersRes, customersRes, productsRes, cppRes] = await Promise.all([
+    const [driversRes, dinersRes, customersRes, pricingRes] = await Promise.all([
       sb
         .from(T_DRIVERS)
-        .select('id,nombre,activo,current_status')
+        .select(
+          'id,nombre,activo,current_status,firebase_codigo,firebase_nombre,synced_from_inventory'
+        )
         .order('nombre', { ascending: true }),
 
       sb.from(T_DINERS).select('id,nombre'),
@@ -240,32 +263,30 @@ export function useAssignmentsBuilderAdmin() {
         .order('nombre', { ascending: true }),
 
       sb
-        .from(T_PRODUCTS)
-        .select('id,nombre,precio_base,stock_actual,kind,ice_type,kg_por_unidad')
-        .order('nombre', { ascending: true }),
-
-      sb
         .from(T_CPP)
-        .select('customer_id,product_id,precio_override,activo')
+        .select('customer_id,inventory_product_setting_id,precio_override,activo')
         .eq('activo', true),
     ]);
 
     if (driversRes.error) throw driversRes.error;
     if (dinersRes.error) throw dinersRes.error;
     if (customersRes.error) throw customersRes.error;
-    if (productsRes.error) throw productsRes.error;
-    if (cppRes.error) throw cppRes.error;
+    if (pricingRes.error) throw pricingRes.error;
 
     const dinersMap = new Map<string, string>();
+
     for (const d of dinersRes.data ?? []) {
       dinersMap.set(String(d.id), String(d.nombre ?? ''));
     }
 
     const mappedDrivers: DriverUI[] = (driversRes.data ?? []).map((r: any) => ({
       id: String(r.id),
-      nombre: String(r.nombre ?? ''),
+      nombre: String(r.nombre ?? r.firebase_nombre ?? ''),
       activo: Boolean(r.activo ?? true),
       current_status: String(r.current_status ?? 'available'),
+      firebase_codigo: r.firebase_codigo ? String(r.firebase_codigo) : null,
+      firebase_nombre: r.firebase_nombre ? String(r.firebase_nombre) : null,
+      synced_from_inventory: Boolean(r.synced_from_inventory ?? false),
     }));
 
     const mappedCustomers: CustomerUI[] = (customersRes.data ?? []).map((r: any) => ({
@@ -278,36 +299,48 @@ export function useAssignmentsBuilderAdmin() {
       activo: Boolean(r.activo ?? true),
     }));
 
-    const mappedProducts: ProductUI[] = (productsRes.data ?? []).map((r: any) => ({
-      id: String(r.id),
-      nombre: String(r.nombre ?? ''),
-      precio_base: Number(r.precio_base ?? 0),
-      stock_actual: Math.max(0, Math.floor(Number(r.stock_actual ?? 0))),
-      kind: r.kind ?? null,
-      ice_type: r.ice_type ?? null,
-      kg_por_unidad: Number(r.kg_por_unidad ?? 1),
-    }));
+    const mappedProducts: ProductUI[] = (commercialProducts ?? [])
+      .filter((p: any) => {
+        return Boolean(p.configured) && Boolean(p.activoComercial) && Boolean(p.settingId);
+      })
+      .map((p: any): ProductUI => {
+        const tipo = String(p.tipoHielo ?? '').trim();
+        const kg = Number(p.pesoKg ?? 0);
+        const nombre = String(p.nombreComercial ?? p.displayName ?? '').trim();
 
-    const mappedCustomerProducts: CustomerProductUI[] = (cppRes.data ?? []).map((r: any) => ({
-      customer_id: String(r.customer_id),
-      product_id: String(r.product_id),
-      precio_override:
-        r.precio_override === null || r.precio_override === undefined
-          ? null
-          : Number(r.precio_override),
-      activo: Boolean(r.activo ?? true),
-    }));
+        return {
+          id: String(p.settingId),
+          nombre: nombre || String(p.displayName ?? 'Producto'),
+          precio_base: Number(p.precioBase ?? 0),
+          stock_actual: Math.max(0, Math.floor(Number(p.stockActual ?? 0))),
+          kind: tipo === 'BARRA' ? 'barra' : 'bolsa',
+          ice_type: tipo || null,
+          kg_por_unidad: kg > 0 ? kg : 1,
+        };
+      });
+
+    const mappedCustomerProducts: CustomerProductUI[] = (pricingRes.data ?? []).map(
+      (r: any) => ({
+        customer_id: String(r.customer_id),
+        product_id: String(r.inventory_product_setting_id),
+        precio_override:
+          r.precio_override === null || r.precio_override === undefined
+            ? null
+            : Number(r.precio_override),
+        activo: Boolean(r.activo ?? true),
+      })
+    );
 
     setDrivers(mappedDrivers);
     setCustomers(mappedCustomers);
     setProducts(mappedProducts);
     setCustomerProducts(mappedCustomerProducts);
-  }, []);
+  }, [commercialProducts]);
 
   const loadAssignmentsOfDay = useCallback(async (date: string) => {
     const { data: assRows, error: assErr } = await sb
       .from(T_ASSIGNMENTS)
-      .select('id,driver_id,work_date,status')
+      .select('id,driver_id,work_date,status,created_at')
       .eq('work_date', date)
       .neq('status', 'CANCELADA')
       .order('created_at', { ascending: false });
@@ -315,24 +348,33 @@ export function useAssignmentsBuilderAdmin() {
     if (assErr) throw assErr;
 
     const raw = assRows ?? [];
-    const assignmentIds = raw.map((x: any) => String(x.id));
-    const driverIds = [...new Set(raw.map((x: any) => String(x.driver_id)).filter(Boolean))];
+    const assignmentIds: string[] = raw.map((x: any) => String(x.id));
+
+    const driverIds: string[] = Array.from(
+      new Set<string>(
+        raw
+          .map((x: any) => String(x.driver_id || ''))
+          .filter((id: string) => id.length > 0)
+      )
+    );
 
     const driverMap = new Map<string, string>();
+
     if (driverIds.length > 0) {
       const { data: drRows, error: drErr } = await sb
         .from(T_DRIVERS)
-        .select('id,nombre')
+        .select('id,nombre,firebase_nombre')
         .in('id', driverIds);
 
       if (drErr) throw drErr;
 
       for (const d of drRows ?? []) {
-        driverMap.set(String(d.id), String(d.nombre ?? ''));
+        driverMap.set(String(d.id), String(d.nombre ?? d.firebase_nombre ?? ''));
       }
     }
 
     const countMap = new Map<string, number>();
+
     if (assignmentIds.length > 0) {
       const { data: delRows, error: delErr } = await sb
         .from(T_DELIVERIES)
@@ -348,10 +390,11 @@ export function useAssignmentsBuilderAdmin() {
     }
 
     const routeMap = new Map<string, AssignmentRouteUI>();
+
     if (assignmentIds.length > 0) {
       const { data: routeRows, error: routeErr } = await sb
         .from(T_ROUTES)
-        .select('id,assignment_id,status,started_at,ended_at,km_start,km_end')
+        .select('id,assignment_id,status,started_at,ended_at,km_start,km_end,created_at')
         .in('assignment_id', assignmentIds)
         .order('created_at', { ascending: false });
 
@@ -359,6 +402,7 @@ export function useAssignmentsBuilderAdmin() {
 
       for (const r of routeRows ?? []) {
         const assignmentId = String(r.assignment_id);
+
         if (routeMap.has(assignmentId)) continue;
 
         routeMap.set(assignmentId, {
@@ -387,119 +431,148 @@ export function useAssignmentsBuilderAdmin() {
 
     setSelectedAssignmentId((prev) => {
       if (prev && mapped.some((a) => a.id === prev)) return prev;
-      return prev ? '' : prev;
+      return '';
     });
   }, []);
 
-  const loadDeliveriesForAssignment = useCallback(async (assignmentId: string) => {
-    if (!assignmentId) {
-      setDeliveriesOfSelected([]);
-      setItemsByDelivery({});
-      return;
-    }
-
-    const { data, error } = await sb
-      .from(T_DELIVERIES)
-      .select(
-        'id,assignment_id,customer_id,customer_nombre_snapshot,diner_nombre_snapshot,folio,priority,total_expected,total_real,status,payment_method,delivered_at'
-      )
-      .eq('assignment_id', assignmentId)
-      .order('created_at', { ascending: true });
-
-    if (error) throw error;
-
-    const mapped: DeliveryUI[] = (data ?? []).map((r: any) => ({
-      id: String(r.id),
-      assignment_id: String(r.assignment_id),
-      customer_id: String(r.customer_id),
-      customer_nombre_snapshot: r.customer_nombre_snapshot ?? null,
-      diner_nombre_snapshot: r.diner_nombre_snapshot ?? null,
-      folio: String(r.folio ?? ''),
-      priority:
-        r.priority === null || r.priority === undefined ? null : Number(r.priority),
-      total_expected:
-        r.total_expected === null || r.total_expected === undefined
-          ? null
-          : Number(r.total_expected),
-      total_real:
-        r.total_real === null || r.total_real === undefined
-          ? null
-          : Number(r.total_real),
-      status: String(r.status ?? 'PENDIENTE'),
-      payment_method: normalizePaymentMethod(r.payment_method),
-      delivered_at: r.delivered_at ? String(r.delivered_at) : null,
-    }));
-
-    mapped.sort((a, b) => (a.priority ?? 100) - (b.priority ?? 100));
-    setDeliveriesOfSelected(mapped);
-
-    const deliveryIds = mapped.map((d) => d.id);
-    if (deliveryIds.length === 0) {
-      setItemsByDelivery({});
-      return;
-    }
-
-    const { data: itemRows, error: itemErr } = await sb
-      .from(T_DELIVERY_ITEMS)
-      .select('id,delivery_id,product_id,qty_assigned,qty_real,precio_aplicado')
-      .in('delivery_id', deliveryIds)
-      .order('created_at', { ascending: true });
-
-    if (itemErr) throw itemErr;
-
-    const productIds = [
-      ...new Set((itemRows ?? []).map((x: any) => String(x.product_id)).filter(Boolean)),
-    ];
-
-    const productNameMap = new Map<string, string>();
-    if (productIds.length > 0) {
-      const { data: productRows, error: productErr } = await sb
-        .from(T_PRODUCTS)
-        .select('id,nombre')
-        .in('id', productIds);
-
-      if (productErr) throw productErr;
-
-      for (const p of productRows ?? []) {
-        productNameMap.set(String(p.id), String(p.nombre ?? 'Producto'));
+  const loadDeliveriesForAssignment = useCallback(
+    async (assignmentId: string) => {
+      if (!assignmentId) {
+        setDeliveriesOfSelected([]);
+        setItemsByDelivery({});
+        return;
       }
-    }
 
-    const grouped: Record<string, DeliveryItemUI[]> = {};
+      const { data, error } = await sb
+        .from(T_DELIVERIES)
+        .select(
+          'id,assignment_id,customer_id,customer_nombre_snapshot,diner_nombre_snapshot,folio,priority,total_expected,total_real,status,payment_method,delivered_at,created_at'
+        )
+        .eq('assignment_id', assignmentId)
+        .order('created_at', { ascending: true });
 
-    for (const row of itemRows ?? []) {
-      const deliveryId = String(row.delivery_id);
-      const qtyAssigned = Math.max(0, Math.floor(Number(row.qty_assigned ?? 0)));
-      const qtyReal = Math.max(
-        0,
-        Math.floor(
-          Number(
-            row.qty_real === null || row.qty_real === undefined
-              ? row.qty_assigned ?? 0
-              : row.qty_real
-          )
+      if (error) throw error;
+
+      const mapped: DeliveryUI[] = (data ?? []).map((r: any) => ({
+        id: String(r.id),
+        assignment_id: String(r.assignment_id),
+        customer_id: String(r.customer_id),
+        customer_nombre_snapshot: r.customer_nombre_snapshot ?? null,
+        diner_nombre_snapshot: r.diner_nombre_snapshot ?? null,
+        folio: String(r.folio ?? ''),
+        priority:
+          r.priority === null || r.priority === undefined
+            ? null
+            : Number(r.priority),
+        total_expected:
+          r.total_expected === null || r.total_expected === undefined
+            ? null
+            : Number(r.total_expected),
+        total_real:
+          r.total_real === null || r.total_real === undefined
+            ? null
+            : Number(r.total_real),
+        status: String(r.status ?? 'PENDIENTE'),
+        payment_method: normalizePaymentMethod(r.payment_method),
+        delivered_at: r.delivered_at ? String(r.delivered_at) : null,
+      }));
+
+      mapped.sort((a, b) => (a.priority ?? 100) - (b.priority ?? 100));
+
+      setDeliveriesOfSelected(mapped);
+
+      const deliveryIds: string[] = mapped.map((d) => d.id);
+
+      if (deliveryIds.length === 0) {
+        setItemsByDelivery({});
+        return;
+      }
+
+      const { data: itemRows, error: itemErr } = await sb
+        .from(T_DELIVERY_ITEMS)
+        .select('id,delivery_id,product_id,qty_assigned,qty_real,precio_aplicado,created_at')
+        .in('delivery_id', deliveryIds)
+        .order('created_at', { ascending: true });
+
+      if (itemErr) throw itemErr;
+
+      const productIds: string[] = Array.from(
+        new Set<string>(
+          (itemRows ?? [])
+            .map((x: any) => String(x.product_id || ''))
+            .filter((id: string) => id.length > 0)
         )
       );
-      const precioAplicado = Number(row.precio_aplicado ?? 0);
 
-      const parsed: DeliveryItemUI = {
-        id: String(row.id),
-        delivery_id: deliveryId,
-        product_id: String(row.product_id),
-        product_nombre: productNameMap.get(String(row.product_id)) ?? 'Producto',
-        qty_assigned: qtyAssigned,
-        qty_real: qtyReal,
-        precio_aplicado: precioAplicado,
-        subtotal_expected: qtyAssigned * precioAplicado,
-        subtotal_real: qtyReal * precioAplicado,
-      };
+      const productNameMap = new Map<string, string>();
 
-      if (!grouped[deliveryId]) grouped[deliveryId] = [];
-      grouped[deliveryId].push(parsed);
-    }
+      for (const p of products) {
+        productNameMap.set(String(p.id), String(p.nombre ?? 'Producto'));
+      }
 
-    setItemsByDelivery(grouped);
-  }, []);
+      const missingIds: string[] = productIds.filter(
+        (id: string) => !productNameMap.has(id)
+      );
+
+      if (missingIds.length > 0) {
+        const { data: productRows, error: productErr } = await sb
+          .from(T_PRODUCTS)
+          .select('id,nombre_comercial,firebase_tipo_hielo,peso_kg')
+          .in('id', missingIds);
+
+        if (!productErr) {
+          for (const p of productRows ?? []) {
+            const tipo = String(p.firebase_tipo_hielo ?? '').trim();
+            const kg = Number(p.peso_kg ?? 0);
+            const fallback = tipo && kg > 0 ? `${tipo} ${kg}KG` : 'Producto';
+
+            productNameMap.set(
+              String(p.id),
+              String(p.nombre_comercial ?? fallback)
+            );
+          }
+        }
+      }
+
+      const grouped: Record<string, DeliveryItemUI[]> = {};
+
+      for (const row of itemRows ?? []) {
+        const deliveryId = String(row.delivery_id);
+        const qtyAssigned = Math.max(0, Math.floor(Number(row.qty_assigned ?? 0)));
+
+        const qtyReal = Math.max(
+          0,
+          Math.floor(
+            Number(
+              row.qty_real === null || row.qty_real === undefined
+                ? row.qty_assigned ?? 0
+                : row.qty_real
+            )
+          )
+        );
+
+        const precioAplicado = Number(row.precio_aplicado ?? 0);
+
+        const parsed: DeliveryItemUI = {
+          id: String(row.id),
+          delivery_id: deliveryId,
+          product_id: String(row.product_id),
+          product_nombre: productNameMap.get(String(row.product_id)) ?? 'Producto',
+          qty_assigned: qtyAssigned,
+          qty_real: qtyReal,
+          precio_aplicado: precioAplicado,
+          subtotal_expected: qtyAssigned * precioAplicado,
+          subtotal_real: qtyReal * precioAplicado,
+        };
+
+        if (!grouped[deliveryId]) grouped[deliveryId] = [];
+        grouped[deliveryId].push(parsed);
+      }
+
+      setItemsByDelivery(grouped);
+    },
+    [products]
+  );
 
   const refreshDay = useCallback(
     async (date: string) => {
@@ -510,24 +583,29 @@ export function useAssignmentsBuilderAdmin() {
         await loadCatalog();
         await loadAssignmentsOfDay(date);
 
-        if (selectedAssignmentId) {
-          await loadDeliveriesForAssignment(selectedAssignmentId);
-        } else {
-          setDeliveriesOfSelected([]);
-          setItemsByDelivery({});
-        }
+        setDeliveriesOfSelected([]);
+        setItemsByDelivery({});
       } catch (e: unknown) {
         setErr(safeErr(e));
       } finally {
         setLoading(false);
       }
     },
-    [loadCatalog, loadAssignmentsOfDay, loadDeliveriesForAssignment, selectedAssignmentId]
+    [loadCatalog, loadAssignmentsOfDay]
   );
 
   useEffect(() => {
+    if (commercialProductsLoading) return;
+
+    if (commercialProductsError) {
+      setErr(commercialProductsError);
+      setLoading(false);
+      return;
+    }
+
     refreshDay(workDate);
-  }, [workDate, refreshDay]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [workDate, commercialProductsLoading, commercialProductsError]);
 
   useEffect(() => {
     if (!selectedAssignmentId) {
@@ -546,15 +624,21 @@ export function useAssignmentsBuilderAdmin() {
       const customer = customersById.get(customerId);
       if (!customer) return [];
 
-      const rows = customerProducts.filter((r) => r.customer_id === customerId && r.activo);
+      const rows = customerProducts.filter((r) => {
+        return r.customer_id === customerId && r.activo;
+      });
+
       const out: ProductForCustomerUI[] = [];
 
       for (const row of rows) {
         const p = productsById.get(row.product_id);
+
         if (!p) continue;
 
         const precioFinal =
-          typeof row.precio_override === 'number' ? row.precio_override : p.precio_base;
+          typeof row.precio_override === 'number'
+            ? row.precio_override
+            : p.precio_base;
 
         out.push({
           id: p.id,
@@ -562,14 +646,12 @@ export function useAssignmentsBuilderAdmin() {
           kind: p.kind,
           ice_type: p.ice_type,
           kg_por_unidad: Number(p.kg_por_unidad ?? 1),
-
           precio_base: Number(p.precio_base ?? 0),
           precio_override:
             row.precio_override === null || row.precio_override === undefined
               ? null
               : Number(row.precio_override),
           precio_cliente_final: Number(precioFinal ?? 0),
-
           stock_actual: Math.max(0, Math.floor(Number(p.stock_actual ?? 0))),
           suggested_qty: calcSuggestedQty(
             String(customer.capacidad_equipo ?? 'N/A'),
@@ -579,7 +661,7 @@ export function useAssignmentsBuilderAdmin() {
         });
       }
 
-      out.sort((a, b) => a.nombre.localeCompare(b.nombre));
+      out.sort((a, b) => a.nombre.localeCompare(b.nombre, 'es'));
       return out;
     },
     [customerProducts, customersById, productsById]
@@ -604,7 +686,10 @@ export function useAssignmentsBuilderAdmin() {
 
       if (exErr) throw exErr;
 
-      const existingId = existingRows?.[0]?.id ? String(existingRows[0].id) : null;
+      const existingId = existingRows?.[0]?.id
+        ? String(existingRows[0].id)
+        : null;
+
       if (existingId) return existingId;
 
       const { data: created, error: crErr } = await sb
@@ -620,7 +705,9 @@ export function useAssignmentsBuilderAdmin() {
       if (crErr) throw crErr;
 
       const id = created?.id ? String(created.id) : null;
+
       await loadAssignmentsOfDay(date);
+
       return id;
     } catch (e: unknown) {
       setErr(safeErr(e));
@@ -651,12 +738,13 @@ export function useAssignmentsBuilderAdmin() {
             if (!p) return null;
 
             const qty = Math.max(1, Math.floor(Number(it.qty || 1)));
+            const precioAplicado = Number(p.precio_cliente_final || 0);
 
             return {
               product_id: it.product_id,
               qty,
-              precio_aplicado: Number(p.precio_cliente_final || 0),
-              subtotal: Number(p.precio_cliente_final || 0) * qty,
+              precio_aplicado: precioAplicado,
+              subtotal: precioAplicado * qty,
             };
           })
           .filter(Boolean) as Array<{
@@ -691,6 +779,7 @@ export function useAssignmentsBuilderAdmin() {
         if (delErr) throw delErr;
 
         const deliveryId = deliveryCreated?.id ? String(deliveryCreated.id) : null;
+
         if (!deliveryId) {
           throw new Error('No se pudo crear la entrega.');
         }
@@ -703,7 +792,10 @@ export function useAssignmentsBuilderAdmin() {
           precio_aplicado: it.precio_aplicado,
         }));
 
-        const { error: itemErr } = await sb.from(T_DELIVERY_ITEMS).insert(itemsPayload);
+        const { error: itemErr } = await sb
+          .from(T_DELIVERY_ITEMS)
+          .insert(itemsPayload);
+
         if (itemErr) throw itemErr;
       }
 

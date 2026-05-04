@@ -3,6 +3,10 @@
     "supabase": "^2.83.0"
   },
   "dependencies": {
-    "firebase": "^12.12.1"
+    "@supabase/supabase-js": "^2.105.1",
+    "dotenv": "^17.4.2",
+    "firebase": "^12.12.1",
+    "firebase-admin": "^13.8.0",
+    "tsx": "^4.21.0"
   }
 }

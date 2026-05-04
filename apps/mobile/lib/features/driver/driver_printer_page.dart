@@ -1,7 +1,7 @@
 import 'dart:async';
 
 import 'package:flutter/material.dart';
-import 'package:bluetooth_print_plus/bluetooth_print_plus.dart' hide Alignment;
+import 'package:blue_thermal_printer/blue_thermal_printer.dart' as thermal;
 import 'package:shared_preferences/shared_preferences.dart';
 
 import 'package:mobile/services/printer_service.dart';
@@ -32,7 +32,7 @@ class _DriverPrinterPageState extends State<DriverPrinterPage> {
 
   final PrinterService _printer = PrinterService.instance;
 
-  List<BluetoothDevice> _devices = <BluetoothDevice>[];
+  List<thermal.BluetoothDevice> _devices = <thermal.BluetoothDevice>[];
   bool _scanning = false;
   bool _busy = false;
   bool _connected = false;
@@ -40,11 +40,11 @@ class _DriverPrinterPageState extends State<DriverPrinterPage> {
 
   String? _statusText;
   String? _errorText;
-  BluetoothDevice? _selected;
+  thermal.BluetoothDevice? _selected;
   String? _savedAddress;
   String? _savedName;
 
-  StreamSubscription<List<BluetoothDevice>>? _scanSub;
+  StreamSubscription<List<thermal.BluetoothDevice>>? _scanSub;
   StreamSubscription<dynamic>? _scanStateSub;
   StreamSubscription<dynamic>? _connectStateSub;
 
@@ -70,10 +70,10 @@ class _DriverPrinterPageState extends State<DriverPrinterPage> {
 
   void _initStreams() {
     _scanSub = _printer.scanResults.listen(
-      (List<BluetoothDevice> event) async {
+      (List<thermal.BluetoothDevice> event) async {
         if (!mounted) return;
 
-        final devices = List<BluetoothDevice>.from(event);
+        final devices = List<thermal.BluetoothDevice>.from(event);
 
         setState(() {
           _devices = devices;
@@ -100,12 +100,12 @@ class _DriverPrinterPageState extends State<DriverPrinterPage> {
           _scanning = scanning;
 
           if (_scanning) {
-            _statusText = 'Buscando dispositivos Bluetooth cercanos...';
+            _statusText = 'Buscando dispositivos Bluetooth vinculados...';
             _errorText = null;
             _autoReconnectTried = false;
           } else {
             _statusText = _devices.isEmpty
-                ? 'No se encontraron dispositivos Bluetooth.'
+                ? 'No se encontraron dispositivos vinculados. Primero vincula la impresora desde Ajustes Bluetooth del celular.'
                 : 'Búsqueda finalizada. Puedes conectarte a cualquier dispositivo detectado.';
           }
         });
@@ -168,7 +168,7 @@ class _DriverPrinterPageState extends State<DriverPrinterPage> {
     });
   }
 
-  Future<void> _saveSelectedDevice(BluetoothDevice device) async {
+  Future<void> _saveSelectedDevice(thermal.BluetoothDevice device) async {
     final prefs = await SharedPreferences.getInstance();
     final address = device.address ?? '';
     final name = device.name ?? '';
@@ -202,7 +202,7 @@ class _DriverPrinterPageState extends State<DriverPrinterPage> {
 
     if (_savedAddress != null) {
       setState(() {
-        _selected = BluetoothDevice(
+        _selected = thermal.BluetoothDevice(
           _savedName ?? 'Dispositivo guardado',
           _savedAddress!,
         );
@@ -218,7 +218,7 @@ class _DriverPrinterPageState extends State<DriverPrinterPage> {
     if (_savedAddress == null || _savedAddress!.isEmpty) return;
     if (_devices.isEmpty) return;
 
-    BluetoothDevice? matched;
+    thermal.BluetoothDevice? matched;
 
     for (final d in _devices) {
       if ((d.address ?? '') == _savedAddress) {
@@ -238,8 +238,8 @@ class _DriverPrinterPageState extends State<DriverPrinterPage> {
 
     setState(() {
       _busy = true;
-      _devices = <BluetoothDevice>[];
-      _statusText = 'Iniciando búsqueda de dispositivos...';
+      _devices = <thermal.BluetoothDevice>[];
+      _statusText = 'Buscando dispositivos vinculados...';
       _errorText = null;
       _autoReconnectTried = false;
     });
@@ -291,7 +291,7 @@ class _DriverPrinterPageState extends State<DriverPrinterPage> {
   }
 
   Future<void> _connect(
-    BluetoothDevice device, {
+    thermal.BluetoothDevice device, {
     bool silent = false,
     bool autoReconnect = false,
   }) async {
@@ -534,7 +534,7 @@ class _DriverPrinterPageState extends State<DriverPrinterPage> {
           ),
           const SizedBox(height: 6),
           Text(
-            'Busca dispositivos cercanos, conéctate al que necesites, guarda el último usado y realiza una prueba de impresión si es compatible.',
+            'Primero vincula la impresora desde los Ajustes Bluetooth del celular. Después presiona Buscar para verla aquí y conectarte.',
             style: TextStyle(
               color: Colors.white.withOpacity(0.72),
               fontSize: 12.5,
@@ -755,8 +755,8 @@ class _DriverPrinterPageState extends State<DriverPrinterPage> {
         child: Center(
           child: Text(
             _scanning
-                ? 'Buscando dispositivos Bluetooth cercanos...'
-                : 'No hay dispositivos detectados todavía. Pulsa "Buscar" para iniciar una búsqueda.',
+                ? 'Buscando dispositivos Bluetooth vinculados...'
+                : 'No hay dispositivos detectados todavía. Primero vincula la impresora desde Ajustes Bluetooth y luego pulsa "Buscar".',
             textAlign: TextAlign.center,
             style: const TextStyle(
               color: Colors.white70,
@@ -771,7 +771,7 @@ class _DriverPrinterPageState extends State<DriverPrinterPage> {
       itemCount: _devices.length,
       separatorBuilder: (_, __) => const SizedBox(height: 10),
       itemBuilder: (_, i) {
-        final BluetoothDevice d = _devices[i];
+        final thermal.BluetoothDevice d = _devices[i];
         final bool isSelected = (_selected?.address ?? '') == (d.address ?? '');
         final bool isSaved = (_savedAddress ?? '').isNotEmpty &&
             (_savedAddress ?? '') == (d.address ?? '');

@@ -81,14 +81,14 @@ packages:
       url: "https://pub.dev"
     source: hosted
     version: "2.0.13"
-  bluetooth_print_plus:
+  blue_thermal_printer:
     dependency: "direct main"
     description:
-      name: bluetooth_print_plus
-      sha256: "9d059064e8d7d8af9dbd1bf9b4c964428cb567d2f372a85177d9ba0f4e743d71"
+      name: blue_thermal_printer
+      sha256: "2b8a93f90be335494d2172dbc869c31b95638087f89591b4ad69fd9305eaf80b"
       url: "https://pub.dev"
     source: hosted
-    version: "2.4.6"
+    version: "1.2.3"
   boolean_selector:
     dependency: transitive
     description:

@@ -1,7 +1,7 @@
 import 'dart:typed_data';
 
 import 'package:flutter/material.dart';
-import 'package:flutter/services.dart' show rootBundle;
+import 'package:flutter/services.dart' show rootBundle, FilteringTextInputFormatter;
 import 'package:supabase_flutter/supabase_flutter.dart';
 import 'package:pdf/pdf.dart';
 import 'package:pdf/widgets.dart' as pw;
@@ -22,7 +22,8 @@ class DriverDeliveryDetailPage extends StatefulWidget {
   });
 
   @override
-  State<DriverDeliveryDetailPage> createState() => _DriverDeliveryDetailPageState();
+  State<DriverDeliveryDetailPage> createState() =>
+      _DriverDeliveryDetailPageState();
 }
 
 class _DriverDeliveryDetailPageState extends State<DriverDeliveryDetailPage> {
@@ -102,7 +103,9 @@ class _DriverDeliveryDetailPageState extends State<DriverDeliveryDetailPage> {
   void _syncControllers() {
     final validIds = _items.map((e) => e.productId).toSet();
 
-    final toRemove = _qtyControllers.keys.where((k) => !validIds.contains(k)).toList();
+    final toRemove =
+        _qtyControllers.keys.where((k) => !validIds.contains(k)).toList();
+
     for (final key in toRemove) {
       _qtyControllers[key]?.dispose();
       _qtyControllers.remove(key);
@@ -202,7 +205,8 @@ class _DriverDeliveryDetailPageState extends State<DriverDeliveryDetailPage> {
         final p = productsById[pid] ?? {};
         final qtyAssigned = ((raw['qty_assigned'] ?? 0) as num).toInt();
         final qtyRealRaw = raw['qty_real'];
-        final qtyReal = qtyRealRaw == null ? qtyAssigned : (qtyRealRaw as num).toInt();
+        final qtyReal =
+            qtyRealRaw == null ? qtyAssigned : (qtyRealRaw as num).toInt();
 
         return _DeliveryItemRow(
           productId: pid,
@@ -227,7 +231,8 @@ class _DriverDeliveryDetailPageState extends State<DriverDeliveryDetailPage> {
         _totalExpected = ((delivery['total_expected'] ?? 0) as num).toDouble();
         _totalReal = ((delivery['total_real'] ?? 0) as num).toDouble();
         _paymentMethod =
-            ((delivery['payment_method'] ?? 'EFECTIVO').toString().toUpperCase() == 'CREDITO')
+            ((delivery['payment_method'] ?? 'EFECTIVO').toString().toUpperCase() ==
+                    'CREDITO')
                 ? 'CREDITO'
                 : 'EFECTIVO';
         _items = mapped;
@@ -244,18 +249,63 @@ class _DriverDeliveryDetailPageState extends State<DriverDeliveryDetailPage> {
     }
   }
 
+  void _showError(String message) {
+    if (!mounted) return;
+
+    ScaffoldMessenger.of(context).hideCurrentSnackBar();
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(content: Text(message)),
+    );
+  }
+
   void _setQty(int index, int qty) {
-    final next = qty < 0 ? 0 : qty;
+    final item = _items[index];
+    int next = qty;
+
+    if (next < 0) {
+      next = 0;
+    }
+
+    if (next > item.qtyAssigned) {
+      next = item.qtyAssigned;
+      _showError('No puedes entregar más de ${item.qtyAssigned} en ${item.nombre}.');
+    }
 
     setState(() {
-      _items[index] = _items[index].copyWith(qtyReal: next);
+      _items[index] = item.copyWith(qtyReal: next);
       _syncControllers();
     });
   }
 
   void _setQtyFromText(int index, String value) {
+    final item = _items[index];
     final parsed = int.tryParse(value.trim()) ?? 0;
+
+    if (parsed > item.qtyAssigned) {
+      _showError('No puedes entregar más de ${item.qtyAssigned} en ${item.nombre}.');
+    }
+
     _setQty(index, parsed);
+  }
+
+  void _validateBeforeConfirm() {
+    for (final it in _items) {
+      if (it.qtyReal < 0) {
+        throw Exception('Cantidad inválida en ${it.nombre}.');
+      }
+
+      if (it.qtyReal > it.qtyAssigned) {
+        throw Exception(
+          'No puedes entregar más de ${it.qtyAssigned} en ${it.nombre}.',
+        );
+      }
+
+      if (it.qtyReal < it.qtyAssigned) {
+        throw Exception(
+          'No puedes entregar menos de lo asignado en ${it.nombre}. Asignado: ${it.qtyAssigned}.',
+        );
+      }
+    }
   }
 
   double get _previewTotalReal {
@@ -331,7 +381,9 @@ class _DriverDeliveryDetailPageState extends State<DriverDeliveryDetailPage> {
   String _normalizeTicketDescription(_DeliveryItemRow it) {
     final name = it.nombre.toUpperCase();
 
-    if (name.contains('GOURMET') && name.contains('5')) return 'BOLSA 5 KG. GOURMET';
+    if (name.contains('GOURMET') && name.contains('5')) {
+      return 'BOLSA 5 KG. GOURMET';
+    }
     if (name.contains('15') && name.contains('BOLSA')) return 'BOLSA 15 KG.';
     if (name.contains('10') && name.contains('BOLSA')) return 'BOLSA 10 KG.';
     if (name.contains('5') && name.contains('BOLSA')) return 'BOLSA 5 KG.';
@@ -454,7 +506,9 @@ class _DriverDeliveryDetailPageState extends State<DriverDeliveryDetailPage> {
   }) {
     final shownLines = [...lines];
     while (shownLines.length < 8) {
-      shownLines.add(_TicketLine(qty: 0, description: '', unitPrice: 0, amount: 0));
+      shownLines.add(
+        _TicketLine(qty: 0, description: '', unitPrice: 0, amount: 0),
+      );
     }
 
     final total = shownLines.fold<double>(
@@ -520,14 +574,22 @@ class _DriverDeliveryDetailPageState extends State<DriverDeliveryDetailPage> {
                       ),
                     ),
                     pw.SizedBox(height: 2),
-                    pw.Text('EMILIANO ZAPATA No. 32 COL. LOMAS DEL COLLI',
-                        style: const pw.TextStyle(fontSize: 8)),
-                    pw.Text('TEL. 33 36 66 01 60 / 61',
-                        style: const pw.TextStyle(fontSize: 8)),
-                    pw.Text('ZAPOPAN, JALISCO. C.P. 45010',
-                        style: const pw.TextStyle(fontSize: 8)),
-                    pw.Text('facturasglobalice@gmail.com',
-                        style: const pw.TextStyle(fontSize: 8)),
+                    pw.Text(
+                      'EMILIANO ZAPATA No. 32 COL. LOMAS DEL COLLI',
+                      style: const pw.TextStyle(fontSize: 8),
+                    ),
+                    pw.Text(
+                      'TEL. 33 36 66 01 60 / 61',
+                      style: const pw.TextStyle(fontSize: 8),
+                    ),
+                    pw.Text(
+                      'ZAPOPAN, JALISCO. C.P. 45010',
+                      style: const pw.TextStyle(fontSize: 8),
+                    ),
+                    pw.Text(
+                      'facturas@globalice.com.mx',
+                      style: const pw.TextStyle(fontSize: 8),
+                    ),
                   ],
                 ),
               ),
@@ -548,13 +610,33 @@ class _DriverDeliveryDetailPageState extends State<DriverDeliveryDetailPage> {
                 flex: 7,
                 child: pw.Row(
                   children: [
-                    pw.Expanded(child: _boxedField(label: 'Día', value: _safeDatePartDay(_deliveredAt))),
+                    pw.Expanded(
+                      child: _boxedField(
+                        label: 'Día',
+                        value: _safeDatePartDay(_deliveredAt),
+                      ),
+                    ),
                     pw.SizedBox(width: 4),
-                    pw.Expanded(child: _boxedField(label: 'Mes', value: _safeDatePartMonth(_deliveredAt))),
+                    pw.Expanded(
+                      child: _boxedField(
+                        label: 'Mes',
+                        value: _safeDatePartMonth(_deliveredAt),
+                      ),
+                    ),
                     pw.SizedBox(width: 4),
-                    pw.Expanded(child: _boxedField(label: 'Año', value: _safeDatePartYear(_deliveredAt))),
+                    pw.Expanded(
+                      child: _boxedField(
+                        label: 'Año',
+                        value: _safeDatePartYear(_deliveredAt),
+                      ),
+                    ),
                     pw.SizedBox(width: 4),
-                    pw.Expanded(child: _boxedField(label: 'Hora', value: _safeDatePartHour(_deliveredAt))),
+                    pw.Expanded(
+                      child: _boxedField(
+                        label: 'Hora',
+                        value: _safeDatePartHour(_deliveredAt),
+                      ),
+                    ),
                   ],
                 ),
               ),
@@ -575,11 +657,19 @@ class _DriverDeliveryDetailPageState extends State<DriverDeliveryDetailPage> {
                   children: [
                     pw.SizedBox(
                       width: 65,
-                      child: pw.Text('Nombre:',
-                          style: pw.TextStyle(fontSize: 8, fontWeight: pw.FontWeight.bold)),
+                      child: pw.Text(
+                        'Nombre:',
+                        style: pw.TextStyle(
+                          fontSize: 8,
+                          fontWeight: pw.FontWeight.bold,
+                        ),
+                      ),
                     ),
                     pw.Expanded(
-                      child: pw.Text(widget.customerName, style: const pw.TextStyle(fontSize: 9)),
+                      child: pw.Text(
+                        widget.customerName,
+                        style: const pw.TextStyle(fontSize: 9),
+                      ),
                     ),
                   ],
                 ),
@@ -588,8 +678,13 @@ class _DriverDeliveryDetailPageState extends State<DriverDeliveryDetailPage> {
                   children: [
                     pw.SizedBox(
                       width: 65,
-                      child: pw.Text('Dirección:',
-                          style: pw.TextStyle(fontSize: 8, fontWeight: pw.FontWeight.bold)),
+                      child: pw.Text(
+                        'Dirección:',
+                        style: pw.TextStyle(
+                          fontSize: 8,
+                          fontWeight: pw.FontWeight.bold,
+                        ),
+                      ),
                     ),
                     pw.Expanded(
                       child: pw.Text(
@@ -604,11 +699,19 @@ class _DriverDeliveryDetailPageState extends State<DriverDeliveryDetailPage> {
                   children: [
                     pw.SizedBox(
                       width: 65,
-                      child: pw.Text('Pago:',
-                          style: pw.TextStyle(fontSize: 8, fontWeight: pw.FontWeight.bold)),
+                      child: pw.Text(
+                        'Pago:',
+                        style: pw.TextStyle(
+                          fontSize: 8,
+                          fontWeight: pw.FontWeight.bold,
+                        ),
+                      ),
                     ),
                     pw.Expanded(
-                      child: pw.Text(_paymentMethod, style: const pw.TextStyle(fontSize: 9)),
+                      child: pw.Text(
+                        _paymentMethod,
+                        style: const pw.TextStyle(fontSize: 9),
+                      ),
                     ),
                   ],
                 ),
@@ -628,18 +731,39 @@ class _DriverDeliveryDetailPageState extends State<DriverDeliveryDetailPage> {
               pw.TableRow(
                 children: [
                   _ticketCell('Cant.', bold: true, align: pw.TextAlign.center),
-                  _ticketCell('Descripción', bold: true, align: pw.TextAlign.center),
-                  _ticketCell('Precio U.', bold: true, align: pw.TextAlign.center),
-                  _ticketCell('Importe', bold: true, align: pw.TextAlign.center),
+                  _ticketCell(
+                    'Descripción',
+                    bold: true,
+                    align: pw.TextAlign.center,
+                  ),
+                  _ticketCell(
+                    'Precio U.',
+                    bold: true,
+                    align: pw.TextAlign.center,
+                  ),
+                  _ticketCell(
+                    'Importe',
+                    bold: true,
+                    align: pw.TextAlign.center,
+                  ),
                 ],
               ),
               ...shownLines.map(
                 (line) => pw.TableRow(
                   children: [
-                    _ticketCell(line.qty == 0 ? '' : '${line.qty}', align: pw.TextAlign.center),
+                    _ticketCell(
+                      line.qty == 0 ? '' : '${line.qty}',
+                      align: pw.TextAlign.center,
+                    ),
                     _ticketCell(line.description),
-                    _ticketCell(line.qty == 0 ? '' : _fmtMoney2(line.unitPrice), align: pw.TextAlign.center),
-                    _ticketCell(line.qty == 0 ? '' : _fmtMoney2(line.amount), align: pw.TextAlign.center),
+                    _ticketCell(
+                      line.qty == 0 ? '' : _fmtMoney2(line.unitPrice),
+                      align: pw.TextAlign.center,
+                    ),
+                    _ticketCell(
+                      line.qty == 0 ? '' : _fmtMoney2(line.amount),
+                      align: pw.TextAlign.center,
+                    ),
                   ],
                 ),
               ),
@@ -676,13 +800,19 @@ class _DriverDeliveryDetailPageState extends State<DriverDeliveryDetailPage> {
                       width: double.infinity,
                       height: 42,
                       decoration: pw.BoxDecoration(
-                        border: pw.Border.all(color: PdfColors.black, width: 0.7),
+                        border: pw.Border.all(
+                          color: PdfColors.black,
+                          width: 0.7,
+                        ),
                         borderRadius: pw.BorderRadius.circular(4),
                       ),
                       alignment: pw.Alignment.center,
                       child: pw.Text(
                         _fmtMoney2(total),
-                        style: pw.TextStyle(fontSize: 16, fontWeight: pw.FontWeight.bold),
+                        style: pw.TextStyle(
+                          fontSize: 16,
+                          fontWeight: pw.FontWeight.bold,
+                        ),
                       ),
                     ),
                     pw.SizedBox(height: 8),
@@ -690,16 +820,27 @@ class _DriverDeliveryDetailPageState extends State<DriverDeliveryDetailPage> {
                       width: double.infinity,
                       padding: const pw.EdgeInsets.all(6),
                       decoration: pw.BoxDecoration(
-                        border: pw.Border.all(color: PdfColors.black, width: 0.7),
+                        border: pw.Border.all(
+                          color: PdfColors.black,
+                          width: 0.7,
+                        ),
                         borderRadius: pw.BorderRadius.circular(4),
                       ),
                       child: pw.Column(
                         crossAxisAlignment: pw.CrossAxisAlignment.start,
                         children: [
-                          pw.Text('Chofer:',
-                              style: pw.TextStyle(fontSize: 7, fontWeight: pw.FontWeight.bold)),
+                          pw.Text(
+                            'Chofer:',
+                            style: pw.TextStyle(
+                              fontSize: 7,
+                              fontWeight: pw.FontWeight.bold,
+                            ),
+                          ),
                           pw.SizedBox(height: 3),
-                          pw.Text(_driverName, style: const pw.TextStyle(fontSize: 8)),
+                          pw.Text(
+                            _driverName,
+                            style: const pw.TextStyle(fontSize: 8),
+                          ),
                         ],
                       ),
                     ),
@@ -774,13 +915,7 @@ class _DriverDeliveryDetailPageState extends State<DriverDeliveryDetailPage> {
       );
     } catch (e) {
       if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text(
-            'No se pudo generar PDF: ${e.toString().replaceFirst('Exception: ', '')}',
-          ),
-        ),
-      );
+      _showError('No se pudo generar PDF: ${e.toString().replaceFirst('Exception: ', '')}');
     } finally {
       if (mounted) setState(() => _busy = false);
     }
@@ -812,9 +947,7 @@ class _DriverDeliveryDetailPageState extends State<DriverDeliveryDetailPage> {
       );
     } catch (e) {
       if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('No se pudo imprimir original: $e')),
-      );
+      _showError('No se pudo imprimir original: $e');
     } finally {
       if (mounted) setState(() => _busy = false);
     }
@@ -846,9 +979,7 @@ class _DriverDeliveryDetailPageState extends State<DriverDeliveryDetailPage> {
       );
     } catch (e) {
       if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('No se pudo imprimir copia: $e')),
-      );
+      _showError('No se pudo imprimir copia: $e');
     } finally {
       if (mounted) setState(() => _busy = false);
     }
@@ -858,6 +989,13 @@ class _DriverDeliveryDetailPageState extends State<DriverDeliveryDetailPage> {
     if (_isDelivered || _busy) return;
 
     FocusScope.of(context).unfocus();
+
+    try {
+      _validateBeforeConfirm();
+    } catch (e) {
+      _showError(e.toString().replaceFirst('Exception: ', ''));
+      return;
+    }
 
     if (mounted) {
       setState(() => _busy = true);
@@ -885,9 +1023,7 @@ class _DriverDeliveryDetailPageState extends State<DriverDeliveryDetailPage> {
       Navigator.of(context).pop(true);
     } catch (e) {
       if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text(e.toString().replaceFirst('Exception: ', ''))),
-      );
+      _showError(e.toString().replaceFirst('Exception: ', ''));
     } finally {
       if (mounted) setState(() => _busy = false);
     }
@@ -967,11 +1103,16 @@ class _DriverDeliveryDetailPageState extends State<DriverDeliveryDetailPage> {
                                       ),
                                     ),
                                     Container(
-                                      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+                                      padding: const EdgeInsets.symmetric(
+                                        horizontal: 10,
+                                        vertical: 6,
+                                      ),
                                       decoration: BoxDecoration(
                                         borderRadius: BorderRadius.circular(999),
                                         color: statusColor.withOpacity(0.15),
-                                        border: Border.all(color: statusColor.withOpacity(0.30)),
+                                        border: Border.all(
+                                          color: statusColor.withOpacity(0.30),
+                                        ),
                                       ),
                                       child: Text(
                                         _statusLabel(_status),
@@ -1023,16 +1164,30 @@ class _DriverDeliveryDetailPageState extends State<DriverDeliveryDetailPage> {
                                 const SizedBox(height: 12),
                                 Row(
                                   children: [
-                                    Expanded(child: _StatChip(label: 'Esperado', value: _money(_totalExpected))),
+                                    Expanded(
+                                      child: _StatChip(
+                                        label: 'Esperado',
+                                        value: _money(_totalExpected),
+                                      ),
+                                    ),
                                     const SizedBox(width: 10),
                                     Expanded(
                                       child: _StatChip(
                                         label: isDelivered ? 'Real' : 'Real preview',
-                                        value: _money(isDelivered ? _totalReal : _previewTotalReal),
+                                        value: _money(
+                                          isDelivered
+                                              ? _totalReal
+                                              : _previewTotalReal,
+                                        ),
                                       ),
                                     ),
                                     const SizedBox(width: 10),
-                                    Expanded(child: _StatChip(label: 'Piezas', value: '$_previewTotalPieces')),
+                                    Expanded(
+                                      child: _StatChip(
+                                        label: 'Piezas',
+                                        value: '$_previewTotalPieces',
+                                      ),
+                                    ),
                                   ],
                                 ),
                                 const SizedBox(height: 12),
@@ -1053,10 +1208,13 @@ class _DriverDeliveryDetailPageState extends State<DriverDeliveryDetailPage> {
                                     decoration: BoxDecoration(
                                       borderRadius: BorderRadius.circular(14),
                                       color: _success.withOpacity(0.12),
-                                      border: Border.all(color: _success.withOpacity(0.25)),
+                                      border: Border.all(
+                                        color: _success.withOpacity(0.25),
+                                      ),
                                     ),
                                     child: Column(
-                                      crossAxisAlignment: CrossAxisAlignment.start,
+                                      crossAxisAlignment:
+                                          CrossAxisAlignment.start,
                                       children: [
                                         Text(
                                           'Confirmada: ${_formatDateTime(_deliveredAt)}',
@@ -1077,14 +1235,17 @@ class _DriverDeliveryDetailPageState extends State<DriverDeliveryDetailPage> {
                                         SizedBox(
                                           width: double.infinity,
                                           child: ElevatedButton.icon(
-                                            onPressed: _busy ? null : _openPdfPreview,
+                                            onPressed:
+                                                _busy ? null : _openPdfPreview,
                                             icon: const Icon(Icons.picture_as_pdf),
-                                            label: const Text('Abrir PDF de entrega'),
+                                            label:
+                                                const Text('Abrir PDF de entrega'),
                                             style: ElevatedButton.styleFrom(
                                               backgroundColor: _burgundy,
                                               foregroundColor: Colors.white,
                                               shape: RoundedRectangleBorder(
-                                                borderRadius: BorderRadius.circular(14),
+                                                borderRadius:
+                                                    BorderRadius.circular(14),
                                               ),
                                             ),
                                           ),
@@ -1093,14 +1254,16 @@ class _DriverDeliveryDetailPageState extends State<DriverDeliveryDetailPage> {
                                         SizedBox(
                                           width: double.infinity,
                                           child: ElevatedButton.icon(
-                                            onPressed: _busy ? null : _printBluetoothTicket,
+                                            onPressed:
+                                                _busy ? null : _printBluetoothTicket,
                                             icon: const Icon(Icons.print),
                                             label: const Text('Imprimir original'),
                                             style: ElevatedButton.styleFrom(
                                               backgroundColor: _royal,
                                               foregroundColor: Colors.white,
                                               shape: RoundedRectangleBorder(
-                                                borderRadius: BorderRadius.circular(14),
+                                                borderRadius:
+                                                    BorderRadius.circular(14),
                                               ),
                                             ),
                                           ),
@@ -1109,14 +1272,19 @@ class _DriverDeliveryDetailPageState extends State<DriverDeliveryDetailPage> {
                                         SizedBox(
                                           width: double.infinity,
                                           child: OutlinedButton.icon(
-                                            onPressed: _busy ? null : _printBluetoothCopy,
+                                            onPressed:
+                                                _busy ? null : _printBluetoothCopy,
                                             icon: const Icon(Icons.copy),
                                             label: const Text('Imprimir copia'),
                                             style: OutlinedButton.styleFrom(
                                               foregroundColor: Colors.white,
-                                              side: BorderSide(color: Colors.white.withOpacity(0.35)),
+                                              side: BorderSide(
+                                                color:
+                                                    Colors.white.withOpacity(0.35),
+                                              ),
                                               shape: RoundedRectangleBorder(
-                                                borderRadius: BorderRadius.circular(14),
+                                                borderRadius:
+                                                    BorderRadius.circular(14),
                                               ),
                                             ),
                                           ),
@@ -1132,17 +1300,28 @@ class _DriverDeliveryDetailPageState extends State<DriverDeliveryDetailPage> {
                           Expanded(
                             child: ListView.separated(
                               itemCount: _items.length,
-                              separatorBuilder: (_, __) => const SizedBox(height: 10),
+                              separatorBuilder: (_, __) =>
+                                  const SizedBox(height: 10),
                               itemBuilder: (_, i) {
                                 final it = _items[i];
-                                final subtotal = it.qtyReal * it.precioAplicado;
-                                final controller = _qtyControllers[it.productId];
+                                final subtotal =
+                                    it.qtyReal * it.precioAplicado;
+                                final controller =
+                                    _qtyControllers[it.productId];
 
-                                if (controller == null) return const SizedBox.shrink();
+                                if (controller == null) {
+                                  return const SizedBox.shrink();
+                                }
+
+                                final canEdit = !isDelivered && !_busy;
+                                final canRemove = canEdit && it.qtyReal > 0;
+                                final canAdd =
+                                    canEdit && it.qtyReal < it.qtyAssigned;
 
                                 return _GlassCard(
                                   child: Column(
-                                    crossAxisAlignment: CrossAxisAlignment.start,
+                                    crossAxisAlignment:
+                                        CrossAxisAlignment.start,
                                     children: [
                                       Text(
                                         it.nombre,
@@ -1164,73 +1343,130 @@ class _DriverDeliveryDetailPageState extends State<DriverDeliveryDetailPage> {
                                         spacing: 8,
                                         runSpacing: 8,
                                         children: [
-                                          _MiniInfo(label: 'Asignado', value: '${it.qtyAssigned}'),
-                                          _MiniInfo(label: 'Real', value: '${it.qtyReal}'),
-                                          _MiniInfo(label: 'Precio', value: _money(it.precioAplicado)),
-                                          _MiniInfo(label: 'Subtotal real', value: _money(subtotal)),
+                                          _MiniInfo(
+                                            label: 'Asignado',
+                                            value: '${it.qtyAssigned}',
+                                          ),
+                                          _MiniInfo(
+                                            label: 'Real',
+                                            value: '${it.qtyReal}',
+                                          ),
+                                          _MiniInfo(
+                                            label: 'Precio',
+                                            value: _money(it.precioAplicado),
+                                          ),
+                                          _MiniInfo(
+                                            label: 'Subtotal real',
+                                            value: _money(subtotal),
+                                          ),
                                         ],
                                       ),
                                       const SizedBox(height: 12),
                                       Row(
                                         children: [
                                           IconButton(
-                                            onPressed: isDelivered || _busy
-                                                ? null
-                                                : () => _setQty(i, it.qtyReal - 1),
-                                            icon: const Icon(Icons.remove_circle_outline, color: Colors.white),
+                                            onPressed: canRemove
+                                                ? () => _setQty(i, it.qtyReal - 1)
+                                                : null,
+                                            icon: Icon(
+                                              Icons.remove_circle_outline,
+                                              color: canRemove
+                                                  ? Colors.white
+                                                  : Colors.white24,
+                                            ),
                                           ),
                                           SizedBox(
                                             width: 84,
                                             child: TextField(
                                               controller: controller,
-                                              enabled: !isDelivered && !_busy,
-                                              keyboardType: TextInputType.number,
+                                              enabled: canEdit,
+                                              keyboardType:
+                                                  TextInputType.number,
+                                              inputFormatters: [
+                                                FilteringTextInputFormatter
+                                                    .digitsOnly,
+                                              ],
                                               textAlign: TextAlign.center,
-                                              style: const TextStyle(color: Colors.white),
+                                              style: const TextStyle(
+                                                color: Colors.white,
+                                              ),
                                               decoration: InputDecoration(
                                                 isDense: true,
                                                 filled: true,
-                                                fillColor: Colors.white.withOpacity(0.08),
+                                                fillColor: Colors.white
+                                                    .withOpacity(0.08),
                                                 border: OutlineInputBorder(
-                                                  borderRadius: BorderRadius.circular(12),
+                                                  borderRadius:
+                                                      BorderRadius.circular(12),
                                                   borderSide: BorderSide(
-                                                    color: Colors.white.withOpacity(0.10),
+                                                    color: Colors.white
+                                                        .withOpacity(0.10),
                                                   ),
                                                 ),
-                                                enabledBorder: OutlineInputBorder(
-                                                  borderRadius: BorderRadius.circular(12),
+                                                enabledBorder:
+                                                    OutlineInputBorder(
+                                                  borderRadius:
+                                                      BorderRadius.circular(12),
                                                   borderSide: BorderSide(
-                                                    color: Colors.white.withOpacity(0.10),
+                                                    color: Colors.white
+                                                        .withOpacity(0.10),
                                                   ),
                                                 ),
-                                                focusedBorder: OutlineInputBorder(
-                                                  borderRadius: BorderRadius.circular(12),
-                                                  borderSide: const BorderSide(color: _accent),
+                                                focusedBorder:
+                                                    const OutlineInputBorder(
+                                                  borderRadius:
+                                                      BorderRadius.all(
+                                                    Radius.circular(12),
+                                                  ),
+                                                  borderSide:
+                                                      BorderSide(color: _accent),
                                                 ),
                                               ),
-                                              onChanged: (v) => _setQtyFromText(i, v),
+                                              onChanged: (v) =>
+                                                  _setQtyFromText(i, v),
                                             ),
                                           ),
                                           IconButton(
-                                            onPressed: isDelivered || _busy
-                                                ? null
-                                                : () => _setQty(i, it.qtyReal + 1),
-                                            icon: const Icon(Icons.add_circle_outline, color: Colors.white),
+                                            onPressed: canAdd
+                                                ? () => _setQty(i, it.qtyReal + 1)
+                                                : null,
+                                            icon: Icon(
+                                              Icons.add_circle_outline,
+                                              color: canAdd
+                                                  ? Colors.white
+                                                  : Colors.white24,
+                                            ),
                                           ),
                                           const Spacer(),
                                           TextButton(
-                                            onPressed: isDelivered || _busy ? null : () => _setQty(i, 0),
+                                            onPressed: canEdit
+                                                ? () => _setQty(i, 0)
+                                                : null,
                                             child: const Text('No dejó'),
                                           ),
                                           const SizedBox(width: 6),
                                           TextButton(
-                                            onPressed: isDelivered || _busy
-                                                ? null
-                                                : () => _setQty(i, it.qtyAssigned),
+                                            onPressed: canEdit
+                                                ? () =>
+                                                    _setQty(i, it.qtyAssigned)
+                                                : null,
                                             child: const Text('Completo'),
                                           ),
                                         ],
                                       ),
+                                      if (!isDelivered &&
+                                          it.qtyReal != it.qtyAssigned) ...[
+                                        const SizedBox(height: 8),
+                                        Text(
+                                          'Para confirmar debe coincidir con lo asignado: ${it.qtyAssigned}.',
+                                          style: TextStyle(
+                                            color:
+                                                Colors.orangeAccent.withOpacity(0.95),
+                                            fontWeight: FontWeight.w700,
+                                            fontSize: 12,
+                                          ),
+                                        ),
+                                      ],
                                     ],
                                   ),
                                 );
@@ -1241,7 +1477,8 @@ class _DriverDeliveryDetailPageState extends State<DriverDeliveryDetailPage> {
                           SizedBox(
                             width: double.infinity,
                             child: ElevatedButton.icon(
-                              onPressed: (_busy || isDelivered) ? null : _confirmDelivery,
+                              onPressed:
+                                  (_busy || isDelivered) ? null : _confirmDelivery,
                               icon: const Icon(Icons.check_circle_outline),
                               label: Text(
                                 _busy
@@ -1253,7 +1490,8 @@ class _DriverDeliveryDetailPageState extends State<DriverDeliveryDetailPage> {
                               style: ElevatedButton.styleFrom(
                                 backgroundColor: _accent,
                                 foregroundColor: Colors.white,
-                                padding: const EdgeInsets.symmetric(vertical: 14),
+                                padding:
+                                    const EdgeInsets.symmetric(vertical: 14),
                                 shape: RoundedRectangleBorder(
                                   borderRadius: BorderRadius.circular(16),
                                 ),
@@ -1297,7 +1535,9 @@ class _PaymentSelector extends StatelessWidget {
                   ? const Color(0xFF4DADFF).withOpacity(0.22)
                   : Colors.white.withOpacity(0.06),
               border: Border.all(
-                color: selected ? const Color(0xFF4DADFF) : Colors.white.withOpacity(0.10),
+                color: selected
+                    ? const Color(0xFF4DADFF)
+                    : Colors.white.withOpacity(0.10),
               ),
             ),
             child: Row(
@@ -1308,7 +1548,8 @@ class _PaymentSelector extends StatelessWidget {
                 Text(
                   label,
                   style: TextStyle(
-                    color: enabled ? Colors.white : Colors.white.withOpacity(0.50),
+                    color:
+                        enabled ? Colors.white : Colors.white.withOpacity(0.50),
                     fontWeight: FontWeight.w800,
                   ),
                 ),
@@ -1395,6 +1636,7 @@ class _DeliveryItemRow {
 
 class _GlassCard extends StatelessWidget {
   final Widget child;
+
   const _GlassCard({required this.child});
 
   @override
@@ -1415,7 +1657,10 @@ class _StatChip extends StatelessWidget {
   final String label;
   final String value;
 
-  const _StatChip({required this.label, required this.value});
+  const _StatChip({
+    required this.label,
+    required this.value,
+  });
 
   @override
   Widget build(BuildContext context) {
@@ -1428,11 +1673,20 @@ class _StatChip extends StatelessWidget {
       ),
       child: Column(
         children: [
-          Text(label, style: TextStyle(color: Colors.white.withOpacity(0.60), fontSize: 11)),
+          Text(
+            label,
+            style: TextStyle(
+              color: Colors.white.withOpacity(0.60),
+              fontSize: 11,
+            ),
+          ),
           const SizedBox(height: 4),
           Text(
             value,
-            style: const TextStyle(color: Colors.white, fontWeight: FontWeight.w900),
+            style: const TextStyle(
+              color: Colors.white,
+              fontWeight: FontWeight.w900,
+            ),
           ),
         ],
       ),
@@ -1444,7 +1698,10 @@ class _MiniInfo extends StatelessWidget {
   final String label;
   final String value;
 
-  const _MiniInfo({required this.label, required this.value});
+  const _MiniInfo({
+    required this.label,
+    required this.value,
+  });
 
   @override
   Widget build(BuildContext context) {

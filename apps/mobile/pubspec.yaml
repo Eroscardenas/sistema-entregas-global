@@ -18,7 +18,7 @@ dependencies:
   pdf: ^3.11.1
   printing: ^5.13.4
 
-  bluetooth_print_plus: ^2.4.6
+  blue_thermal_printer: ^1.2.3
   esc_pos_utils_plus: ^2.0.4
   image: ^4.2.0
   shared_preferences: ^2.3.2
