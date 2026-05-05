@@ -2,7 +2,8 @@
 
 // app/admin/dashboard/page.tsx
 // Dashboard real sincronizado con inventario + assignments + routes + deliveries
-// Barra tipo Uber con camioncito y actualización en vivo
+// Barra vinculada a entregas confirmadas desde la app móvil
+// Oculta choferes pendientes de acceso móvil
 
 import React, { useEffect, useMemo, useState } from 'react';
 import { motion } from 'framer-motion';
@@ -41,6 +42,7 @@ const sb = supabaseBrowser as unknown as any;
 const T_DRIVERS = 'drivers';
 const T_ASSIGNMENTS = 'assignments';
 const T_DELIVERIES = 'deliveries';
+const T_DELIVERY_ITEMS = 'delivery_items';
 const T_ROUTES = 'routes';
 
 function cx(...xs: Array<string | false | null | undefined>) {
@@ -133,7 +135,8 @@ type InventoryTransportRow = {
 type DriverInventoryMappingRow = {
   id: string;
   driver_id: string;
-  firebase_employee_code: string;
+  firebase_employee_code: string | null;
+  firebase_employee_id?: string | null;
   firebase_employee_name: string | null;
   is_active: boolean;
 };
@@ -162,6 +165,7 @@ function fmtMoney(n?: number | null) {
 
 function fmtTime(iso?: string | null) {
   if (!iso) return '—';
+
   const d = new Date(iso);
   if (Number.isNaN(d.getTime())) return '—';
 
@@ -187,6 +191,7 @@ function normalizeStatus(s?: string | null) {
 
 function isCanceledDelivery(status?: string | null) {
   const s = normalizeStatus(status);
+
   return (
     s === 'CANCELADA' ||
     s === 'CANCELADO' ||
@@ -201,16 +206,16 @@ function isDoneDelivery(status?: string | null) {
   return (
     s === 'ENTREGADA' ||
     s === 'ENTREGADO' ||
-    s === 'DELIVERED' ||
-    s === 'DONE' ||
+    s === 'CONFIRMADA' ||
+    s === 'CONFIRMADO' ||
     s === 'FINALIZADA' ||
     s === 'FINALIZADO' ||
     s === 'COMPLETADA' ||
     s === 'COMPLETADO' ||
+    s === 'DELIVERED' ||
+    s === 'DONE' ||
     s === 'ATENDIDA' ||
     s === 'ATENDIDO' ||
-    s === 'CONFIRMADA' ||
-    s === 'CONFIRMADO' ||
     s === 'CERRADA' ||
     s === 'CERRADO'
   );
@@ -236,7 +241,13 @@ function isCanceledAssignment(status?: string | null) {
 
 function isRouteFinalized(status?: string | null) {
   const s = normalizeStatus(status);
-  return s === 'FINALIZADA' || s === 'FINALIZADO' || s === 'CERRADA' || s === 'CERRADO';
+
+  return (
+    s === 'FINALIZADA' ||
+    s === 'FINALIZADO' ||
+    s === 'CERRADA' ||
+    s === 'CERRADO'
+  );
 }
 
 function isRouteStarted(status?: string | null) {
@@ -278,13 +289,18 @@ async function listInventoryTransportes(): Promise<InventoryTransportRow[]> {
   });
 }
 
-async function listDriverInventoryMappings(sbClient: any): Promise<DriverInventoryMappingRow[]> {
+async function listDriverInventoryMappings(
+  sbClient: any
+): Promise<DriverInventoryMappingRow[]> {
   const { data, error } = await sbClient
     .from('driver_inventory_mapping')
-    .select('*')
+    .select(
+      'id,driver_id,firebase_employee_code,firebase_employee_id,firebase_employee_name,is_active'
+    )
     .eq('is_active', true);
 
   if (error) throw error;
+
   return (data ?? []) as DriverInventoryMappingRow[];
 }
 
@@ -305,14 +321,24 @@ async function loadDashboard(): Promise<DashboardData> {
 
   const drivers = (driversRes.data ?? []) as DriverRow[];
 
-  const mappingByCode = new Map(
-    mappings.map((m) => [String(m.firebase_employee_code ?? '').trim(), m])
-  );
+  const mappingByCode = new Map<string, DriverInventoryMappingRow>();
+  const mappingByFirebaseId = new Map<string, DriverInventoryMappingRow>();
+
+  mappings.forEach((m) => {
+    const code = String(m.firebase_employee_code ?? '').trim();
+    const firebaseId = String(m.firebase_employee_id ?? '').trim();
+
+    if (code) mappingByCode.set(code, m);
+    if (firebaseId) mappingByFirebaseId.set(firebaseId, m);
+  });
 
   const driverById = new Map(drivers.map((d) => [d.id, d]));
 
   const mergedDrivers: DashboardDriverBase[] = transportes.map((t) => {
-    const mapping = mappingByCode.get(t.firebase_codigo);
+    const mapping =
+      mappingByCode.get(t.firebase_codigo) ??
+      mappingByFirebaseId.get(t.firebase_id);
+
     const driver = mapping?.driver_id ? driverById.get(mapping.driver_id) : null;
 
     if (driver) {
@@ -337,6 +363,28 @@ async function loadDashboard(): Promise<DashboardData> {
       firebase_activo: t.firebase_activo,
       synced_from_inventory: false,
     };
+  });
+
+  const alreadyIncluded = new Set(
+    mergedDrivers.map((d) => String(d.id ?? '').trim()).filter(Boolean)
+  );
+
+  const mappedDriverIds = new Set(
+    mappings.map((m) => String(m.driver_id ?? '').trim()).filter(Boolean)
+  );
+
+  drivers.forEach((d) => {
+    if (!d.activo) return;
+    if (alreadyIncluded.has(d.id)) return;
+    if (mappedDriverIds.has(d.id)) return;
+
+    mergedDrivers.push({
+      ...d,
+      firebase_codigo: null,
+      firebase_nombre: null,
+      firebase_activo: null,
+      synced_from_inventory: false,
+    });
   });
 
   const activeDriverIds = mergedDrivers
@@ -366,21 +414,25 @@ async function loadDashboard(): Promise<DashboardData> {
   let routes: RouteRow[] = [];
 
   if (assignmentIds.length > 0) {
-    const [{ data: deliveriesData, error: deliveriesErr }, { data: routesData, error: routesErr }] =
-      await Promise.all([
-        sb
-          .from(T_DELIVERIES)
-          .select(
-            'id,assignment_id,customer_id,total_expected,total_real,status,created_at,updated_at,delivered_at'
-          )
-          .in('assignment_id', assignmentIds)
-          .order('created_at', { ascending: true }),
-        sb
-          .from(T_ROUTES)
-          .select('id,assignment_id,status,started_at,ended_at,km_start,km_end,created_at')
-          .in('assignment_id', assignmentIds)
-          .order('created_at', { ascending: false }),
-      ]);
+    const [
+      { data: deliveriesData, error: deliveriesErr },
+      { data: routesData, error: routesErr },
+    ] = await Promise.all([
+      sb
+        .from(T_DELIVERIES)
+        .select(
+          'id,assignment_id,customer_id,total_expected,total_real,status,created_at,updated_at,delivered_at'
+        )
+        .in('assignment_id', assignmentIds)
+        .order('created_at', { ascending: true }),
+      sb
+        .from(T_ROUTES)
+        .select(
+          'id,assignment_id,status,started_at,ended_at,km_start,km_end,created_at'
+        )
+        .in('assignment_id', assignmentIds)
+        .order('created_at', { ascending: false }),
+    ]);
 
     if (deliveriesErr) throw deliveriesErr;
     if (routesErr) throw routesErr;
@@ -424,121 +476,147 @@ async function loadDashboard(): Promise<DashboardData> {
     }
   });
 
-  const driverCards: DriverCard[] = mergedDrivers.map((driver) => {
-    const driverId = String(driver.id ?? '').trim();
-    const driverAssignments = driverId ? assignmentsByDriver.get(driverId) ?? [] : [];
+  const driverCards: DriverCard[] = mergedDrivers
+    .map((driver) => {
+      const driverId = String(driver.id ?? '').trim();
 
-    const driverDeliveries = driverAssignments.flatMap(
-      (a) => deliveriesByAssignment.get(a.id) ?? []
-    );
+      const driverAssignments = driverId
+        ? assignmentsByDriver.get(driverId) ?? []
+        : [];
 
-    const driverRoutes = driverAssignments
-      .map((a) => routeByAssignment.get(a.id))
-      .filter(Boolean) as RouteRow[];
+      const driverDeliveries = driverAssignments.flatMap(
+        (a) => deliveriesByAssignment.get(a.id) ?? []
+      );
 
-    const canceladas = driverDeliveries.filter((d) => isCanceledDelivery(d.status)).length;
-    const validDeliveries = driverDeliveries.filter((d) => !isCanceledDelivery(d.status));
+      const driverRoutes = driverAssignments
+        .map((a) => routeByAssignment.get(a.id))
+        .filter(Boolean) as RouteRow[];
 
-    const entregasHechas = validDeliveries.filter((d) => isDoneDelivery(d.status)).length;
-    const entregasTotal = validDeliveries.length;
-    const entregasPendientes = Math.max(0, entregasTotal - entregasHechas);
+      const canceladas = driverDeliveries.filter((d) =>
+        isCanceledDelivery(d.status)
+      ).length;
 
-    const totalEsperado = validDeliveries.reduce(
-      (acc, d) => acc + Number(d.total_expected ?? 0),
-      0
-    );
+      const validDeliveries = driverDeliveries.filter(
+        (d) => !isCanceledDelivery(d.status)
+      );
 
-    const totalReal = validDeliveries.reduce((acc, d) => {
-      if (isDoneDelivery(d.status)) return acc + Number(d.total_real ?? 0);
-      return acc;
-    }, 0);
+      const entregasHechas = validDeliveries.filter((d) =>
+        isDoneDelivery(d.status)
+      ).length;
 
-    let inicioRutaAt: string | null = null;
-    let finRutaAt: string | null = null;
-    let kmInicio: number | null = null;
-    let kmFin: number | null = null;
-    let routeStatus: string | null = null;
+      const entregasTotal = validDeliveries.length;
+      const entregasPendientes = Math.max(0, entregasTotal - entregasHechas);
 
-    if (driverRoutes.length > 0) {
-      const startedRoutes = driverRoutes
-        .filter((r) => r.started_at)
-        .sort((a, b) => {
-          const aa = new Date(a.started_at ?? '').getTime() || 0;
-          const bb = new Date(b.started_at ?? '').getTime() || 0;
-          return aa - bb;
-        });
+      const totalEsperado = validDeliveries.reduce(
+        (acc, d) => acc + Number(d.total_expected ?? 0),
+        0
+      );
 
-      const endedRoutes = driverRoutes
-        .filter((r) => r.ended_at)
-        .sort((a, b) => {
-          const aa = new Date(a.ended_at ?? '').getTime() || 0;
-          const bb = new Date(b.ended_at ?? '').getTime() || 0;
+      const totalReal = validDeliveries.reduce((acc, d) => {
+        if (isDoneDelivery(d.status)) {
+          return acc + Number(d.total_real ?? 0);
+        }
+
+        return acc;
+      }, 0);
+
+      let inicioRutaAt: string | null = null;
+      let finRutaAt: string | null = null;
+      let kmInicio: number | null = null;
+      let kmFin: number | null = null;
+      let routeStatus: string | null = null;
+
+      if (driverRoutes.length > 0) {
+        const startedRoutes = driverRoutes
+          .filter((r) => r.started_at)
+          .sort((a, b) => {
+            const aa = new Date(a.started_at ?? '').getTime() || 0;
+            const bb = new Date(b.started_at ?? '').getTime() || 0;
+            return aa - bb;
+          });
+
+        const endedRoutes = driverRoutes
+          .filter((r) => r.ended_at)
+          .sort((a, b) => {
+            const aa = new Date(a.ended_at ?? '').getTime() || 0;
+            const bb = new Date(b.ended_at ?? '').getTime() || 0;
+            return bb - aa;
+          });
+
+        const latestRoute = [...driverRoutes].sort((a, b) => {
+          const aa =
+            new Date(a.started_at ?? a.created_at ?? '').getTime() || 0;
+          const bb =
+            new Date(b.started_at ?? b.created_at ?? '').getTime() || 0;
           return bb - aa;
-        });
+        })[0];
 
-      const latestRoute = [...driverRoutes].sort((a, b) => {
-        const aa = new Date(a.started_at ?? a.created_at ?? '').getTime() || 0;
-        const bb = new Date(b.started_at ?? b.created_at ?? '').getTime() || 0;
-        return bb - aa;
-      })[0];
+        inicioRutaAt = startedRoutes[0]?.started_at ?? null;
+        finRutaAt = endedRoutes[0]?.ended_at ?? null;
 
-      inicioRutaAt = startedRoutes[0]?.started_at ?? null;
-      finRutaAt = endedRoutes[0]?.ended_at ?? null;
+        kmInicio =
+          startedRoutes.length > 0
+            ? startedRoutes[0].km_start ?? null
+            : latestRoute?.km_start ?? null;
 
-      kmInicio =
-        startedRoutes.length > 0
-          ? startedRoutes[0].km_start ?? null
-          : latestRoute?.km_start ?? null;
+        kmFin =
+          endedRoutes.length > 0
+            ? endedRoutes[0].km_end ?? null
+            : latestRoute?.km_end ?? null;
 
-      kmFin =
-        endedRoutes.length > 0
-          ? endedRoutes[0].km_end ?? null
-          : latestRoute?.km_end ?? null;
-
-      routeStatus = latestRoute?.status ?? null;
-    }
-
-    let status: DriverStatus = 'PENDIENTE';
-
-    if (!driverId || driverAssignments.length === 0 || entregasTotal === 0) {
-      status = 'PENDIENTE';
-    } else {
-      const allDeliveriesDone = entregasTotal > 0 && entregasHechas >= entregasTotal;
-      const anyRouteStarted = driverRoutes.some((r) => isRouteStarted(r.status));
-      const anyRouteFinalized = driverRoutes.some((r) => isRouteFinalized(r.status));
-      const allAssignmentsFinalized =
-        driverAssignments.length > 0 &&
-        driverAssignments.every((a) => isFinalizedAssignment(a.status));
-
-      if (allDeliveriesDone && (anyRouteFinalized || allAssignmentsFinalized)) {
-        status = 'FINALIZADA';
-      } else if (anyRouteStarted || entregasHechas > 0) {
-        status = 'EN_RUTA';
-      } else {
-        status = 'PENDIENTE';
+        routeStatus = latestRoute?.status ?? null;
       }
-    }
 
-    return {
-      driverId,
-      nombre: driver.nombre || driver.firebase_nombre || 'Chofer',
-      status,
-      entregasHechas,
-      entregasTotal,
-      inicioRutaAt,
-      finRutaAt,
-      kmInicio,
-      kmFin,
-      totalEsperado,
-      totalReal,
-      canceladas,
-      entregasPendientes,
-      routeStatus,
-      firebaseCodigo: driver.firebase_codigo ?? null,
-      syncedFromInventory: !!driver.synced_from_inventory,
-      inventoryOnly: !driverId,
-    };
-  });
+      let status: DriverStatus = 'PENDIENTE';
+
+      if (!driverId || driverAssignments.length === 0 || entregasTotal === 0) {
+        status = 'PENDIENTE';
+      } else {
+        const allDeliveriesDone =
+          entregasTotal > 0 && entregasHechas >= entregasTotal;
+
+        const anyRouteStarted = driverRoutes.some((r) =>
+          isRouteStarted(r.status)
+        );
+
+        const anyRouteFinalized = driverRoutes.some((r) =>
+          isRouteFinalized(r.status)
+        );
+
+        const allAssignmentsFinalized =
+          driverAssignments.length > 0 &&
+          driverAssignments.every((a) => isFinalizedAssignment(a.status));
+
+        if (allDeliveriesDone && (anyRouteFinalized || allAssignmentsFinalized)) {
+          status = 'FINALIZADA';
+        } else if (anyRouteStarted || entregasHechas > 0) {
+          status = 'EN_RUTA';
+        } else {
+          status = 'PENDIENTE';
+        }
+      }
+
+      return {
+        driverId,
+        nombre: driver.nombre || driver.firebase_nombre || 'Chofer',
+        status,
+        entregasHechas,
+        entregasTotal,
+        inicioRutaAt,
+        finRutaAt,
+        kmInicio,
+        kmFin,
+        totalEsperado,
+        totalReal,
+        canceladas,
+        entregasPendientes,
+        routeStatus,
+        firebaseCodigo: driver.firebase_codigo ?? null,
+        syncedFromInventory: !!driver.synced_from_inventory,
+        inventoryOnly: !driverId,
+      };
+    })
+    .filter((driver) => !driver.inventoryOnly);
 
   const summary: DashboardSummary = {
     choferesActivos: driverCards.length,
@@ -584,7 +662,12 @@ export default function AdminDashboardPage() {
       const d = await loadDashboard();
       setData(d);
     } catch (e: any) {
-      setErr(typeof e?.message === 'string' ? e.message : 'No se pudo cargar el dashboard');
+      setErr(
+        typeof e?.message === 'string'
+          ? e.message
+          : 'No se pudo cargar el dashboard'
+      );
+
       if (!soft) setData(null);
     } finally {
       if (!soft) setLoading(false);
@@ -608,14 +691,31 @@ export default function AdminDashboardPage() {
 
     const channel = sb
       .channel('admin-dashboard-live')
-      .on('postgres_changes', { event: '*', schema: 'public', table: T_ASSIGNMENTS }, softRefresh)
-      .on('postgres_changes', { event: '*', schema: 'public', table: T_ROUTES }, softRefresh)
-      .on('postgres_changes', { event: '*', schema: 'public', table: T_DELIVERIES }, softRefresh)
+      .on(
+        'postgres_changes',
+        { event: '*', schema: 'public', table: T_ASSIGNMENTS },
+        softRefresh
+      )
+      .on(
+        'postgres_changes',
+        { event: '*', schema: 'public', table: T_ROUTES },
+        softRefresh
+      )
+      .on(
+        'postgres_changes',
+        { event: '*', schema: 'public', table: T_DELIVERIES },
+        softRefresh
+      )
+      .on(
+        'postgres_changes',
+        { event: '*', schema: 'public', table: T_DELIVERY_ITEMS },
+        softRefresh
+      )
       .subscribe();
 
     const interval = setInterval(() => {
       void refresh({ soft: true });
-    }, 15000);
+    }, 7000);
 
     return () => {
       if (debounceTimer) clearTimeout(debounceTimer);
@@ -631,14 +731,31 @@ export default function AdminDashboardPage() {
       <div className="relative z-10 space-y-6">
         <div className="rounded-3xl border border-white/12 bg-white/6 p-5 shadow-[0_28px_90px_rgba(0,0,0,0.35)] backdrop-blur-xl">
           <p className="text-sm text-white/70">Bienvenido,</p>
-          <h2 className="mt-1 text-2xl font-semibold tracking-tight">{adminName}</h2>
+          <h2 className="mt-1 text-2xl font-semibold tracking-tight">
+            {adminName}
+          </h2>
 
           <div className="mt-4 flex flex-wrap gap-2">
-            <QuickChip label="Choferes" onClick={() => router.push(PATHS.admin.choferes)} />
-            <QuickChip label="Clientes" onClick={() => router.push(PATHS.admin.clientes)} />
-            <QuickChip label="Productos" onClick={() => router.push(PATHS.admin.productos)} />
-            <QuickChip label="Asignaciones" onClick={() => router.push(PATHS.admin.asignaciones)} />
-            <QuickChip label="Reportes" onClick={() => router.push(PATHS.admin.reportes)} />
+            <QuickChip
+              label="Choferes"
+              onClick={() => router.push(PATHS.admin.choferes)}
+            />
+            <QuickChip
+              label="Clientes"
+              onClick={() => router.push(PATHS.admin.clientes)}
+            />
+            <QuickChip
+              label="Productos"
+              onClick={() => router.push(PATHS.admin.productos)}
+            />
+            <QuickChip
+              label="Asignaciones"
+              onClick={() => router.push(PATHS.admin.asignaciones)}
+            />
+            <QuickChip
+              label="Reportes"
+              onClick={() => router.push(PATHS.admin.reportes)}
+            />
           </div>
         </div>
 
@@ -657,7 +774,11 @@ export default function AdminDashboardPage() {
           />
           <KpiCard
             title="Entregas hoy"
-            value={data ? `${data.summary.entregasHechas}/${data.summary.entregasTotal}` : '—'}
+            value={
+              data
+                ? `${data.summary.entregasHechas}/${data.summary.entregasTotal}`
+                : '—'
+            }
             icon={<Route className="h-5 w-5" />}
             tone="blue"
           />
@@ -672,7 +793,9 @@ export default function AdminDashboardPage() {
         <div className="rounded-3xl border border-white/12 bg-white/6 shadow-[0_28px_90px_rgba(0,0,0,0.35)] backdrop-blur-xl">
           <div className="flex items-center justify-between gap-3 border-b border-white/10 px-5 py-4">
             <div>
-              <div className="text-sm font-semibold">Choferes y progreso en vivo</div>
+              <div className="text-sm font-semibold">
+                Choferes y progreso en vivo
+              </div>
               <div className="mt-1 text-xs text-white/55">
                 Última actualización: {data ? fmtTime(data.updatedAt) : '—'}
               </div>
@@ -694,7 +817,9 @@ export default function AdminDashboardPage() {
 
           <div className="divide-y divide-white/10">
             {loading ? (
-              <div className="px-5 py-6 text-sm text-white/70">Cargando choferes…</div>
+              <div className="px-5 py-6 text-sm text-white/70">
+                Cargando choferes…
+              </div>
             ) : err ? (
               <div className="px-5 py-6">
                 <div className="flex items-start gap-3 rounded-2xl border border-red-400/25 bg-red-500/10 px-4 py-3 text-sm text-red-100">
@@ -708,13 +833,13 @@ export default function AdminDashboardPage() {
             ) : data?.drivers?.length ? (
               data.drivers.map((d) => (
                 <DriverRow
-                  key={d.driverId || `inv-${d.firebaseCodigo || d.nombre}`}
+                  key={d.driverId || `driver-${d.nombre}-${d.firebaseCodigo}`}
                   driver={d}
                 />
               ))
             ) : (
               <div className="px-5 py-6 text-sm text-white/70">
-                Aún no hay choferes o rutas para mostrar.
+                Aún no hay choferes con acceso móvil para mostrar.
               </div>
             )}
           </div>
@@ -779,7 +904,9 @@ function KpiCard({
       <div className="flex items-start justify-between gap-3">
         <div className="min-w-0">
           <div className="text-sm text-white/65">{title}</div>
-          <div className="mt-2 text-2xl font-semibold tracking-tight">{value}</div>
+          <div className="mt-2 text-2xl font-semibold tracking-tight">
+            {value}
+          </div>
         </div>
 
         <div className={cx('rounded-2xl border p-2.5', iconBg)}>
@@ -828,7 +955,9 @@ function DriverRow({ driver }: { driver: DriverCard }) {
         <div className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
           <div className="min-w-0">
             <div className="flex flex-wrap items-center gap-2">
-              <div className="truncate text-base font-semibold">{driver.nombre}</div>
+              <div className="truncate text-base font-semibold">
+                {driver.nombre}
+              </div>
 
               {driver.firebaseCodigo ? (
                 <span className="inline-flex items-center gap-1 rounded-full border border-cyan-400/20 bg-cyan-400/10 px-2 py-0.5 text-xs text-cyan-200">
@@ -850,12 +979,6 @@ function DriverRow({ driver }: { driver: DriverCard }) {
                 )}
                 {badge.text}
               </span>
-
-              {driver.inventoryOnly ? (
-                <span className="inline-flex items-center gap-1 rounded-full border border-amber-400/20 bg-amber-400/10 px-2 py-0.5 text-xs text-amber-200">
-                  Pendiente de acceso móvil
-                </span>
-              ) : null}
 
               {driver.routeStatus ? (
                 <span className="inline-flex items-center gap-1 rounded-full border border-white/10 bg-white/5 px-2 py-0.5 text-xs text-white/65">
@@ -896,8 +1019,16 @@ function DriverRow({ driver }: { driver: DriverCard }) {
 
           <div className="flex flex-wrap items-center gap-2 text-sm lg:justify-end">
             <MoneyPill label="Esperado" value={fmtMoney(driver.totalEsperado)} />
-            <MoneyPill label="Real" value={fmtMoney(driver.totalReal)} tone="wine" />
-            <MoneyPill label="Canceladas" value={String(driver.canceladas ?? 0)} tone="neutral" />
+            <MoneyPill
+              label="Real"
+              value={fmtMoney(driver.totalReal)}
+              tone="wine"
+            />
+            <MoneyPill
+              label="Canceladas"
+              value={String(driver.canceladas ?? 0)}
+              tone="neutral"
+            />
           </div>
         </div>
 
@@ -947,8 +1078,12 @@ function UberProgress({
           <Truck className="h-4 w-4 text-[#B9E3FF]" />
         </motion.div>
 
-        <div className="absolute -bottom-2 left-0 text-[10px] text-white/40">Inicio</div>
-        <div className="absolute -bottom-2 right-0 text-[10px] text-white/40">Ruta Finalizada</div>
+        <div className="absolute -bottom-2 left-0 text-[10px] text-white/40">
+          Inicio
+        </div>
+        <div className="absolute -bottom-2 right-0 text-[10px] text-white/40">
+          Ruta Finalizada
+        </div>
       </div>
     </div>
   );
@@ -989,7 +1124,12 @@ function MoneyPill({
         : 'border-[#4DADFF]/25 bg-[#4DADFF]/10 text-[#B9E3FF]';
 
   return (
-    <span className={cx('inline-flex items-center gap-2 rounded-full border px-3 py-1 text-xs', cls)}>
+    <span
+      className={cx(
+        'inline-flex items-center gap-2 rounded-full border px-3 py-1 text-xs',
+        cls
+      )}
+    >
       <span className="opacity-80">{label}</span>
       <span className="font-semibold">{value}</span>
     </span>

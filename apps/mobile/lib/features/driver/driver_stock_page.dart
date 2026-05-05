@@ -1,4 +1,7 @@
+import 'dart:convert';
+
 import 'package:flutter/material.dart';
+import 'package:http/http.dart' as http;
 import 'package:supabase_flutter/supabase_flutter.dart';
 
 class DriverStockPage extends StatefulWidget {
@@ -25,14 +28,18 @@ class _DriverStockPageState extends State<DriverStockPage> {
   static const _warning = Color(0xFFF59E0B);
   static const _danger = Color(0xFFEF4444);
 
+  static const String _adminBaseUrl =
+      'https://sistema-entregas-global.vercel.app';
+
   final _sb = Supabase.instance.client;
 
   bool _loading = true;
   bool _refreshing = false;
   String? _error;
 
-  String _workDate = _todayYmd();
+  String? _workDate;
   String? _assignmentId;
+  String? _driverCode;
 
   List<_StockRow> _rows = [];
   int _deliveriesCount = 0;
@@ -41,10 +48,7 @@ class _DriverStockPageState extends State<DriverStockPage> {
 
   static String _todayYmd() {
     final d = DateTime.now();
-    final y = d.year.toString().padLeft(4, '0');
-    final m = d.month.toString().padLeft(2, '0');
-    final day = d.day.toString().padLeft(2, '0');
-    return '$y-$m-$day';
+    return '${d.year.toString().padLeft(4, '0')}-${d.month.toString().padLeft(2, '0')}-${d.day.toString().padLeft(2, '0')}';
   }
 
   static int _toInt(dynamic value) {
@@ -63,40 +67,173 @@ class _DriverStockPageState extends State<DriverStockPage> {
     return double.tryParse(value.toString()) ?? 0;
   }
 
+  String _normalize(String value) {
+    return value.trim().toUpperCase();
+  }
+
   bool _isDeliveredStatus(String status) {
-    final s = status.trim().toUpperCase();
+    final s = _normalize(status);
     return s == 'ENTREGADA' ||
         s == 'CONFIRMADA' ||
         s == 'FINALIZADA' ||
-        s == 'COMPLETADA';
+        s == 'COMPLETADA' ||
+        s == 'CERRADA' ||
+        s == 'LIQUIDADA';
+  }
+
+  String _buildProductKey({
+    required String nombre,
+    required String iceType,
+    required double kg,
+    required String kind,
+  }) {
+    final name = _normalize(nombre);
+    final type = _normalize(iceType);
+    final k = _normalize(kind);
+
+    if (type.contains('BARRA') ||
+        name.contains('BARRA') ||
+        k.contains('BARRA')) {
+      return 'BARRA';
+    }
+
+    String finalType = type;
+
+    if (finalType.isEmpty || finalType == 'NORMAL') {
+      if (name.contains('GOURMET')) {
+        finalType = 'GOURMET';
+      } else if (name.contains('FRAP')) {
+        finalType = 'FRAP';
+      } else if (name.contains('ENFRIAR')) {
+        finalType = 'ENFRIAR';
+      } else {
+        finalType = 'ROLITO';
+      }
+    }
+
+    if (finalType == 'FRAPPE') finalType = 'FRAP';
+    if (finalType == 'NORMAL') finalType = 'ROLITO';
+
+    final kgText = kg > 0
+        ? (kg % 1 == 0 ? kg.toInt().toString() : kg.toString())
+        : '';
+
+    if (finalType.isNotEmpty && kgText.isNotEmpty) {
+      return '${finalType}_$kgText';
+    }
+
+    return finalType.isNotEmpty ? finalType : name;
+  }
+
+  String _labelFromKey(String key) {
+    final clean = key.trim().toUpperCase();
+    if (clean == 'BARRA') return 'BARRA';
+
+    final parts = clean.split('_');
+    if (parts.length >= 2) {
+      return '${parts[0]} ${parts[1]}KG';
+    }
+
+    return clean;
+  }
+
+  double _kgFromKey(String key) {
+    final clean = key.trim().toUpperCase();
+    if (clean == 'BARRA') return 0;
+
+    final parts = clean.split('_');
+    if (parts.length >= 2) {
+      return double.tryParse(parts[1]) ?? 0;
+    }
+
+    return 0;
+  }
+
+  Future<Map<String, int>> _loadInventoryOutputsFromApi({
+    required String workDate,
+    required String driverId,
+    required String driverName,
+    String? driverCode,
+  }) async {
+    final params = <String, String>{
+      'date': workDate,
+      'driverCode': (driverCode == null || driverCode.trim().isEmpty)
+          ? driverId
+          : driverCode.trim(),
+      'driverName': driverName,
+    };
+
+    final uri = Uri.parse('$_adminBaseUrl/api/inventory/global-outputs')
+        .replace(queryParameters: params);
+
+    final response = await http.get(uri);
+
+    if (response.statusCode < 200 || response.statusCode >= 300) {
+      throw Exception(
+        'No se pudieron leer salidas de inventario. Código ${response.statusCode}.',
+      );
+    }
+
+    final decoded = jsonDecode(response.body);
+
+    if (decoded is! Map || decoded['ok'] != true) {
+      throw Exception('La API de salidas no respondió correctamente.');
+    }
+
+    final rawQtyByKey = decoded['qtyByKey'];
+    if (rawQtyByKey is! Map) return <String, int>{};
+
+    final out = <String, int>{};
+
+    rawQtyByKey.forEach((key, value) {
+      final cleanKey = key.toString().trim().toUpperCase();
+      final qty = _toInt(value).abs();
+
+      if (cleanKey.isNotEmpty && qty > 0) {
+        out[cleanKey] = (out[cleanKey] ?? 0) + qty;
+      }
+    });
+
+    return out;
+  }
+
+  Future<Map<String, dynamic>?> _loadTodayAssignment() async {
+    final today = _todayYmd();
+
+    final todayAssignment = await _sb
+        .from('assignments')
+        .select('id,driver_id,work_date,status')
+        .eq('driver_id', widget.driverId)
+        .eq('work_date', today)
+        .maybeSingle();
+
+    if (todayAssignment == null) return null;
+
+    return Map<String, dynamic>.from(todayAssignment);
   }
 
   Future<void> _load({bool silent = false}) async {
     if (!mounted) return;
 
-    if (!silent) {
-      setState(() {
-        _loading = true;
-        _error = null;
-      });
-    } else {
-      setState(() {
+    setState(() {
+      if (silent) {
         _refreshing = true;
-      });
-    }
+      } else {
+        _loading = true;
+      }
+      _error = null;
+    });
 
     try {
-      final assignment = await _sb
-          .from('assignments')
-          .select('id,driver_id,work_date,status')
-          .eq('driver_id', widget.driverId)
-          .eq('work_date', _workDate)
-          .maybeSingle();
+      final assignment = await _loadTodayAssignment();
 
       if (assignment == null) {
         if (!mounted) return;
+
         setState(() {
           _assignmentId = null;
+          _workDate = _todayYmd();
+          _driverCode = null;
           _rows = [];
           _deliveriesCount = 0;
           _deliveredCount = 0;
@@ -104,34 +241,63 @@ class _DriverStockPageState extends State<DriverStockPage> {
           _loading = false;
           _refreshing = false;
         });
+
         return;
       }
 
       _assignmentId = (assignment['id'] ?? '').toString();
 
-      if (_assignmentId == null || _assignmentId!.isEmpty) {
-        if (!mounted) return;
-        setState(() {
-          _rows = [];
-          _deliveriesCount = 0;
-          _deliveredCount = 0;
-          _pendingCount = 0;
-          _loading = false;
-          _refreshing = false;
-        });
-        return;
+      final effectiveWorkDate =
+          (assignment['work_date'] ?? _todayYmd()).toString();
+
+      _workDate = effectiveWorkDate;
+
+      String? nextDriverCode;
+
+      try {
+        final driverMap = await _sb
+            .from('driver_inventory_mapping')
+            .select(
+              'firebase_employee_code,firebase_employee_id,firebase_employee_name',
+            )
+            .eq('driver_id', widget.driverId)
+            .eq('is_active', true)
+            .maybeSingle();
+
+        if (driverMap != null) {
+          nextDriverCode =
+              (driverMap['firebase_employee_code'] ??
+                      driverMap['firebase_employee_id'] ??
+                      '')
+                  .toString()
+                  .trim();
+        }
+      } catch (_) {
+        nextDriverCode = null;
       }
+
+      _driverCode = nextDriverCode;
+
+      final outputsByKey = await _loadInventoryOutputsFromApi(
+        workDate: effectiveWorkDate,
+        driverId: widget.driverId,
+        driverName: widget.driverName,
+        driverCode: _driverCode,
+      );
+
+      List<Map<String, dynamic>> deliveriesList = [];
+      List<String> deliveryIds = [];
 
       final deliveries = await _sb
           .from('deliveries')
           .select('id,status')
           .eq('assignment_id', _assignmentId!);
 
-      final deliveriesList = (deliveries as List)
+      deliveriesList = (deliveries as List)
           .map((e) => Map<String, dynamic>.from(e as Map))
           .toList();
 
-      final deliveryIds = deliveriesList
+      deliveryIds = deliveriesList
           .map((e) => (e['id'] ?? '').toString())
           .where((e) => e.isNotEmpty)
           .toList();
@@ -142,6 +308,7 @@ class _DriverStockPageState extends State<DriverStockPage> {
       for (final d in deliveriesList) {
         final id = (d['id'] ?? '').toString();
         final status = (d['status'] ?? 'PENDIENTE').toString();
+
         if (id.isEmpty) continue;
 
         deliveryStatusById[id] = status;
@@ -151,101 +318,70 @@ class _DriverStockPageState extends State<DriverStockPage> {
         }
       }
 
-      if (deliveryIds.isEmpty) {
-        if (!mounted) return;
-        setState(() {
-          _rows = [];
-          _deliveriesCount = 0;
-          _deliveredCount = 0;
-          _pendingCount = 0;
-          _loading = false;
-          _refreshing = false;
-        });
-        return;
-      }
+      final assignedTodayByKey = <String, int>{};
+      final deliveredByKey = <String, int>{};
 
-      final items = await _sb
-          .from('delivery_items')
-          .select('delivery_id,product_id,qty_assigned,qty_real')
-          .inFilter('delivery_id', deliveryIds);
+      if (deliveryIds.isNotEmpty) {
+        final items = await _sb
+            .from('delivery_items')
+            .select(
+              'delivery_id,product_id,qty_assigned,qty_real,products(id,nombre,kind,ice_type,kg_por_unidad)',
+            )
+            .inFilter('delivery_id', deliveryIds);
 
-      final itemsList = (items as List)
-          .map((e) => Map<String, dynamic>.from(e as Map))
-          .toList();
+        for (final raw in items as List) {
+          final item = Map<String, dynamic>.from(raw as Map);
 
-      final productIds = itemsList
-          .map((e) => (e['product_id'] ?? '').toString())
-          .where((e) => e.isNotEmpty)
-          .toSet()
-          .toList();
+          final deliveryId = (item['delivery_id'] ?? '').toString();
+          if (deliveryId.isEmpty) continue;
 
-      final productsById = <String, Map<String, dynamic>>{};
+          final productRaw = item['products'];
+          if (productRaw is! Map) continue;
 
-      if (productIds.isNotEmpty) {
-        final products = await _sb
-            .from('products')
-            .select('id,nombre,kind,ice_type,kg_por_unidad')
-            .inFilter('id', productIds);
+          final product = Map<String, dynamic>.from(productRaw);
 
-        for (final raw in (products as List)) {
-          final p = Map<String, dynamic>.from(raw as Map);
-          final id = (p['id'] ?? '').toString();
-          if (id.isNotEmpty) {
-            productsById[id] = p;
+          final key = _buildProductKey(
+            nombre: (product['nombre'] ?? '').toString(),
+            iceType: (product['ice_type'] ?? '').toString(),
+            kg: _toDouble(product['kg_por_unidad']),
+            kind: (product['kind'] ?? '').toString(),
+          );
+
+          if (key.isEmpty) continue;
+
+          assignedTodayByKey[key] =
+              (assignedTodayByKey[key] ?? 0) + _toInt(item['qty_assigned']);
+
+          if (_isDeliveredStatus(deliveryStatusById[deliveryId] ?? '')) {
+            deliveredByKey[key] =
+                (deliveredByKey[key] ?? 0) + _toInt(item['qty_real']);
           }
         }
       }
 
-      final acc = <String, _StockAccumulator>{};
+      final allKeys = assignedTodayByKey.keys.toList();
 
-      for (final row in itemsList) {
-        final productId = (row['product_id'] ?? '').toString();
-        final deliveryId = (row['delivery_id'] ?? '').toString();
+      final mapped = allKeys.map((key) {
+        final outputQty = outputsByKey[key] ?? 0;
+        final deliveredQty = deliveredByKey[key] ?? 0;
+        final assignedQty = assignedTodayByKey[key] ?? 0;
 
-        if (productId.isEmpty || deliveryId.isEmpty) continue;
-
-        final product = productsById[productId] ?? <String, dynamic>{};
-        final status = deliveryStatusById[deliveryId] ?? 'PENDIENTE';
-
-        final qtyAssigned = _toInt(row['qty_assigned']);
-        final qtyReal = _toInt(row['qty_real']);
-
-        acc.putIfAbsent(
-          productId,
-          () => _StockAccumulator(
-            productId: productId,
-            nombre: (product['nombre'] ?? 'Producto').toString(),
-            kind: (product['kind'] ?? '').toString(),
-            iceType: (product['ice_type'] ?? '').toString(),
-            kgPorUnidad: _toDouble(product['kg_por_unidad']),
-          ),
+        return _StockRow(
+          productKey: key,
+          nombre: _labelFromKey(key),
+          kind: key == 'BARRA' ? 'BARRA' : 'BOLSA',
+          iceType: key == 'BARRA' ? 'BARRA' : key.split('_').first,
+          kgPorUnidad: _kgFromKey(key),
+          outputQty: outputQty,
+          deliveredQty: deliveredQty,
+          assignedQty: assignedQty,
         );
-
-        acc[productId]!.assignedQty += qtyAssigned;
-
-        if (_isDeliveredStatus(status)) {
-          acc[productId]!.deliveredQty += qtyReal;
-        }
-      }
-
-      final mapped = acc.values
-          .map(
-            (a) => _StockRow(
-              productId: a.productId,
-              nombre: a.nombre,
-              kind: a.kind,
-              iceType: a.iceType,
-              kgPorUnidad: a.kgPorUnidad,
-              assignedQty: a.assignedQty,
-              deliveredQty: a.deliveredQty,
-            ),
-          )
-          .toList();
+      }).toList();
 
       mapped.sort((a, b) {
         final byAvailable = b.availableQty.compareTo(a.availableQty);
         if (byAvailable != 0) return byAvailable;
-        return b.assignedQty.compareTo(a.assignedQty);
+        return b.outputQty.compareTo(a.outputQty);
       });
 
       if (!mounted) return;
@@ -269,16 +405,13 @@ class _DriverStockPageState extends State<DriverStockPage> {
     }
   }
 
-  int get _totalAssigned => _rows.fold(0, (acc, r) => acc + r.assignedQty);
+  int get _totalOutput => _rows.fold(0, (acc, r) => acc + r.outputQty);
   int get _totalDelivered => _rows.fold(0, (acc, r) => acc + r.deliveredQty);
   int get _totalAvailable => _rows.fold(0, (acc, r) => acc + r.availableQty);
 
-  double get _totalAssignedKg =>
-      _rows.fold(0, (acc, r) => acc + r.assignedKg);
-
+  double get _totalOutputKg => _rows.fold(0, (acc, r) => acc + r.outputKg);
   double get _totalDeliveredKg =>
       _rows.fold(0, (acc, r) => acc + r.deliveredKg);
-
   double get _totalAvailableKg =>
       _rows.fold(0, (acc, r) => acc + r.availableKg);
 
@@ -302,18 +435,19 @@ class _DriverStockPageState extends State<DriverStockPage> {
 
   @override
   Widget build(BuildContext context) {
+    final shownDate = _workDate ?? _todayYmd();
+
     return Scaffold(
       backgroundColor: _navy,
       appBar: AppBar(
         backgroundColor: _navy,
         foregroundColor: Colors.white,
         elevation: 0,
-        title: const Text('Stock / Carga'),
+        title: const Text('Stock / Salidas'),
         actions: [
           IconButton(
-            onPressed: (_loading || _refreshing)
-                ? null
-                : () => _load(silent: true),
+            onPressed:
+                (_loading || _refreshing) ? null : () => _load(silent: true),
             icon: _refreshing
                 ? const SizedBox(
                     width: 18,
@@ -351,13 +485,13 @@ class _DriverStockPageState extends State<DriverStockPage> {
                           Row(
                             children: [
                               const Icon(
-                                Icons.inventory_2_outlined,
+                                Icons.local_shipping_outlined,
                                 color: Colors.white,
                               ),
                               const SizedBox(width: 10),
                               Expanded(
                                 child: Text(
-                                  'Carga de ${widget.driverName}',
+                                  'Salidas de ${widget.driverName}',
                                   style: const TextStyle(
                                     color: Colors.white,
                                     fontWeight: FontWeight.w900,
@@ -369,12 +503,24 @@ class _DriverStockPageState extends State<DriverStockPage> {
                           ),
                           const SizedBox(height: 8),
                           Text(
-                            'Fecha: $_workDate',
+                            'Fecha de hoy: $shownDate',
                             style: TextStyle(
                               color: Colors.white.withOpacity(0.72),
                               fontWeight: FontWeight.w600,
                             ),
                           ),
+                          if (_driverCode != null &&
+                              _driverCode!.trim().isNotEmpty) ...[
+                            const SizedBox(height: 4),
+                            Text(
+                              'Código inventario: $_driverCode',
+                              style: TextStyle(
+                                color: Colors.white.withOpacity(0.58),
+                                fontWeight: FontWeight.w600,
+                                fontSize: 12,
+                              ),
+                            ),
+                          ],
                           const SizedBox(height: 12),
                           Row(
                             children: [
@@ -407,8 +553,8 @@ class _DriverStockPageState extends State<DriverStockPage> {
                             children: [
                               Expanded(
                                 child: _StatChip(
-                                  label: 'Asignado',
-                                  value: '$_totalAssigned pzas',
+                                  label: 'Salidas',
+                                  value: '$_totalOutput pzas',
                                 ),
                               ),
                               const SizedBox(width: 10),
@@ -434,8 +580,8 @@ class _DriverStockPageState extends State<DriverStockPage> {
                             children: [
                               Expanded(
                                 child: _StatChip(
-                                  label: 'Kg asign.',
-                                  value: _totalAssignedKg.toStringAsFixed(1),
+                                  label: 'Kg salida',
+                                  value: _totalOutputKg.toStringAsFixed(1),
                                 ),
                               ),
                               const SizedBox(width: 10),
@@ -477,7 +623,7 @@ class _DriverStockPageState extends State<DriverStockPage> {
                                 const SizedBox(width: 8),
                                 Expanded(
                                   child: Text(
-                                    'Disponible = carga asignada menos entregas confirmadas. Si llega a 0, la captura queda bloqueada por producto.',
+                                    'Disponible = salidas reales de inventario de hoy menos entregas confirmadas de hoy. Solo se muestran productos asignados hoy.',
                                     style: TextStyle(
                                       color: Colors.white.withOpacity(0.82),
                                       fontSize: 12,
@@ -505,22 +651,13 @@ class _DriverStockPageState extends State<DriverStockPage> {
                       hasScrollBody: false,
                       child: _ErrorBox(message: _error!, onRetry: _load),
                     )
-                  else if (_assignmentId == null)
-                    const SliverFillRemaining(
-                      hasScrollBody: false,
-                      child: _EmptyBox(
-                        title: 'Sin asignación',
-                        subtitle:
-                            'No hay asignación para este chofer en la fecha actual.',
-                      ),
-                    )
                   else if (_rows.isEmpty)
                     const SliverFillRemaining(
                       hasScrollBody: false,
                       child: _EmptyBox(
-                        title: 'Sin productos consolidados',
+                        title: 'Sin salidas registradas hoy',
                         subtitle:
-                            'La asignación existe, pero no se encontraron productos en las entregas.',
+                            'No hay asignación, entregas o productos asignados para este chofer el día de hoy.',
                       ),
                     )
                   else
@@ -618,11 +755,11 @@ class _DriverStockPageState extends State<DriverStockPage> {
                                   const SizedBox(width: 8),
                                   Expanded(
                                     child: _MiniMetric(
-                                      label: 'Entregado',
-                                      value: '${r.deliveredQty} pzas',
+                                      label: 'Salida',
+                                      value: '${r.outputQty} pzas',
                                       subValue:
-                                          '${r.deliveredKg.toStringAsFixed(1)} kg',
-                                      color: _success,
+                                          '${r.outputKg.toStringAsFixed(1)} kg',
+                                      color: Colors.white,
                                     ),
                                   ),
                                   const SizedBox(width: 8),
@@ -637,57 +774,18 @@ class _DriverStockPageState extends State<DriverStockPage> {
                                   ),
                                 ],
                               ),
-                              if (r.availableQty <= 0) ...[
-                                const SizedBox(height: 10),
-                                Container(
-                                  width: double.infinity,
-                                  padding: const EdgeInsets.all(10),
-                                  decoration: BoxDecoration(
-                                    borderRadius: BorderRadius.circular(14),
-                                    color: _danger.withOpacity(0.10),
-                                    border: Border.all(
-                                      color: _danger.withOpacity(0.25),
-                                    ),
-                                  ),
-                                  child: const Text(
-                                    'Sin stock disponible para este producto. No debe permitir más entregas.',
-                                    style: TextStyle(
-                                      color: Colors.white,
-                                      fontWeight: FontWeight.w800,
-                                      fontSize: 12,
-                                    ),
-                                  ),
-                                ),
-                              ],
+                              const SizedBox(height: 8),
+                              _MiniMetric(
+                                label: 'Entregado confirmado',
+                                value: '${r.deliveredQty} pzas',
+                                subValue:
+                                    '${r.deliveredKg.toStringAsFixed(1)} kg',
+                                color: _success,
+                              ),
                             ],
                           ),
                         );
                       },
-                    ),
-                  if (!_loading && _rows.isNotEmpty)
-                    SliverToBoxAdapter(
-                      child: Padding(
-                        padding: const EdgeInsets.only(top: 12, bottom: 4),
-                        child: _GlassCard(
-                          child: Row(
-                            children: [
-                              const Icon(Icons.info_outline,
-                                  color: Colors.white70),
-                              const SizedBox(width: 10),
-                              Expanded(
-                                child: Text(
-                                  'Este resumen se calcula con delivery_items: asignado contra qty_real de entregas confirmadas.',
-                                  style: TextStyle(
-                                    color: Colors.white.withOpacity(0.80),
-                                    fontSize: 12,
-                                    fontWeight: FontWeight.w600,
-                                  ),
-                                ),
-                              ),
-                            ],
-                          ),
-                        ),
-                      ),
                     ),
                 ],
               ),
@@ -699,54 +797,36 @@ class _DriverStockPageState extends State<DriverStockPage> {
   }
 }
 
-class _StockAccumulator {
-  final String productId;
-  final String nombre;
-  final String kind;
-  final String iceType;
-  final double kgPorUnidad;
-
-  int assignedQty;
-  int deliveredQty;
-
-  _StockAccumulator({
-    required this.productId,
-    required this.nombre,
-    required this.kind,
-    required this.iceType,
-    required this.kgPorUnidad,
-    this.assignedQty = 0,
-    this.deliveredQty = 0,
-  });
-}
-
 class _StockRow {
-  final String productId;
+  final String productKey;
   final String nombre;
   final String kind;
   final String iceType;
   final double kgPorUnidad;
-  final int assignedQty;
+  final int outputQty;
   final int deliveredQty;
+  final int assignedQty;
 
   _StockRow({
-    required this.productId,
+    required this.productKey,
     required this.nombre,
     required this.kind,
     required this.iceType,
     required this.kgPorUnidad,
-    required this.assignedQty,
+    required this.outputQty,
     required this.deliveredQty,
+    required this.assignedQty,
   });
 
   int get availableQty {
-    final value = assignedQty - deliveredQty;
+    final value = outputQty - deliveredQty;
     return value < 0 ? 0 : value;
   }
 
-  double get assignedKg => assignedQty * kgPorUnidad;
+  double get outputKg => outputQty * kgPorUnidad;
   double get deliveredKg => deliveredQty * kgPorUnidad;
   double get availableKg => availableQty * kgPorUnidad;
+  double get assignedKg => assignedQty * kgPorUnidad;
 }
 
 class _GlassCard extends StatelessWidget {
@@ -828,6 +908,7 @@ class _MiniMetric extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Container(
+      width: double.infinity,
       padding: const EdgeInsets.all(10),
       decoration: BoxDecoration(
         borderRadius: BorderRadius.circular(14),

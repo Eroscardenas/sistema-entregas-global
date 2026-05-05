@@ -1,3 +1,4 @@
+import 'dart:convert';
 import 'dart:typed_data';
 
 import 'package:flutter/material.dart';
@@ -6,6 +7,7 @@ import 'package:supabase_flutter/supabase_flutter.dart';
 import 'package:pdf/pdf.dart';
 import 'package:pdf/widgets.dart' as pw;
 import 'package:printing/printing.dart';
+import 'package:http/http.dart' as http;
 
 import 'package:mobile/services/printer_service.dart';
 
@@ -32,6 +34,11 @@ class _DriverDeliveryDetailPageState extends State<DriverDeliveryDetailPage> {
   static const _accent = Color(0xFF4DADFF);
   static const _burgundy = Color(0xFF852838);
   static const _success = Color(0xFF10B981);
+  static const _warning = Color(0xFFF59E0B);
+  static const _danger = Color(0xFFEF4444);
+
+  static const String _adminBaseUrl =
+      'https://sistema-entregas-global.vercel.app';
 
   final _sb = Supabase.instance.client;
 
@@ -41,6 +48,11 @@ class _DriverDeliveryDetailPageState extends State<DriverDeliveryDetailPage> {
 
   String? _status;
   String? _deliveredAt;
+  String? _assignmentId;
+  String? _driverId;
+  String? _workDate;
+  String? _driverCode;
+
   String _driverName = 'Chofer';
   String _dinerName = '';
   double _totalExpected = 0;
@@ -59,8 +71,78 @@ class _DriverDeliveryDetailPageState extends State<DriverDeliveryDetailPage> {
         normalized == 'COMPLETADA';
   }
 
+  static int _toInt(dynamic value) {
+    if (value == null) return 0;
+    if (value is int) return value;
+    if (value is double) return value.round();
+    if (value is num) return value.toInt();
+    return int.tryParse(value.toString()) ?? 0;
+  }
+
+  static double _toDouble(dynamic value) {
+    if (value == null) return 0;
+    if (value is double) return value;
+    if (value is int) return value.toDouble();
+    if (value is num) return value.toDouble();
+    return double.tryParse(value.toString()) ?? 0;
+  }
+
   String _normalizeStatus(String? status) {
     return (status ?? '').trim().toUpperCase();
+  }
+
+  String _normalizeText(String value) {
+    return value.trim().toUpperCase();
+  }
+
+  String _buildProductKey({
+    required String nombre,
+    required String iceType,
+    required double kg,
+    required String kind,
+  }) {
+    final name = _normalizeText(nombre);
+    final type = _normalizeText(iceType);
+    final k = _normalizeText(kind);
+
+    if (type.contains('BARRA') || name.contains('BARRA') || k.contains('BARRA')) {
+      return 'BARRA';
+    }
+
+    String finalType = type;
+
+    if (finalType.isEmpty || finalType == 'NORMAL') {
+      if (name.contains('GOURMET')) {
+        finalType = 'GOURMET';
+      } else if (name.contains('FRAP')) {
+        finalType = 'FRAP';
+      } else if (name.contains('ENFRIAR')) {
+        finalType = 'ENFRIAR';
+      } else {
+        finalType = 'ROLITO';
+      }
+    }
+
+    if (finalType == 'FRAPPE') finalType = 'FRAP';
+    if (finalType == 'NORMAL') finalType = 'ROLITO';
+
+    final kgText = kg > 0
+        ? (kg % 1 == 0 ? kg.toInt().toString() : kg.toString())
+        : '';
+
+    if (finalType.isNotEmpty && kgText.isNotEmpty) {
+      return '${finalType}_$kgText';
+    }
+
+    return finalType.isNotEmpty ? finalType : name;
+  }
+
+  bool _isDeliveredStatus(String? status) {
+    final s = _normalizeStatus(status);
+    return s == 'ENTREGADA' ||
+        s == 'CONFIRMADA' ||
+        s == 'FINALIZADA' ||
+        s == 'COMPLETADA';
   }
 
   String _statusLabel(String? status) {
@@ -102,7 +184,6 @@ class _DriverDeliveryDetailPageState extends State<DriverDeliveryDetailPage> {
 
   void _syncControllers() {
     final validIds = _items.map((e) => e.productId).toSet();
-
     final toRemove =
         _qtyControllers.keys.where((k) => !validIds.contains(k)).toList();
 
@@ -126,6 +207,108 @@ class _DriverDeliveryDetailPageState extends State<DriverDeliveryDetailPage> {
     }
   }
 
+  Future<Map<String, int>> _loadOutputsByProductKey({
+    required String workDate,
+    required String driverId,
+    required String driverName,
+    String? driverCode,
+  }) async {
+    final params = <String, String>{
+      'date': workDate,
+      'driverCode': (driverCode == null || driverCode.trim().isEmpty)
+          ? driverId
+          : driverCode.trim(),
+      'driverName': driverName,
+    };
+
+    final uri = Uri.parse('$_adminBaseUrl/api/inventory/global-outputs')
+        .replace(queryParameters: params);
+
+    final response = await http.get(uri);
+
+    if (response.statusCode < 200 || response.statusCode >= 300) {
+      throw Exception(
+        'No se pudieron leer salidas de inventario. Código ${response.statusCode}.',
+      );
+    }
+
+    final decoded = jsonDecode(response.body);
+
+    if (decoded is! Map || decoded['ok'] != true) {
+      throw Exception('La API de salidas no respondió correctamente.');
+    }
+
+    final rawQtyByKey = decoded['qtyByKey'];
+    if (rawQtyByKey is! Map) return <String, int>{};
+
+    final out = <String, int>{};
+
+    rawQtyByKey.forEach((key, value) {
+      final cleanKey = key.toString().trim().toUpperCase();
+      final qty = _toInt(value).abs();
+
+      if (cleanKey.isNotEmpty && qty > 0) {
+        out[cleanKey] = (out[cleanKey] ?? 0) + qty;
+      }
+    });
+
+    return out;
+  }
+
+  Future<Map<String, int>> _loadDeliveredByProductKeyForAssignment({
+    required String assignmentId,
+    required String currentDeliveryId,
+  }) async {
+    final deliveries = await _sb
+        .from('deliveries')
+        .select('id,status')
+        .eq('assignment_id', assignmentId);
+
+    final deliveredDeliveryIds = <String>[];
+
+    for (final raw in deliveries as List) {
+      final d = Map<String, dynamic>.from(raw as Map);
+      final id = (d['id'] ?? '').toString();
+      final status = (d['status'] ?? '').toString();
+
+      if (id.isEmpty) continue;
+      if (id == currentDeliveryId) continue;
+      if (!_isDeliveredStatus(status)) continue;
+
+      deliveredDeliveryIds.add(id);
+    }
+
+    if (deliveredDeliveryIds.isEmpty) return <String, int>{};
+
+    final items = await _sb
+        .from('delivery_items')
+        .select(
+          'delivery_id,product_id,qty_real,products(id,nombre,kind,ice_type,kg_por_unidad)',
+        )
+        .inFilter('delivery_id', deliveredDeliveryIds);
+
+    final map = <String, int>{};
+
+    for (final raw in items as List) {
+      final row = Map<String, dynamic>.from(raw as Map);
+      final productRaw = row['products'];
+      if (productRaw is! Map) continue;
+
+      final product = Map<String, dynamic>.from(productRaw);
+      final key = _buildProductKey(
+        nombre: (product['nombre'] ?? '').toString(),
+        iceType: (product['ice_type'] ?? '').toString(),
+        kg: _toDouble(product['kg_por_unidad']),
+        kind: (product['kind'] ?? '').toString(),
+      );
+
+      if (key.isEmpty) continue;
+      map[key] = (map[key] ?? 0) + _toInt(row['qty_real']);
+    }
+
+    return map;
+  }
+
   Future<void> _load() async {
     if (!mounted) return;
 
@@ -147,32 +330,75 @@ class _DriverDeliveryDetailPageState extends State<DriverDeliveryDetailPage> {
         throw Exception('No se encontró la entrega.');
       }
 
-      String nextDriverName = 'Chofer';
       final assignmentId = (delivery['assignment_id'] ?? '').toString();
+      if (assignmentId.isEmpty) {
+        throw Exception('La entrega no tiene asignación vinculada.');
+      }
 
-      if (assignmentId.isNotEmpty) {
-        final assignment = await _sb
-            .from('assignments')
-            .select('id, driver_id')
-            .eq('id', assignmentId)
+      final assignment = await _sb
+          .from('assignments')
+          .select('id, driver_id, work_date')
+          .eq('id', assignmentId)
+          .maybeSingle();
+
+      if (assignment == null) {
+        throw Exception('No se encontró la asignación de esta entrega.');
+      }
+
+      final driverId = (assignment['driver_id'] ?? '').toString();
+      final workDate = (assignment['work_date'] ?? '').toString();
+
+      if (driverId.isEmpty || workDate.isEmpty) {
+        throw Exception('La asignación no tiene chofer o fecha de trabajo.');
+      }
+
+      String nextDriverName = 'Chofer';
+      String? nextDriverCode;
+
+      final driver = await _sb
+          .from('drivers')
+          .select('id, nombre')
+          .eq('id', driverId)
+          .maybeSingle();
+
+      if (driver != null) {
+        nextDriverName = (driver['nombre'] ?? 'Chofer').toString();
+      }
+
+      try {
+        final driverMap = await _sb
+            .from('driver_inventory_mapping')
+            .select(
+              'firebase_employee_code,firebase_employee_id,firebase_employee_name',
+            )
+            .eq('driver_id', driverId)
+            .eq('is_active', true)
             .maybeSingle();
 
-        if (assignment != null) {
-          final driverId = (assignment['driver_id'] ?? '').toString();
-
-          if (driverId.isNotEmpty) {
-            final driver = await _sb
-                .from('drivers')
-                .select('id, nombre')
-                .eq('id', driverId)
-                .maybeSingle();
-
-            if (driver != null) {
-              nextDriverName = (driver['nombre'] ?? 'Chofer').toString();
-            }
-          }
+        if (driverMap != null) {
+          nextDriverCode =
+              (driverMap['firebase_employee_code'] ??
+                      driverMap['firebase_employee_id'] ??
+                      '')
+                  .toString()
+                  .trim();
         }
+      } catch (_) {
+        nextDriverCode = null;
       }
+
+      final outputsByProductKey = await _loadOutputsByProductKey(
+        workDate: workDate,
+        driverId: driverId,
+        driverName: nextDriverName,
+        driverCode: nextDriverCode,
+      );
+
+      final deliveredOtherByProductKey =
+          await _loadDeliveredByProductKeyForAssignment(
+        assignmentId: assignmentId,
+        currentDeliveryId: widget.deliveryId,
+      );
 
       final rows = await _sb
           .from('delivery_items')
@@ -203,20 +429,39 @@ class _DriverDeliveryDetailPageState extends State<DriverDeliveryDetailPage> {
       final mapped = rowsList.map<_DeliveryItemRow>((raw) {
         final pid = (raw['product_id'] ?? '').toString();
         final p = productsById[pid] ?? {};
-        final qtyAssigned = ((raw['qty_assigned'] ?? 0) as num).toInt();
+        final qtyAssigned = _toInt(raw['qty_assigned']);
+        final productKey = _buildProductKey(
+          nombre: (p['nombre'] ?? 'Producto').toString(),
+          iceType: (p['ice_type'] ?? '').toString(),
+          kg: _toDouble(p['kg_por_unidad']),
+          kind: (p['kind'] ?? '').toString(),
+        );
+
+        final outputQty = outputsByProductKey[productKey] ?? 0;
+        final deliveredOtherQty = deliveredOtherByProductKey[productKey] ?? 0;
+        final maxAllowed = outputQty - deliveredOtherQty;
+        final cleanMaxAllowed = maxAllowed < 0 ? 0 : maxAllowed;
+
         final qtyRealRaw = raw['qty_real'];
-        final qtyReal =
-            qtyRealRaw == null ? qtyAssigned : (qtyRealRaw as num).toInt();
+        int qtyReal = qtyRealRaw == null ? qtyAssigned : _toInt(qtyRealRaw);
+
+        if (!_isDelivered && qtyReal > cleanMaxAllowed) {
+          qtyReal = cleanMaxAllowed;
+        }
+        if (qtyReal < 0) qtyReal = 0;
 
         return _DeliveryItemRow(
           productId: pid,
           nombre: (p['nombre'] ?? 'Producto').toString(),
           kind: (p['kind'] ?? '').toString(),
           iceType: (p['ice_type'] ?? '').toString(),
-          kgPorUnidad: ((p['kg_por_unidad'] ?? 0) as num).toDouble(),
+          kgPorUnidad: _toDouble(p['kg_por_unidad']),
           qtyAssigned: qtyAssigned,
           qtyReal: qtyReal,
-          precioAplicado: ((raw['precio_aplicado'] ?? 0) as num).toDouble(),
+          precioAplicado: _toDouble(raw['precio_aplicado']),
+          outputQty: outputQty,
+          deliveredOtherQty: deliveredOtherQty,
+          maxAllowedQty: cleanMaxAllowed,
         );
       }).toList();
 
@@ -225,11 +470,15 @@ class _DriverDeliveryDetailPageState extends State<DriverDeliveryDetailPage> {
       _driverName = nextDriverName;
 
       setState(() {
+        _driverCode = nextDriverCode;
+        _assignmentId = assignmentId;
+        _driverId = driverId;
+        _workDate = workDate;
         _status = (delivery['status'] ?? 'PENDIENTE').toString();
         _deliveredAt = delivery['delivered_at']?.toString();
         _dinerName = (delivery['diner_nombre_snapshot'] ?? '').toString();
-        _totalExpected = ((delivery['total_expected'] ?? 0) as num).toDouble();
-        _totalReal = ((delivery['total_real'] ?? 0) as num).toDouble();
+        _totalExpected = _toDouble(delivery['total_expected']);
+        _totalReal = _toDouble(delivery['total_real']);
         _paymentMethod =
             ((delivery['payment_method'] ?? 'EFECTIVO').toString().toUpperCase() ==
                     'CREDITO')
@@ -262,13 +511,18 @@ class _DriverDeliveryDetailPageState extends State<DriverDeliveryDetailPage> {
     final item = _items[index];
     int next = qty;
 
-    if (next < 0) {
+    if (next < 0) next = 0;
+
+    if (item.maxAllowedQty <= 0 && next > 0) {
       next = 0;
+      _showError('No hay salida disponible para ${item.nombre}.');
     }
 
-    if (next > item.qtyAssigned) {
-      next = item.qtyAssigned;
-      _showError('No puedes entregar más de ${item.qtyAssigned} en ${item.nombre}.');
+    if (next > item.maxAllowedQty) {
+      next = item.maxAllowedQty;
+      _showError(
+        'No puedes entregar más de ${item.maxAllowedQty} en ${item.nombre}. Disponible según salidas: ${item.maxAllowedQty}.',
+      );
     }
 
     setState(() {
@@ -278,31 +532,33 @@ class _DriverDeliveryDetailPageState extends State<DriverDeliveryDetailPage> {
   }
 
   void _setQtyFromText(int index, String value) {
-    final item = _items[index];
     final parsed = int.tryParse(value.trim()) ?? 0;
-
-    if (parsed > item.qtyAssigned) {
-      _showError('No puedes entregar más de ${item.qtyAssigned} en ${item.nombre}.');
-    }
-
     _setQty(index, parsed);
   }
 
   void _validateBeforeConfirm() {
+    if (_driverId == null || _driverId!.isEmpty) {
+      throw Exception('No se pudo validar el chofer de la entrega.');
+    }
+
+    if (_workDate == null || _workDate!.isEmpty) {
+      throw Exception('No se pudo validar la fecha de trabajo.');
+    }
+
     for (final it in _items) {
       if (it.qtyReal < 0) {
         throw Exception('Cantidad inválida en ${it.nombre}.');
       }
 
-      if (it.qtyReal > it.qtyAssigned) {
+      if (it.outputQty <= 0 && it.qtyReal > 0) {
         throw Exception(
-          'No puedes entregar más de ${it.qtyAssigned} en ${it.nombre}.',
+          'No hay salida de inventario registrada para ${it.nombre}. No se puede entregar.',
         );
       }
 
-      if (it.qtyReal < it.qtyAssigned) {
+      if (it.qtyReal > it.maxAllowedQty) {
         throw Exception(
-          'No puedes entregar menos de lo asignado en ${it.nombre}. Asignado: ${it.qtyAssigned}.',
+          'No puedes entregar ${it.qtyReal} de ${it.nombre}. Disponible por salidas: ${it.maxAllowedQty}.',
         );
       }
     }
@@ -882,7 +1138,7 @@ class _DriverDeliveryDetailPageState extends State<DriverDeliveryDetailPage> {
     final lines = _buildTicketLines();
     final logo = await _loadLogoForPdf();
 
-    final copies = ['ORIGINAL'];
+    const copies = ['ORIGINAL'];
 
     for (final copy in copies) {
       doc.addPage(
@@ -1084,7 +1340,9 @@ class _DriverDeliveryDetailPageState extends State<DriverDeliveryDetailPage> {
                 ? const Center(child: CircularProgressIndicator(color: _accent))
                 : _error != null
                     ? _ErrorBox(message: _error!, onRetry: _load)
-                    : Column(
+                    : ListView(
+                        keyboardDismissBehavior:
+                            ScrollViewKeyboardDismissBehavior.onDrag,
                         children: [
                           _GlassCard(
                             child: Column(
@@ -1141,6 +1399,26 @@ class _DriverDeliveryDetailPageState extends State<DriverDeliveryDetailPage> {
                                     fontWeight: FontWeight.w700,
                                   ),
                                 ),
+                                if (_workDate != null && _workDate!.isNotEmpty) ...[
+                                  const SizedBox(height: 4),
+                                  Text(
+                                    'Fecha salida: $_workDate',
+                                    style: TextStyle(
+                                      color: Colors.white.withOpacity(0.60),
+                                      fontWeight: FontWeight.w600,
+                                    ),
+                                  ),
+                                ],
+                                if (_driverCode != null && _driverCode!.trim().isNotEmpty) ...[
+                                  const SizedBox(height: 4),
+                                  Text(
+                                    'Código inventario: $_driverCode',
+                                    style: TextStyle(
+                                      color: Colors.white.withOpacity(0.60),
+                                      fontWeight: FontWeight.w600,
+                                    ),
+                                  ),
+                                ],
                                 if (_dinerName.isNotEmpty) ...[
                                   const SizedBox(height: 4),
                                   Text(
@@ -1189,6 +1467,16 @@ class _DriverDeliveryDetailPageState extends State<DriverDeliveryDetailPage> {
                                       ),
                                     ),
                                   ],
+                                ),
+                                const SizedBox(height: 12),
+                                Container(
+                                  width: double.infinity,
+                                  padding: const EdgeInsets.all(10),
+                                  decoration: BoxDecoration(
+                                    borderRadius: BorderRadius.circular(14),
+                                    color: _accent.withOpacity(0.10),
+                                    border: Border.all(color: _accent.withOpacity(0.24)),
+                                  ),
                                 ),
                                 const SizedBox(height: 12),
                                 _PaymentSelector(
@@ -1297,8 +1585,9 @@ class _DriverDeliveryDetailPageState extends State<DriverDeliveryDetailPage> {
                             ),
                           ),
                           const SizedBox(height: 14),
-                          Expanded(
-                            child: ListView.separated(
+                          ListView.separated(
+                              shrinkWrap: true,
+                              physics: const NeverScrollableScrollPhysics(),
                               itemCount: _items.length,
                               separatorBuilder: (_, __) =>
                                   const SizedBox(height: 10),
@@ -1314,21 +1603,52 @@ class _DriverDeliveryDetailPageState extends State<DriverDeliveryDetailPage> {
                                 }
 
                                 final canEdit = !isDelivered && !_busy;
+                                final hasStock = it.maxAllowedQty > 0;
                                 final canRemove = canEdit && it.qtyReal > 0;
-                                final canAdd =
-                                    canEdit && it.qtyReal < it.qtyAssigned;
+                                final canAdd = canEdit &&
+                                    hasStock &&
+                                    it.qtyReal < it.maxAllowedQty;
+
+                                final availableColor = hasStock ? _success : _danger;
 
                                 return _GlassCard(
                                   child: Column(
                                     crossAxisAlignment:
                                         CrossAxisAlignment.start,
                                     children: [
-                                      Text(
-                                        it.nombre,
-                                        style: const TextStyle(
-                                          color: Colors.white,
-                                          fontWeight: FontWeight.w900,
-                                        ),
+                                      Row(
+                                        children: [
+                                          Expanded(
+                                            child: Text(
+                                              it.nombre,
+                                              style: const TextStyle(
+                                                color: Colors.white,
+                                                fontWeight: FontWeight.w900,
+                                              ),
+                                            ),
+                                          ),
+                                          Container(
+                                            padding: const EdgeInsets.symmetric(
+                                              horizontal: 10,
+                                              vertical: 6,
+                                            ),
+                                            decoration: BoxDecoration(
+                                              borderRadius: BorderRadius.circular(999),
+                                              color: availableColor.withOpacity(0.14),
+                                              border: Border.all(
+                                                color: availableColor.withOpacity(0.35),
+                                              ),
+                                            ),
+                                            child: Text(
+                                              hasStock ? 'Disponible' : 'Sin salida',
+                                              style: TextStyle(
+                                                color: availableColor,
+                                                fontWeight: FontWeight.w900,
+                                                fontSize: 12,
+                                              ),
+                                            ),
+                                          ),
+                                        ],
                                       ),
                                       const SizedBox(height: 4),
                                       Text(
@@ -1344,8 +1664,20 @@ class _DriverDeliveryDetailPageState extends State<DriverDeliveryDetailPage> {
                                         runSpacing: 8,
                                         children: [
                                           _MiniInfo(
-                                            label: 'Asignado',
+                                            label: 'Asignado cliente',
                                             value: '${it.qtyAssigned}',
+                                          ),
+                                          _MiniInfo(
+                                            label: 'Salida global',
+                                            value: '${it.outputQty}',
+                                          ),
+                                          _MiniInfo(
+                                            label: 'Entregado otros',
+                                            value: '${it.deliveredOtherQty}',
+                                          ),
+                                          _MiniInfo(
+                                            label: 'Disponible',
+                                            value: '${it.maxAllowedQty}',
                                           ),
                                           _MiniInfo(
                                             label: 'Real',
@@ -1446,23 +1778,38 @@ class _DriverDeliveryDetailPageState extends State<DriverDeliveryDetailPage> {
                                           ),
                                           const SizedBox(width: 6),
                                           TextButton(
-                                            onPressed: canEdit
-                                                ? () =>
-                                                    _setQty(i, it.qtyAssigned)
+                                            onPressed: canEdit && hasStock
+                                                ? () => _setQty(
+                                                      i,
+                                                      it.qtyAssigned > it.maxAllowedQty
+                                                          ? it.maxAllowedQty
+                                                          : it.qtyAssigned,
+                                                    )
                                                 : null,
                                             child: const Text('Completo'),
                                           ),
                                         ],
                                       ),
-                                      if (!isDelivered &&
-                                          it.qtyReal != it.qtyAssigned) ...[
+                                      if (!isDelivered && it.qtyAssigned != it.qtyReal) ...[
                                         const SizedBox(height: 8),
                                         Text(
-                                          'Para confirmar debe coincidir con lo asignado: ${it.qtyAssigned}.',
+                                          it.qtyReal > it.qtyAssigned
+                                              ? 'Se está entregando más de lo asignado al cliente. Permitido porque hay salida disponible.'
+                                              : 'Se está entregando menos de lo asignado al cliente.',
                                           style: TextStyle(
-                                            color:
-                                                Colors.orangeAccent.withOpacity(0.95),
+                                            color: _warning.withOpacity(0.95),
                                             fontWeight: FontWeight.w700,
+                                            fontSize: 12,
+                                          ),
+                                        ),
+                                      ],
+                                      if (!isDelivered && !hasStock) ...[
+                                        const SizedBox(height: 8),
+                                        Text(
+                                          'No hay salida global disponible para este producto. No permite capturar cantidad mayor a 0.',
+                                          style: TextStyle(
+                                            color: Colors.redAccent.withOpacity(0.95),
+                                            fontWeight: FontWeight.w800,
                                             fontSize: 12,
                                           ),
                                         ),
@@ -1472,7 +1819,6 @@ class _DriverDeliveryDetailPageState extends State<DriverDeliveryDetailPage> {
                                 );
                               },
                             ),
-                          ),
                           const SizedBox(height: 12),
                           SizedBox(
                             width: double.infinity,
@@ -1607,6 +1953,10 @@ class _DeliveryItemRow {
   final int qtyReal;
   final double precioAplicado;
 
+  final int outputQty;
+  final int deliveredOtherQty;
+  final int maxAllowedQty;
+
   _DeliveryItemRow({
     required this.productId,
     required this.nombre,
@@ -1616,6 +1966,9 @@ class _DeliveryItemRow {
     required this.qtyAssigned,
     required this.qtyReal,
     required this.precioAplicado,
+    required this.outputQty,
+    required this.deliveredOtherQty,
+    required this.maxAllowedQty,
   });
 
   _DeliveryItemRow copyWith({
@@ -1630,6 +1983,9 @@ class _DeliveryItemRow {
       qtyAssigned: qtyAssigned,
       qtyReal: qtyReal ?? this.qtyReal,
       precioAplicado: precioAplicado,
+      outputQty: outputQty,
+      deliveredOtherQty: deliveredOtherQty,
+      maxAllowedQty: maxAllowedQty,
     );
   }
 }

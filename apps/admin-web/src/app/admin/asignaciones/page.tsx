@@ -1,8 +1,8 @@
-'use client';
+"use client";
 
-import React, { useMemo, useState, useCallback, useEffect } from 'react';
-import { motion, AnimatePresence } from 'framer-motion';
-import { useRouter } from 'next/navigation';
+import React, { useMemo, useState, useCallback, useEffect } from "react";
+import { motion, AnimatePresence } from "framer-motion";
+import { useRouter } from "next/navigation";
 
 import {
   ClipboardList,
@@ -40,41 +40,41 @@ import {
   Clock3,
   Flag,
   Ban,
-} from 'lucide-react';
+} from "lucide-react";
 
-import { PATHS } from '@/lib/constants/paths';
-import { useAdminGuard } from '@/lib/hooks/useAdminGuard';
-import { supabaseBrowser } from '@/lib/supabase/client';
+import { PATHS } from "@/lib/constants/paths";
+import { useAdminGuard } from "@/lib/hooks/useAdminGuard";
+import { supabaseBrowser } from "@/lib/supabase/client";
 import {
   useAssignmentsBuilderAdmin,
   type BatchCustomer,
   type ProductForCustomerUI,
-} from '@/lib/hooks/useAssignamentBuilderAdmin';
+} from "@/lib/hooks/useAssignamentBuilderAdmin";
 
 function cx(...xs: Array<string | false | null | undefined>) {
-  return xs.filter(Boolean).join(' ');
+  return xs.filter(Boolean).join(" ");
 }
 
 function money(n?: number | null) {
-  if (typeof n !== 'number' || Number.isNaN(n)) return '—';
-  return n.toLocaleString('es-MX', { style: 'currency', currency: 'MXN' });
+  if (typeof n !== "number" || Number.isNaN(n)) return "—";
+  return n.toLocaleString("es-MX", { style: "currency", currency: "MXN" });
 }
 
 function moneyPlain(n?: number | null) {
-  const v = typeof n === 'number' && !Number.isNaN(n) ? n : 0;
-  return v.toLocaleString('es-MX', {
+  const v = typeof n === "number" && !Number.isNaN(n) ? n : 0;
+  return v.toLocaleString("es-MX", {
     minimumFractionDigits: 2,
     maximumFractionDigits: 2,
   });
 }
 
 function initials(name: string) {
-  return String(name || '')
+  return String(name || "")
     .trim()
     .split(/\s+/)
     .filter(Boolean)
     .map((w) => w[0])
-    .join('')
+    .join("")
     .toUpperCase()
     .slice(0, 2);
 }
@@ -90,71 +90,73 @@ function clamp(n: number, min: number, max: number) {
 
 function priorityTone(priority?: number | null) {
   const p = safeNum(priority, 100);
-  if (p <= 10) return 'bg-red-500/20 text-red-100 border-red-500/30';
-  if (p <= 30) return 'bg-orange-500/20 text-orange-100 border-orange-500/30';
-  if (p <= 60) return 'bg-yellow-500/20 text-yellow-100 border-yellow-500/30';
-  return 'bg-white/10 text-white/70 border-white/10';
+  if (p <= 10) return "bg-red-500/20 text-red-100 border-red-500/30";
+  if (p <= 30) return "bg-orange-500/20 text-orange-100 border-orange-500/30";
+  if (p <= 60) return "bg-yellow-500/20 text-yellow-100 border-yellow-500/30";
+  return "bg-white/10 text-white/70 border-white/10";
 }
 
 function priorityLabel(priority?: number | null) {
   const p = safeNum(priority, 100);
-  if (p <= 10) return 'Urgente';
-  if (p <= 30) return 'Alta';
-  if (p <= 60) return 'Media';
-  return 'Baja';
+  if (p <= 10) return "Urgente";
+  if (p <= 30) return "Alta";
+  if (p <= 60) return "Media";
+  return "Baja";
 }
 
 function escapeHtml(value: string) {
   return String(value)
-    .replaceAll('&', '&amp;')
-    .replaceAll('<', '&lt;')
-    .replaceAll('>', '&gt;')
-    .replaceAll('"', '&quot;')
-    .replaceAll("'", '&#039;');
+    .replaceAll("&", "&amp;")
+    .replaceAll("<", "&lt;")
+    .replaceAll(">", "&gt;")
+    .replaceAll('"', "&quot;")
+    .replaceAll("'", "&#039;");
 }
 
 function formatOnlyDate(value?: string | null) {
-  if (!value) return '—';
+  if (!value) return "—";
   const parsed = new Date(`${value}T00:00:00`);
   if (Number.isNaN(parsed.getTime())) return value;
-  return new Intl.DateTimeFormat('es-MX', { dateStyle: 'medium' }).format(parsed);
+  return new Intl.DateTimeFormat("es-MX", { dateStyle: "medium" }).format(
+    parsed,
+  );
 }
 
 function formatDateTime(value?: string | null) {
-  if (!value) return '—';
+  if (!value) return "—";
   const parsed = new Date(value);
   if (Number.isNaN(parsed.getTime())) return value;
 
-  return new Intl.DateTimeFormat('es-MX', {
-    dateStyle: 'medium',
-    timeStyle: 'short',
+  return new Intl.DateTimeFormat("es-MX", {
+    dateStyle: "medium",
+    timeStyle: "short",
   }).format(parsed);
 }
 
 function normalizeDeliveryStatus(status?: string | null) {
-  return String(status || '')
+  return String(status || "")
     .trim()
     .toUpperCase()
-    .normalize('NFD')
-    .replace(/[\u0300-\u036f]/g, '');
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "");
 }
 
 function isConfirmedDeliveryStatus(status?: string | null) {
   const s = normalizeDeliveryStatus(status);
 
   return [
-    'ENTREGADA',
-    'CONFIRMADA',
-    'FINALIZADA',
-    'COMPLETADA',
-    'CERRADA',
-    'LIQUIDADA',
+    "ENTREGADA",
+    "CONFIRMADA",
+    "FINALIZADA",
+    "COMPLETADA",
+    "CERRADA",
+    "LIQUIDADA",
   ].includes(s);
 }
 
 function isCancelledDeliveryStatus(status?: string | null) {
   const s = normalizeDeliveryStatus(status);
-  return ['CANCELADA', 'CANCELADO', 'ANULADA', 'ANULADO'].includes(s);
+  return ["CANCELADA", "CANCELADO", "ANULADA", "ANULADO"].includes(s);
 }
 
 function canCancelDelivery(status?: string | null) {
@@ -166,58 +168,60 @@ function canCancelDelivery(status?: string | null) {
 function signedQty(n: number) {
   if (n > 0) return `+${n}`;
   if (n < 0) return `${n}`;
-  return '0';
+  return "0";
 }
 
 function formatKm(n?: number | null) {
-  if (typeof n !== 'number' || Number.isNaN(n)) return '—';
-  return `${n.toLocaleString('es-MX', {
+  if (typeof n !== "number" || Number.isNaN(n)) return "—";
+  return `${n.toLocaleString("es-MX", {
     minimumFractionDigits: 0,
     maximumFractionDigits: 2,
   })} km`;
 }
 
 function normalizeTextPdf(value?: string | null) {
-  return String(value || '')
+  return String(value || "")
     .trim()
     .toUpperCase()
-    .normalize('NFD')
-    .replace(/[\u0300-\u036f]/g, '');
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "");
 }
 
 function normalizeLooseText(value?: string | null) {
-  return String(value || '')
+  return String(value || "")
     .trim()
     .toUpperCase()
-    .normalize('NFD')
-    .replace(/[\u0300-\u036f]/g, '')
-    .replace(/\s+/g, ' ');
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .replace(/\s+/g, " ");
 }
 
 function normalizeIceTypeForPdf(value?: string | null) {
   const t = normalizeLooseText(value);
-  if (!t) return '';
-  if (t.includes('BARRA')) return 'BARRA';
-  if (t.includes('GOURMET')) return 'GOURMET';
-  if (t.includes('FRAP')) return 'FRAP';
-  if (t.includes('ENFRIAR')) return 'ENFRIAR';
-  if (t.includes('ROLITO')) return 'ROLITO';
-  if (t.includes('NORMAL')) return 'ROLITO';
-  return t.replace(/[^A-Z0-9]+/g, '_').replace(/^_+|_+$/g, '');
+  if (!t) return "";
+  if (t.includes("BARRA")) return "BARRA";
+  if (t.includes("GOURMET")) return "GOURMET";
+  if (t.includes("FRAP")) return "FRAP";
+  if (t.includes("ENFRIAR")) return "ENFRIAR";
+  if (t.includes("ROLITO")) return "ROLITO";
+  if (t.includes("NORMAL")) return "ROLITO";
+  return t.replace(/[^A-Z0-9]+/g, "_").replace(/^_+|_+$/g, "");
 }
 
 function extractKgForPdf(...values: Array<string | number | null | undefined>) {
   for (const value of values) {
-    if (typeof value === 'number' && Number.isFinite(value) && value > 0) {
-      return Number.isInteger(value) ? String(value) : String(value).replace(/\.0+$/, '');
+    if (typeof value === "number" && Number.isFinite(value) && value > 0) {
+      return Number.isInteger(value)
+        ? String(value)
+        : String(value).replace(/\.0+$/, "");
     }
 
-    const text = normalizeLooseText(String(value ?? ''));
+    const text = normalizeLooseText(String(value ?? ""));
     const match = text.match(/(\d+(?:\.\d+)?)\s*(?:KG|KILO|KILOS)/);
-    if (match?.[1]) return match[1].replace(/\.0+$/, '');
+    if (match?.[1]) return match[1].replace(/\.0+$/, "");
   }
 
-  return '';
+  return "";
 }
 
 function buildProductKeyForPdf(input: {
@@ -231,51 +235,65 @@ function buildProductKeyForPdf(input: {
   const iceType = normalizeIceTypeForPdf(input.iceType);
   const kind = normalizeLooseText(input.kind);
 
-  if (iceType === 'BARRA' || name.includes('BARRA') || kind.includes('BARRA')) {
-    return 'BARRA';
+  if (iceType === "BARRA" || name.includes("BARRA") || kind.includes("BARRA")) {
+    return "BARRA";
   }
 
-  const kg = extractKgForPdf(input.kg as string | number | null | undefined, input.name);
+  const kg = extractKgForPdf(
+    input.kg as string | number | null | undefined,
+    input.name,
+  );
 
   let type = iceType;
   if (!type) {
-    if (name.includes('GOURMET')) type = 'GOURMET';
-    else if (name.includes('FRAP')) type = 'FRAP';
-    else if (name.includes('ENFRIAR')) type = 'ENFRIAR';
-    else if (name.includes('ROLITO') || name.includes('BOLSA') || name.includes('HIELO')) type = 'ROLITO';
+    if (name.includes("GOURMET")) type = "GOURMET";
+    else if (name.includes("FRAP")) type = "FRAP";
+    else if (name.includes("ENFRIAR")) type = "ENFRIAR";
+    else if (
+      name.includes("ROLITO") ||
+      name.includes("BOLSA") ||
+      name.includes("HIELO")
+    )
+      type = "ROLITO";
   }
 
   if (type && kg) return `${type}_${kg}`;
   if (type) return type;
 
-  const fallback = name || String(input.productId || '').trim().toUpperCase();
-  return fallback || '';
+  const fallback =
+    name ||
+    String(input.productId || "")
+      .trim()
+      .toUpperCase();
+  return fallback || "";
 }
 
 function labelFromProductKeyForPdf(key: string, fallback?: string | null) {
-  const clean = String(key || '').trim().toUpperCase();
-  if (clean === 'BARRA') return 'BARRA';
+  const clean = String(key || "")
+    .trim()
+    .toUpperCase();
+  if (clean === "BARRA") return "BARRA";
 
-  const [typeRaw, kg] = clean.split('_');
-  const type = typeRaw === 'FRAPPE' ? 'FRAP' : typeRaw;
+  const [typeRaw, kg] = clean.split("_");
+  const type = typeRaw === "FRAPPE" ? "FRAP" : typeRaw;
 
   if (type && kg) return `${type} ${kg}KG`;
-  return String(fallback || clean || 'PRODUCTO').trim();
+  return String(fallback || clean || "PRODUCTO").trim();
 }
 
 function productSortWeightForPdf(key: string) {
   const order = [
-    'ROLITO_3',
-    'ROLITO_5',
-    'ROLITO_15',
-    'FRAP_5',
-    'FRAP_15',
-    'BARRA',
-    'GOURMET_5',
-    'ENFRIAR_5',
+    "ROLITO_3",
+    "ROLITO_5",
+    "ROLITO_15",
+    "FRAP_5",
+    "FRAP_15",
+    "BARRA",
+    "GOURMET_5",
+    "ENFRIAR_5",
   ];
 
-  const idx = order.indexOf(String(key || '').toUpperCase());
+  const idx = order.indexOf(String(key || "").toUpperCase());
   return idx === -1 ? 999 : idx;
 }
 
@@ -291,8 +309,8 @@ type PdfProductMeta = {
 };
 
 function getPdfProductNameFromMeta(meta?: PdfProductMeta | null) {
-  const direct = String(meta?.nombre || meta?.nombre_comercial || '').trim();
-  if (direct && normalizeLooseText(direct) !== 'PRODUCTO') return direct;
+  const direct = String(meta?.nombre || meta?.nombre_comercial || "").trim();
+  if (direct && normalizeLooseText(direct) !== "PRODUCTO") return direct;
 
   const key = buildProductKeyForPdf({
     name: direct,
@@ -302,15 +320,18 @@ function getPdfProductNameFromMeta(meta?: PdfProductMeta | null) {
     productId: meta?.id || null,
   });
 
-  return labelFromProductKeyForPdf(key, direct || 'PRODUCTO');
+  return labelFromProductKeyForPdf(key, direct || "PRODUCTO");
 }
 
-function getPdfItemProductName(item: any, productById: Map<string, PdfProductMeta>) {
-  const productId = String(item?.product_id || '').trim();
+function getPdfItemProductName(
+  item: any,
+  productById: Map<string, PdfProductMeta>,
+) {
+  const productId = String(item?.product_id || "").trim();
   const meta = productById.get(productId);
   const fromMeta = getPdfProductNameFromMeta(meta);
 
-  if (fromMeta && normalizeLooseText(fromMeta) !== 'PRODUCTO') return fromMeta;
+  if (fromMeta && normalizeLooseText(fromMeta) !== "PRODUCTO") return fromMeta;
 
   const fromItem = String(
     item?.product_nombre ||
@@ -318,14 +339,17 @@ function getPdfItemProductName(item: any, productById: Map<string, PdfProductMet
       item?.product_name ||
       item?.producto_nombre ||
       item?.products?.nombre ||
-      ''
+      "",
   ).trim();
 
-  return fromItem || fromMeta || 'PRODUCTO';
+  return fromItem || fromMeta || "PRODUCTO";
 }
 
-function getPdfItemProductKey(item: any, productById: Map<string, PdfProductMeta>) {
-  const productId = String(item?.product_id || '').trim();
+function getPdfItemProductKey(
+  item: any,
+  productById: Map<string, PdfProductMeta>,
+) {
+  const productId = String(item?.product_id || "").trim();
   const meta = productById.get(productId);
   const name = getPdfItemProductName(item, productById);
 
@@ -338,7 +362,9 @@ function getPdfItemProductKey(item: any, productById: Map<string, PdfProductMeta
   });
 }
 
-function buildInventoryProductKeyForPdf(item?: InventoryMovementBatchItem | null) {
+function buildInventoryProductKeyForPdf(
+  item?: InventoryMovementBatchItem | null,
+) {
   const label = getInventoryItemLabel(item);
   return buildProductKeyForPdf({
     name: label,
@@ -349,7 +375,6 @@ function buildInventoryProductKeyForPdf(item?: InventoryMovementBatchItem | null
   });
 }
 
-
 function firstNumeric(...values: unknown[]) {
   for (const value of values) {
     const n = Number(value);
@@ -358,12 +383,15 @@ function firstNumeric(...values: unknown[]) {
   return 0;
 }
 
-function formatClientPdfName(customerName?: string | null, dinerName?: string | null) {
-  const customer = String(customerName || '').trim();
-  const diner = String(dinerName || '').trim();
+function formatClientPdfName(
+  customerName?: string | null,
+  dinerName?: string | null,
+) {
+  const customer = String(customerName || "").trim();
+  const diner = String(dinerName || "").trim();
 
   if (customer && diner) return `${customer} - ${diner}`;
-  return customer || diner || 'CLIENTE';
+  return customer || diner || "CLIENTE";
 }
 
 function getItemUnitPrice(
@@ -383,7 +411,7 @@ function getItemUnitPrice(
     unit_price_real?: number | null;
     precio_unitario_real?: number | null;
   },
-  confirmed: boolean
+  confirmed: boolean,
 ) {
   const qtyAssigned = firstNumeric(item?.qty_assigned, 0);
   const qtyReal = firstNumeric(item?.qty_real, qtyAssigned, 0);
@@ -391,14 +419,14 @@ function getItemUnitPrice(
   const subtotalExpected = firstNumeric(
     item?.subtotal_expected,
     item?.total_expected,
-    0
+    0,
   );
 
   const subtotalReal = firstNumeric(
     item?.subtotal_real,
     item?.total_real,
     subtotalExpected,
-    0
+    0,
   );
 
   const explicitExpectedUnit = firstNumeric(
@@ -408,26 +436,28 @@ function getItemUnitPrice(
     item?.precio_unitario,
     item?.unit_price_expected,
     item?.precio_unitario_expected,
-    0
+    0,
   );
 
   const explicitRealUnit = firstNumeric(
     item?.unit_price_real,
     item?.precio_unitario_real,
     explicitExpectedUnit,
-    0
+    0,
   );
 
   if (confirmed) {
     if (explicitRealUnit > 0) return explicitRealUnit;
     if (qtyReal > 0 && subtotalReal > 0) return subtotalReal / qtyReal;
     if (explicitExpectedUnit > 0) return explicitExpectedUnit;
-    if (qtyAssigned > 0 && subtotalExpected > 0) return subtotalExpected / qtyAssigned;
+    if (qtyAssigned > 0 && subtotalExpected > 0)
+      return subtotalExpected / qtyAssigned;
     return 0;
   }
 
   if (explicitExpectedUnit > 0) return explicitExpectedUnit;
-  if (qtyAssigned > 0 && subtotalExpected > 0) return subtotalExpected / qtyAssigned;
+  if (qtyAssigned > 0 && subtotalExpected > 0)
+    return subtotalExpected / qtyAssigned;
   return 0;
 }
 
@@ -503,7 +533,7 @@ type InventoryGlobalOutputsPdf = {
 };
 
 function hasRealDriverId(value: unknown) {
-  return String(value ?? '').trim().length > 0;
+  return String(value ?? "").trim().length > 0;
 }
 
 function toDateStart(value: string) {
@@ -518,46 +548,50 @@ function toDateEndExclusive(value: string) {
 }
 
 function normalizeProductAlias(value?: string | null) {
-  return normalizeLooseText(value)
-    .replace(/\s+/g, ' ')
-    .trim();
+  return normalizeLooseText(value).replace(/\s+/g, " ").trim();
 }
 
 function buildInventoryPdfKeyFromParts(
   bolsaVaciaCodigo?: string | null,
   tipoHielo?: string | null,
-  pesoKg?: number | null
+  pesoKg?: number | null,
 ) {
-  const bv = String(bolsaVaciaCodigo || '').trim().toUpperCase();
-  const tipo = String(tipoHielo || '').trim().toUpperCase();
+  const bv = String(bolsaVaciaCodigo || "")
+    .trim()
+    .toUpperCase();
+  const tipo = String(tipoHielo || "")
+    .trim()
+    .toUpperCase();
   const kg = safeNum(pesoKg, 0);
 
   if (bv && tipo && kg > 0) return `${bv}__${tipo}__${kg}`;
   if (bv && tipo) return `${bv}__${tipo}`;
-  return '';
+  return "";
 }
 
 function getInventoryItemLabel(item?: InventoryMovementBatchItem | null) {
-  const byName = String(item?.productoNombre || '').trim();
+  const byName = String(item?.productoNombre || "").trim();
   if (byName) return byName;
 
-  const codigo = String(item?.productoCodigo || item?.bolsaVaciaCodigo || '').trim();
-  const tipo = String(item?.tipoHielo || '').trim();
+  const codigo = String(
+    item?.productoCodigo || item?.bolsaVaciaCodigo || "",
+  ).trim();
+  const tipo = String(item?.tipoHielo || "").trim();
   const kg = safeNum(item?.pesoKg, 0);
 
   if (codigo && tipo && kg > 0) return `${tipo} ${kg}KG`;
   if (codigo && tipo) return `${codigo} ${tipo}`;
-  return codigo || tipo || 'PRODUCTO';
+  return codigo || tipo || "PRODUCTO";
 }
 
 function getInventoryItemKey(item?: InventoryMovementBatchItem | null) {
-  const explicit = String(item?.inventoryKey || '').trim();
+  const explicit = String(item?.inventoryKey || "").trim();
   if (explicit) return explicit.toUpperCase();
 
   const byParts = buildInventoryPdfKeyFromParts(
     item?.bolsaVaciaCodigo || item?.productoCodigo,
     item?.tipoHielo,
-    item?.pesoKg
+    item?.pesoKg,
   );
 
   if (byParts) return byParts;
@@ -568,7 +602,7 @@ function getInventoryItemKey(item?: InventoryMovementBatchItem | null) {
 function addInventoryAlias(
   keyByAlias: Map<string, string>,
   key: string,
-  value?: string | null
+  value?: string | null,
 ) {
   const alias = normalizeProductAlias(value);
   if (!alias || !key) return;
@@ -577,15 +611,69 @@ function addInventoryAlias(
 
 function resolvePdfProductKey(
   productName: string,
-  inventory: InventoryGlobalOutputsPdf
+  inventory: InventoryGlobalOutputsPdf,
 ) {
   const alias = normalizeProductAlias(productName);
   return inventory.keyByAlias.get(alias) || alias;
 }
 
-function buildDriverDestinatarioCandidates(driverName?: string | null, driverCode?: string | null) {
-  const name = String(driverName || '').trim();
-  const code = String(driverCode || '').trim();
+function canonicalInventoryOutputKeyForPdf(
+  keyRaw?: string | null,
+  labelRaw?: string | null,
+) {
+  const raw = String(keyRaw || "")
+    .trim()
+    .toUpperCase();
+  const label = String(labelRaw || "").trim();
+
+  if (!raw && !label) return "";
+
+  if (raw.includes("__")) {
+    const parts = raw
+      .split("__")
+      .map((x) => x.trim())
+      .filter(Boolean);
+    const tipo = normalizeIceTypeForPdf(parts[1] || label || raw);
+    const kg = extractKgForPdf(parts[2], label, raw);
+
+    if (tipo === "BARRA") return "BARRA";
+    if (tipo && kg) return `${tipo}_${kg}`;
+    if (tipo) return tipo;
+  }
+
+  return buildProductKeyForPdf({
+    name: label || raw,
+    iceType: label || raw,
+    kg: extractKgForPdf(label, raw) || null,
+    kind: null,
+    productId: raw,
+  });
+}
+
+function getInventoryQtyForPdfKey(
+  inventory: InventoryGlobalOutputsPdf,
+  productKey: string,
+) {
+  const key = String(productKey || "")
+    .trim()
+    .toUpperCase();
+  if (!key) return 0;
+
+  const direct = inventory.qtyByKey.get(key);
+  if (typeof direct === "number") return direct;
+
+  const alias = inventory.keyByAlias.get(normalizeProductAlias(key));
+  if (alias) return inventory.qtyByKey.get(alias) ?? 0;
+
+  return 0;
+}
+
+function buildDriverDestinatarioCandidates(
+  driverName?: string | null,
+  driverCode?: string | null,
+) {
+  const name = String(driverName || "").trim();
+  const code = String(driverCode || "").trim();
 
   const raw = new Set<string>();
 
@@ -597,18 +685,22 @@ function buildDriverDestinatarioCandidates(driverName?: string | null, driverCod
 }
 
 function compactPdfText(value?: string | null) {
-  return normalizeLooseText(value).replace(/[^A-Z0-9]+/g, '');
+  return normalizeLooseText(value).replace(/[^A-Z0-9]+/g, "");
 }
 
 function movementMatchesDriver(
   movement: InventoryMovementDoc,
   driverName?: string | null,
-  driverCode?: string | null
+  driverCode?: string | null,
 ) {
   const normalizedDestinatario = normalizeLooseText(movement.destinatario);
   const normalizedCliente = normalizeLooseText(movement.clienteNombre);
-  const combined = normalizeLooseText(`${movement.destinatario || ''} ${movement.clienteNombre || ''}`);
-  const compactCombined = compactPdfText(`${movement.destinatario || ''} ${movement.clienteNombre || ''}`);
+  const combined = normalizeLooseText(
+    `${movement.destinatario || ""} ${movement.clienteNombre || ""}`,
+  );
+  const compactCombined = compactPdfText(
+    `${movement.destinatario || ""} ${movement.clienteNombre || ""}`,
+  );
 
   const candidates = buildDriverDestinatarioCandidates(driverName, driverCode);
 
@@ -629,12 +721,14 @@ function movementMatchesDriver(
   if (code && compactCombined.includes(code)) return true;
 
   const nameTokens = normalizeLooseText(driverName)
-    .split(' ')
+    .split(" ")
     .map((x) => x.trim())
     .filter((x) => x.length >= 3);
 
   if (nameTokens.length >= 2) {
-    const matches = nameTokens.filter((token) => combined.includes(token)).length;
+    const matches = nameTokens.filter((token) =>
+      combined.includes(token),
+    ).length;
     return matches >= Math.min(2, nameTokens.length);
   }
 
@@ -645,7 +739,7 @@ async function getInventoryGlobalOutputsForDriverPdf(
   workDate: string,
   driverId?: string | null,
   driverName?: string | null,
-  driverCode?: string | null
+  driverCode?: string | null,
 ): Promise<InventoryGlobalOutputsPdf> {
   const qtyByKey = new Map<string, number>();
   const labelByKey = new Map<string, string>();
@@ -655,58 +749,123 @@ async function getInventoryGlobalOutputsForDriverPdf(
     return { qtyByKey, labelByKey, keyByAlias };
   }
 
-  try {
-    const params = new URLSearchParams();
-    params.set('date', workDate);
+  const attempts: Array<{ driverCode?: string; driverName?: string }> = [];
+  const cleanDriverCode = String(driverCode || "").trim();
+  const cleanDriverName = String(driverName || "").trim();
 
-    // Si el hook todavía no trae firebase_codigo, mandamos driverId como valor técnico.
-    // Esto evita que el route haga match contra todas las salidas cuando falta código.
-    // El filtro real queda por driverName.
-    const safeDriverCode = String(driverCode || driverId || '').trim();
+  if (cleanDriverCode && cleanDriverName) {
+    attempts.push({ driverCode: cleanDriverCode, driverName: cleanDriverName });
+  }
 
-    if (safeDriverCode) params.set('driverCode', safeDriverCode);
-    if (driverName) params.set('driverName', driverName);
+  if (cleanDriverName) {
+    attempts.push({ driverName: cleanDriverName });
+  }
 
-    const response = await fetch(`/api/inventory/global-outputs?${params.toString()}`, {
-      method: 'GET',
-      cache: 'no-store',
-    });
+  if (cleanDriverCode) {
+    attempts.push({ driverCode: cleanDriverCode });
+  }
 
-    const json = await response.json().catch(() => null);
-
-    if (!response.ok || !json?.ok) {
-      console.error('[PDF SALIDAS GLOBAL] Error leyendo /api/inventory/global-outputs:', json);
-      return { qtyByKey, labelByKey, keyByAlias };
-    }
-
-    const rawQtyByKey = json.qtyByKey || {};
-    const rawLabelByKey = json.labelByKey || {};
-
-    for (const [keyRaw, qtyRaw] of Object.entries(rawQtyByKey)) {
-      const key = String(keyRaw || '').trim().toUpperCase();
-      const qty = Math.abs(firstNumeric(qtyRaw, 0));
-
-      if (!key || qty <= 0) continue;
-
-      const label = String(
-        rawLabelByKey[keyRaw] ||
-          rawLabelByKey[key] ||
-          labelFromProductKeyForPdf(key)
-      ).trim();
-
-      qtyByKey.set(key, (qtyByKey.get(key) ?? 0) + qty);
-      if (!labelByKey.has(key)) labelByKey.set(key, label);
-
-      addInventoryAlias(keyByAlias, key, key);
-      addInventoryAlias(keyByAlias, key, label);
-      addInventoryAlias(keyByAlias, key, labelFromProductKeyForPdf(key, label));
-    }
-
-    return { qtyByKey, labelByKey, keyByAlias };
-  } catch (error) {
-    console.error('[PDF SALIDAS GLOBAL] No se pudo leer /api/inventory/global-outputs:', error);
+  if (attempts.length === 0) {
     return { qtyByKey, labelByKey, keyByAlias };
   }
+
+  for (const attempt of attempts) {
+    try {
+      const params = new URLSearchParams();
+      params.set("date", workDate);
+
+      // MUY IMPORTANTE:
+      // No mandamos driverId de Supabase como driverCode.
+      // driverCode solo debe ser el código de inventario/Firebase, ej. USR003.
+      if (attempt.driverCode) params.set("driverCode", attempt.driverCode);
+      if (attempt.driverName) params.set("driverName", attempt.driverName);
+
+      const response = await fetch(
+        `/api/inventory/global-outputs?${params.toString()}`,
+        {
+          method: "GET",
+          cache: "no-store",
+        },
+      );
+
+      const json = await response.json().catch(() => null);
+
+      if (!response.ok || !json?.ok) {
+        console.warn("[PDF SALIDAS GLOBAL] API sin salidas válidas:", {
+          status: response.status,
+          attempt,
+          error: json?.error || json,
+        });
+        continue;
+      }
+
+      const rawQtyByKey = json.qtyByKey || {};
+      const rawLabelByKey = json.labelByKey || {};
+      let loaded = 0;
+
+      for (const [keyRaw, qtyRaw] of Object.entries(rawQtyByKey)) {
+        const rawKey = String(keyRaw || "")
+          .trim()
+          .toUpperCase();
+        const rawLabel = String(
+          rawLabelByKey[keyRaw] ||
+            rawLabelByKey[rawKey] ||
+            labelFromProductKeyForPdf(rawKey),
+        ).trim();
+
+        const key = canonicalInventoryOutputKeyForPdf(rawKey, rawLabel);
+        const qty = Math.abs(firstNumeric(qtyRaw, 0));
+
+        if (!key || qty <= 0) continue;
+
+        const label = labelFromProductKeyForPdf(key, rawLabel);
+
+        qtyByKey.set(key, (qtyByKey.get(key) ?? 0) + qty);
+        if (!labelByKey.has(key)) labelByKey.set(key, label);
+
+        addInventoryAlias(keyByAlias, key, key);
+        addInventoryAlias(keyByAlias, key, rawKey);
+        addInventoryAlias(keyByAlias, key, rawLabel);
+        addInventoryAlias(keyByAlias, key, label);
+        addInventoryAlias(
+          keyByAlias,
+          key,
+          labelFromProductKeyForPdf(key, label),
+        );
+
+        loaded += qty;
+      }
+
+      if (loaded > 0) {
+        console.info("[PDF SALIDAS GLOBAL] Salidas cargadas:", {
+          attempt,
+          qtyByKey: Object.fromEntries(qtyByKey),
+          debug: json.debug,
+        });
+
+        return { qtyByKey, labelByKey, keyByAlias };
+      }
+
+      console.warn(
+        "[PDF SALIDAS GLOBAL] API respondió ok pero sin cantidades:",
+        {
+          attempt,
+          debug: json.debug,
+          qtyByKey: json.qtyByKey,
+        },
+      );
+    } catch (error) {
+      console.warn(
+        "[PDF SALIDAS GLOBAL] No se pudo leer /api/inventory/global-outputs:",
+        {
+          attempt,
+          error,
+        },
+      );
+    }
+  }
+
+  return { qtyByKey, labelByKey, keyByAlias };
 }
 
 export default function AdminAsignacionesPage() {
@@ -714,19 +873,25 @@ export default function AdminAsignacionesPage() {
   const guard = useAdminGuard();
   const api = useAssignmentsBuilderAdmin();
 
-  const [driverId, setDriverId] = useState<string>('');
-  const [qCustomer, setQCustomer] = useState('');
+  const [driverId, setDriverId] = useState<string>("");
+  const [qCustomer, setQCustomer] = useState("");
   const [openBuilder, setOpenBuilder] = useState(false);
   const [batch, setBatch] = useState<BatchCustomer[]>([]);
-  const [cancellingDeliveryId, setCancellingDeliveryId] = useState<string | null>(null);
+  const [cancellingDeliveryId, setCancellingDeliveryId] = useState<
+    string | null
+  >(null);
 
   const assignableDrivers = useMemo(() => {
     return (api.drivers as AssignmentDriverOption[])
       .filter((d) => d.activo && hasRealDriverId(d.id))
       .sort((a, b) => {
-        const aName = String(a.nombre || a.firebase_nombre || '').trim().toLowerCase();
-        const bName = String(b.nombre || b.firebase_nombre || '').trim().toLowerCase();
-        return aName.localeCompare(bName, 'es');
+        const aName = String(a.nombre || a.firebase_nombre || "")
+          .trim()
+          .toLowerCase();
+        const bName = String(b.nombre || b.firebase_nombre || "")
+          .trim()
+          .toLowerCase();
+        return aName.localeCompare(bName, "es");
       });
   }, [api.drivers]);
 
@@ -734,9 +899,13 @@ export default function AdminAsignacionesPage() {
     return (api.drivers as AssignmentDriverOption[])
       .filter((d) => d.activo && !hasRealDriverId(d.id))
       .sort((a, b) => {
-        const aName = String(a.nombre || a.firebase_nombre || '').trim().toLowerCase();
-        const bName = String(b.nombre || b.firebase_nombre || '').trim().toLowerCase();
-        return aName.localeCompare(bName, 'es');
+        const aName = String(a.nombre || a.firebase_nombre || "")
+          .trim()
+          .toLowerCase();
+        const bName = String(b.nombre || b.firebase_nombre || "")
+          .trim()
+          .toLowerCase();
+        return aName.localeCompare(bName, "es");
       });
   }, [api.drivers]);
 
@@ -748,7 +917,7 @@ export default function AdminAsignacionesPage() {
     if (!driverId) return;
     const stillExists = assignableDrivers.some((d) => d.id === driverId);
     if (!stillExists) {
-      setDriverId('');
+      setDriverId("");
     }
   }, [driverId, assignableDrivers]);
 
@@ -760,8 +929,8 @@ export default function AdminAsignacionesPage() {
 
     return base
       .filter((c) => {
-        const diner = String(c.diner_nombre ?? '').toLowerCase();
-        const tel = String(c.telefono ?? '').toLowerCase();
+        const diner = String(c.diner_nombre ?? "").toLowerCase();
+        const tel = String(c.telefono ?? "").toLowerCase();
         return (
           c.nombre.toLowerCase().includes(s) ||
           diner.includes(s) ||
@@ -773,7 +942,7 @@ export default function AdminAsignacionesPage() {
 
   const batchByCustomer = useMemo(
     () => new Map(batch.map((b) => [b.customer_id, b])),
-    [batch]
+    [batch],
   );
 
   const batchSorted = useMemo(() => {
@@ -784,23 +953,23 @@ export default function AdminAsignacionesPage() {
     const selectedDriverStillValid =
       driverId && assignableDrivers.some((d) => d.id === driverId)
         ? driverId
-        : '';
+        : "";
 
     const selectedAssignmentDriverStillValid =
       api.selectedAssignment?.driver_id &&
       assignableDrivers.some((d) => d.id === api.selectedAssignment?.driver_id)
         ? api.selectedAssignment.driver_id
-        : '';
+        : "";
 
     const d =
       selectedDriverStillValid ||
       selectedAssignmentDriverStillValid ||
       assignableDrivers[0]?.id ||
-      '';
+      "";
 
     setDriverId(d);
     setBatch([]);
-    setQCustomer('');
+    setQCustomer("");
     setOpenBuilder(true);
   }
 
@@ -827,8 +996,8 @@ export default function AdminAsignacionesPage() {
     const v = clamp(Math.floor(safeNum(value, 50)), 1, 100);
     setBatch((prev) =>
       prev.map((b) =>
-        b.customer_id === customerId ? { ...b, priority: v } : b
-      )
+        b.customer_id === customerId ? { ...b, priority: v } : b,
+      ),
     );
   }
 
@@ -837,8 +1006,8 @@ export default function AdminAsignacionesPage() {
       prev.map((b) =>
         b.customer_id === customerId
           ? { ...b, priority: clamp((b.priority ?? 50) + delta, 1, 100) }
-          : b
-      )
+          : b,
+      ),
     );
   }
 
@@ -847,8 +1016,8 @@ export default function AdminAsignacionesPage() {
       prev.map((b) =>
         b.customer_id === customerId
           ? { ...b, priority: clamp(value, 1, 100) }
-          : b
-      )
+          : b,
+      ),
     );
   }
 
@@ -868,7 +1037,7 @@ export default function AdminAsignacionesPage() {
             },
           ],
         };
-      })
+      }),
     );
   }
 
@@ -880,7 +1049,7 @@ export default function AdminAsignacionesPage() {
           ...b,
           items: b.items.filter((it) => it.product_id !== productId),
         };
-      })
+      }),
     );
   }
 
@@ -893,10 +1062,10 @@ export default function AdminAsignacionesPage() {
         return {
           ...b,
           items: b.items.map((it) =>
-            it.product_id === productId ? { ...it, qty: q } : it
+            it.product_id === productId ? { ...it, qty: q } : it,
           ),
         };
-      })
+      }),
     );
   }
 
@@ -932,7 +1101,7 @@ export default function AdminAsignacionesPage() {
         }
 
         return { ...b, items: [...nextItems] };
-      })
+      }),
     );
   }
 
@@ -970,17 +1139,20 @@ export default function AdminAsignacionesPage() {
           subtotal: p.precio_cliente_final * it.qty,
         };
       })
-      .filter(Boolean) as BatchItemDetailed['items'];
+      .filter(Boolean) as BatchItemDetailed["items"];
   }
 
   const routeTotal = useMemo(() => {
-    return batch.reduce((acc, b) => acc + getCustomerSubtotal(b.customer_id), 0);
+    return batch.reduce(
+      (acc, b) => acc + getCustomerSubtotal(b.customer_id),
+      0,
+    );
   }, [batch]);
 
   const routeQty = useMemo(() => {
     return batch.reduce(
       (acc, b) => acc + b.items.reduce((a, it) => a + safeNum(it.qty, 0), 0),
-      0
+      0,
     );
   }, [batch]);
 
@@ -1001,7 +1173,10 @@ export default function AdminAsignacionesPage() {
   }, [batchSorted, api.customers, batch]);
 
   const globalProductSummary = useMemo((): GlobalProductSummary[] => {
-    const map = new Map<string, GlobalProductSummary & { customerSet: Set<string> }>();
+    const map = new Map<
+      string,
+      GlobalProductSummary & { customerSet: Set<string> }
+    >();
 
     for (const customer of batchDetailed) {
       for (const item of customer.items) {
@@ -1031,7 +1206,9 @@ export default function AdminAsignacionesPage() {
       customers_count: r.customerSet.size,
     }));
 
-    out.sort((a, b) => b.total_qty - a.total_qty || a.nombre.localeCompare(b.nombre));
+    out.sort(
+      (a, b) => b.total_qty - a.total_qty || a.nombre.localeCompare(b.nombre),
+    );
     return out;
   }, [batchDetailed]);
 
@@ -1049,11 +1226,14 @@ export default function AdminAsignacionesPage() {
 
     const validDriver = assignableDrivers.find((d) => d.id === driverId);
     if (!validDriver) {
-      alert('Selecciona un chofer válido con acceso completo en entregas.');
+      alert("Selecciona un chofer válido con acceso completo en entregas.");
       return;
     }
 
-    const assignmentId = await api.getOrCreateAssignment(validDriver.id, api.workDate);
+    const assignmentId = await api.getOrCreateAssignment(
+      validDriver.id,
+      api.workDate,
+    );
     if (!assignmentId) return;
 
     const res = await api.createDeliveriesBatch(assignmentId, batch);
@@ -1061,7 +1241,7 @@ export default function AdminAsignacionesPage() {
     if (res.ok) {
       setOpenBuilder(false);
       setBatch([]);
-      setQCustomer('');
+      setQCustomer("");
       api.setSelectedAssignmentId(assignmentId);
       await api.refreshDay(api.workDate);
     }
@@ -1069,72 +1249,74 @@ export default function AdminAsignacionesPage() {
 
   const selectedAssignmentDeliveriesAll = useMemo(() => {
     return [...api.deliveriesDetailedOfSelected].sort(
-      (a, b) => safeNum(a.priority, 100) - safeNum(b.priority, 100)
+      (a, b) => safeNum(a.priority, 100) - safeNum(b.priority, 100),
     );
   }, [api.deliveriesDetailedOfSelected]);
 
   const selectedAssignmentDeliveriesSorted = useMemo(() => {
     return selectedAssignmentDeliveriesAll.filter(
-      (d) => !isCancelledDeliveryStatus(d.status)
+      (d) => !isCancelledDeliveryStatus(d.status),
     );
   }, [selectedAssignmentDeliveriesAll]);
 
   const cancelledDeliveries = useMemo(() => {
     return selectedAssignmentDeliveriesAll.filter((d) =>
-      isCancelledDeliveryStatus(d.status)
+      isCancelledDeliveryStatus(d.status),
     );
   }, [selectedAssignmentDeliveriesAll]);
 
   const selectedAssignmentTotal = useMemo(() => {
     return selectedAssignmentDeliveriesSorted.reduce(
       (acc, d) => acc + safeNum(d.total_expected, 0),
-      0
+      0,
     );
   }, [selectedAssignmentDeliveriesSorted]);
 
   const confirmedDeliveriesCount = useMemo(() => {
     return selectedAssignmentDeliveriesSorted.filter((d) =>
-      isConfirmedDeliveryStatus(d.status)
+      isConfirmedDeliveryStatus(d.status),
     ).length;
   }, [selectedAssignmentDeliveriesSorted]);
 
   const pendingDeliveriesCount = useMemo(() => {
     return selectedAssignmentDeliveriesSorted.filter(
-      (d) => !isConfirmedDeliveryStatus(d.status)
+      (d) => !isConfirmedDeliveryStatus(d.status),
     ).length;
   }, [selectedAssignmentDeliveriesSorted]);
 
   const selectedRoute = api.selectedAssignment?.route ?? null;
   const routeKmTotal =
-    typeof selectedRoute?.km_start === 'number' &&
-    typeof selectedRoute?.km_end === 'number'
+    typeof selectedRoute?.km_start === "number" &&
+    typeof selectedRoute?.km_end === "number"
       ? selectedRoute.km_end - selectedRoute.km_start
       : null;
 
-  const cancelDelivery = useCallback(
-    async (deliveryId: string) => {
-      const { error } = await (supabaseBrowser as never as {
+  const cancelDelivery = useCallback(async (deliveryId: string) => {
+    const { error } = await (
+      supabaseBrowser as never as {
         from: (table: string) => {
           update: (payload: Record<string, unknown>) => {
-            eq: (column: string, value: string) => Promise<{ error: Error | null }>;
+            eq: (
+              column: string,
+              value: string,
+            ) => Promise<{ error: Error | null }>;
           };
         };
+      }
+    )
+      .from("deliveries")
+      .update({
+        status: "CANCELADA",
       })
-        .from('deliveries')
-        .update({
-          status: 'CANCELADA',
-        })
-        .eq('id', deliveryId);
+      .eq("id", deliveryId);
 
-      if (error) throw error;
-    },
-    []
-  );
+    if (error) throw error;
+  }, []);
 
   const handleCancelDelivery = useCallback(
     async (deliveryId: string) => {
       const ok = window.confirm(
-        '¿Seguro que deseas cancelar esta entrega?\n\nLa entrega no se borrará, solo cambiará a estado CANCELADA.'
+        "¿Seguro que deseas cancelar esta entrega?\n\nLa entrega no se borrará, solo cambiará a estado CANCELADA.",
       );
       if (!ok) return;
 
@@ -1147,61 +1329,61 @@ export default function AdminAsignacionesPage() {
         const message =
           error instanceof Error
             ? error.message
-            : 'No se pudo cancelar la entrega. Revisa que la base de datos permita el estado CANCELADA.';
+            : "No se pudo cancelar la entrega. Revisa que la base de datos permita el estado CANCELADA.";
         alert(message);
       } finally {
         setCancellingDeliveryId(null);
       }
     },
-    [api, cancelDelivery]
+    [api, cancelDelivery],
   );
 
   const exportSelectedAssignmentPdf = useCallback(async () => {
     if (!api.selectedAssignmentId || !api.selectedAssignment) return;
 
-    const driverName = api.selectedAssignment.driver_nombre || 'CHOFER';
-    const workDate = api.workDate || '';
+    const driverName = api.selectedAssignment.driver_nombre || "CHOFER";
+    const workDate = api.workDate || "";
     const route = api.selectedAssignment.route;
 
     const driverMeta = (api.drivers as AssignmentDriverOption[]).find(
-      (d) => d.id === api.selectedAssignment?.driver_id
+      (d) => d.id === api.selectedAssignment?.driver_id,
     );
 
     const driverCodeForInventory =
-      String(driverMeta?.firebase_codigo || '').trim() || null;
+      String(driverMeta?.firebase_codigo || "").trim() || null;
 
     const inventoryGlobal = await getInventoryGlobalOutputsForDriverPdf(
       workDate,
       api.selectedAssignment.driver_id,
       driverName,
-      driverCodeForInventory
+      driverCodeForInventory,
     );
 
-    const routeStatus = String(route?.status || 'NO_INICIADA');
+    const routeStatus = String(route?.status || "NO_INICIADA");
     const routeStartedAt = formatDateTime(route?.started_at);
     const routeEndedAt = formatDateTime(route?.ended_at);
     const routeKmStart =
-      typeof route?.km_start === 'number' ? String(route.km_start) : '—';
+      typeof route?.km_start === "number" ? String(route.km_start) : "—";
     const routeKmEnd =
-      typeof route?.km_end === 'number' ? String(route.km_end) : '—';
+      typeof route?.km_end === "number" ? String(route.km_end) : "—";
     const routeKmTotalPdf =
-      typeof route?.km_start === 'number' && typeof route?.km_end === 'number'
+      typeof route?.km_start === "number" && typeof route?.km_end === "number"
         ? route.km_end - route.km_start
         : null;
 
     const deliveries = [...selectedAssignmentDeliveriesAll].sort((a, b) => {
-      const af = String(a.folio || '');
-      const bf = String(b.folio || '');
-      return af.localeCompare(bf, 'es', { numeric: true });
+      const af = String(a.folio || "");
+      const bf = String(b.folio || "");
+      return af.localeCompare(bf, "es", { numeric: true });
     });
 
     const deliveryProductIds = Array.from(
       new Set(
         deliveries
           .flatMap((delivery) => delivery.items || [])
-          .map((item) => String(item?.product_id || '').trim())
-          .filter(Boolean)
-      )
+          .map((item) => String(item?.product_id || "").trim())
+          .filter(Boolean),
+      ),
     );
 
     const productById = new Map<string, PdfProductMeta>();
@@ -1216,13 +1398,15 @@ export default function AdminAsignacionesPage() {
       });
     }
 
-    const missingProductIds = deliveryProductIds.filter((id) => !productById.has(id));
+    const missingProductIds = deliveryProductIds.filter(
+      (id) => !productById.has(id),
+    );
 
     if (missingProductIds.length > 0) {
       const { data: settingRows } = await (supabaseBrowser as never as any)
-        .from('inventory_product_settings')
-        .select('id,nombre_comercial,firebase_tipo_hielo,peso_kg')
-        .in('id', missingProductIds);
+        .from("inventory_product_settings")
+        .select("id,nombre_comercial,firebase_tipo_hielo,peso_kg")
+        .in("id", missingProductIds);
 
       for (const p of settingRows ?? []) {
         productById.set(String(p.id), {
@@ -1234,13 +1418,15 @@ export default function AdminAsignacionesPage() {
       }
     }
 
-    const stillMissingProductIds = deliveryProductIds.filter((id) => !productById.has(id));
+    const stillMissingProductIds = deliveryProductIds.filter(
+      (id) => !productById.has(id),
+    );
 
     if (stillMissingProductIds.length > 0) {
       const { data: productRows } = await (supabaseBrowser as never as any)
-        .from('products')
-        .select('id,nombre,kind,ice_type,kg_por_unidad')
-        .in('id', stillMissingProductIds);
+        .from("products")
+        .select("id,nombre,kind,ice_type,kg_por_unidad")
+        .in("id", stillMissingProductIds);
 
       for (const p of productRows ?? []) {
         productById.set(String(p.id), {
@@ -1276,7 +1462,7 @@ export default function AdminAsignacionesPage() {
 
       const an = productKeyLabelMap.get(a) || a;
       const bn = productKeyLabelMap.get(b) || b;
-      return an.localeCompare(bn, 'es', { sensitivity: 'base', numeric: true });
+      return an.localeCompare(bn, "es", { sensitivity: "base", numeric: true });
     });
 
     const assignedByProduct = new Map<string, number>();
@@ -1299,8 +1485,7 @@ export default function AdminAsignacionesPage() {
           <th rowspan="2" class="center product-group">${escapeHtml(productLabel)}</th>
         `;
       })
-      .join('');
-
+      .join("");
 
     const rowsHtml = deliveries
       .map((delivery, idx) => {
@@ -1350,13 +1535,13 @@ export default function AdminAsignacionesPage() {
 
           assignedByProduct.set(
             productKey,
-            (assignedByProduct.get(productKey) ?? 0) + qtyAssigned
+            (assignedByProduct.get(productKey) ?? 0) + qtyAssigned,
           );
 
           if (confirmed && !cancelled) {
             soldByProduct.set(
               productKey,
-              (soldByProduct.get(productKey) ?? 0) + qtyReal
+              (soldByProduct.get(productKey) ?? 0) + qtyReal,
             );
           }
         }
@@ -1367,26 +1552,31 @@ export default function AdminAsignacionesPage() {
           rowRealTotal = firstNumeric(delivery.total_real, 0);
 
           if (rowRealTotal <= 0) {
-            rowRealTotal = (delivery.items || []).reduce((acc: number, item) => {
-              const qtyAssigned = firstNumeric(item?.qty_assigned, 0);
-              const qtyReal = firstNumeric(item?.qty_real, qtyAssigned, 0);
+            rowRealTotal = (delivery.items || []).reduce(
+              (acc: number, item) => {
+                const qtyAssigned = firstNumeric(item?.qty_assigned, 0);
+                const qtyReal = firstNumeric(item?.qty_real, qtyAssigned, 0);
 
-              const subtotalReal = firstNumeric(
-                item?.subtotal_real,
-                item?.subtotal_expected,
-                0
-              );
+                const subtotalReal = firstNumeric(
+                  item?.subtotal_real,
+                  item?.subtotal_expected,
+                  0,
+                );
 
-              if (subtotalReal > 0) return acc + subtotalReal;
+                if (subtotalReal > 0) return acc + subtotalReal;
 
-              const unitPrice = getItemUnitPrice(item, true);
-              return acc + unitPrice * qtyReal;
-            }, 0);
+                const unitPrice = getItemUnitPrice(item, true);
+                return acc + unitPrice * qtyReal;
+              },
+              0,
+            );
           }
 
-          const paymentMethod = normalizeTextPdf(delivery.payment_method || 'EFECTIVO');
+          const paymentMethod = normalizeTextPdf(
+            delivery.payment_method || "EFECTIVO",
+          );
 
-          if (paymentMethod === 'CREDITO' || paymentMethod === 'CRÉDITO') {
+          if (paymentMethod === "CREDITO" || paymentMethod === "CRÉDITO") {
             totalCredito += rowRealTotal;
           } else {
             totalEfectivo += rowRealTotal;
@@ -1409,45 +1599,51 @@ export default function AdminAsignacionesPage() {
                 ? row.qtyReal
                 : row.qtyAssigned;
 
-            const qtyLabel = qtyDelivered > 0 ? `${qtyDelivered}` : '';
+            const qtyLabel = qtyDelivered > 0 ? `${qtyDelivered}` : "";
 
             return `
               <td class="center qty-cell">${qtyLabel}</td>
             `;
           })
-          .join('');
+          .join("");
 
         const clientName = cancelled
-          ? 'CANCELADO'
+          ? "CANCELADO"
           : formatClientPdfName(
               delivery.customer_nombre_snapshot,
-              delivery.diner_nombre_snapshot
+              delivery.diner_nombre_snapshot,
             );
 
-        const paymentMethod = normalizeTextPdf(delivery.payment_method || 'EFECTIVO');
+        const paymentMethod = normalizeTextPdf(
+          delivery.payment_method || "EFECTIVO",
+        );
 
         const efectivo =
-          confirmed && !cancelled && paymentMethod !== 'CREDITO' ? rowRealTotal : 0;
+          confirmed && !cancelled && paymentMethod !== "CREDITO"
+            ? rowRealTotal
+            : 0;
 
         const credito =
-          confirmed && !cancelled && paymentMethod === 'CREDITO' ? rowRealTotal : 0;
+          confirmed && !cancelled && paymentMethod === "CREDITO"
+            ? rowRealTotal
+            : 0;
 
         return `
           <tr>
             <td class="center">${idx + 1}</td>
-            <td>${escapeHtml(String(delivery.folio || '—'))}</td>
+            <td>${escapeHtml(String(delivery.folio || "—"))}</td>
             <td>${escapeHtml(clientName)}</td>
             ${productCells}
-            <td class="money">${efectivo > 0 ? `$ ${moneyPlain(efectivo)}` : cancelled ? '$ -' : ''}</td>
-            <td class="money">${credito > 0 ? `$ ${moneyPlain(credito)}` : cancelled ? '$ -' : ''}</td>
+            <td class="money">${efectivo > 0 ? `$ ${moneyPlain(efectivo)}` : cancelled ? "$ -" : ""}</td>
+            <td class="money">${credito > 0 ? `$ ${moneyPlain(credito)}` : cancelled ? "$ -" : ""}</td>
           </tr>
         `;
       })
-      .join('');
+      .join("");
 
     const minRows = 22;
     const blankRowsCount = Math.max(0, minRows - deliveries.length);
-    const blankProductCells = productKeys.map(() => `<td></td>`).join('');
+    const blankProductCells = productKeys.map(() => `<td></td>`).join("");
 
     const blankRowsHtml = Array.from({ length: blankRowsCount })
       .map(
@@ -1457,37 +1653,47 @@ export default function AdminAsignacionesPage() {
             <td></td>
             <td></td>
             ${blankProductCells}
-            <td class="money">${i === 0 ? '$ -' : ''}</td>
-            <td class="money">${i === 0 ? '$ -' : ''}</td>
+            <td class="money">${i === 0 ? "$ -" : ""}</td>
+            <td class="money">${i === 0 ? "$ -" : ""}</td>
           </tr>
-        `
+        `,
       )
-      .join('');
+      .join("");
 
     const salidasGlobalRowProducts = productKeys
       .map((productKey) => {
-        const qty = inventoryGlobal.qtyByKey.get(productKey) ?? 0;
+        const qty = getInventoryQtyForPdfKey(inventoryGlobal, productKey);
         return `
           <td class="center summary-qty summary-cell-summary summary-merge-cell">${qty}</td>
         `;
       })
-      .join('');
-
+      .join("");
 
     const diffRowProducts = productKeys
       .map((productKey) => {
-        const salidasGlobal = inventoryGlobal.qtyByKey.get(productKey) ?? 0;
-        const vendidoReal = soldByProduct.get(productKey) ?? 0;
-        const diff = salidasGlobal - vendidoReal;
+        // DIFERENCIA correcta:
+        // - SALIDAS GLOBAL = lo que salió de Salidas Page para el chofer/producto.
+        // - ENTREGADO REAL = suma de lo que realmente dejó a clientes en la app.
+        //
+        // Si faltó entregar producto:  salidas > entregado  => positivo.
+        // Si entregó de más/sobró contra la salida: entregado > salidas => negativo.
+        // Si concuerda: 0.
+        const salidasGlobal = getInventoryQtyForPdfKey(
+          inventoryGlobal,
+          productKey,
+        );
+        const entregadoReal = soldByProduct.get(productKey) ?? 0;
+        const diffRaw = salidasGlobal - entregadoReal;
+        const diff = Math.abs(diffRaw) < 0.0001 ? 0 : diffRaw;
 
         const cls =
-          diff > 0 ? 'diff-positive' : diff < 0 ? 'diff-negative' : 'diff-zero';
+          diff > 0 ? "diff-positive" : diff < 0 ? "diff-negative" : "diff-zero";
 
         return `
           <td class="center summary-qty summary-cell-summary summary-merge-cell ${cls}">${signedQty(diff)}</td>
         `;
       })
-      .join('');
+      .join("");
 
     const summaryRowsHtml = `
       <tr class="summary-row summary-row-dark">
@@ -1728,8 +1934,8 @@ FIN RUTA: ${escapeHtml(routeEndedAt)}
 KM INICIAL: ${escapeHtml(routeKmStart)}
 KM FINAL: ${escapeHtml(routeKmEnd)}
 KM RECORRIDOS: ${escapeHtml(
-                  routeKmTotalPdf === null ? '—' : String(routeKmTotalPdf)
-                )}
+      routeKmTotalPdf === null ? "—" : String(routeKmTotalPdf),
+    )}
               </div>
             </div>
 
@@ -1782,7 +1988,7 @@ KM RECORRIDOS: ${escapeHtml(
       </html>
     `;
 
-    const win = window.open('', '_blank', 'width=1400,height=900');
+    const win = window.open("", "_blank", "width=1400,height=900");
     if (!win) return;
 
     win.document.open();
@@ -1808,7 +2014,7 @@ KM RECORRIDOS: ${escapeHtml(
     const driverName =
       assignableDrivers.find((d) => d.id === driverId)?.nombre ||
       api.selectedAssignment?.driver_nombre ||
-      'CHOFER';
+      "CHOFER";
 
     const rowsHtml = batchDetailed
       .map((customer, idx) => {
@@ -1825,9 +2031,9 @@ KM RECORRIDOS: ${escapeHtml(
                     <td class="money">$ ${moneyPlain(item.precio)}</td>
                     <td class="money">$ ${moneyPlain(item.subtotal)}</td>
                   </tr>
-                `
+                `,
                 )
-                .join('');
+                .join("");
 
         return `
           <div class="customer-card">
@@ -1855,7 +2061,7 @@ KM RECORRIDOS: ${escapeHtml(
           </div>
         `;
       })
-      .join('');
+      .join("");
 
     const html = `
       <html>
@@ -2009,7 +2215,7 @@ FECHA: ${escapeHtml(formatOnlyDate(api.workDate))}
       </html>
     `;
 
-    const win = window.open('', '_blank', 'width=1200,height=900');
+    const win = window.open("", "_blank", "width=1200,height=900");
     if (!win) return;
 
     win.document.open();
@@ -2020,7 +2226,16 @@ FECHA: ${escapeHtml(formatOnlyDate(api.workDate))}
       win.focus();
       win.print();
     }, 400);
-  }, [driverId, batchDetailed, assignableDrivers, api.selectedAssignment, api.workDate, batch, routeQty, routeTotal]);
+  }, [
+    driverId,
+    batchDetailed,
+    assignableDrivers,
+    api.selectedAssignment,
+    api.workDate,
+    batch,
+    routeQty,
+    routeTotal,
+  ]);
 
   if (guard.loading) {
     return (
@@ -2065,7 +2280,9 @@ FECHA: ${escapeHtml(formatOnlyDate(api.workDate))}
                 className="rounded-xl bg-white/10 p-3 text-white/80 hover:bg-white/20 disabled:opacity-50"
                 title="Refrescar"
               >
-                <RefreshCw className={cx('h-4 w-4', api.loading && 'animate-spin')} />
+                <RefreshCw
+                  className={cx("h-4 w-4", api.loading && "animate-spin")}
+                />
               </button>
 
               <button
@@ -2122,14 +2339,18 @@ FECHA: ${escapeHtml(formatOnlyDate(api.workDate))}
 
               <div className="max-h-[70vh] divide-y divide-white/10 overflow-y-auto">
                 {api.loading ? (
-                  <div className="p-6 text-center text-white/50">Cargando...</div>
+                  <div className="p-6 text-center text-white/50">
+                    Cargando...
+                  </div>
                 ) : api.assignmentsOfDay.length === 0 ? (
-                  <div className="p-6 text-center text-white/50">No hay asignaciones este día</div>
+                  <div className="p-6 text-center text-white/50">
+                    No hay asignaciones este día
+                  </div>
                 ) : (
                   api.assignmentsOfDay.map((a) => {
                     const kmDone =
-                      typeof a.route?.km_start === 'number' &&
-                      typeof a.route?.km_end === 'number'
+                      typeof a.route?.km_start === "number" &&
+                      typeof a.route?.km_end === "number"
                         ? a.route.km_end - a.route.km_start
                         : null;
 
@@ -2138,20 +2359,25 @@ FECHA: ${escapeHtml(formatOnlyDate(api.workDate))}
                         key={a.id}
                         onClick={() => api.setSelectedAssignmentId(a.id)}
                         className={cx(
-                          'w-full p-4 text-left transition hover:bg-white/5',
-                          api.selectedAssignmentId === a.id && 'bg-white/10'
+                          "w-full p-4 text-left transition hover:bg-white/5",
+                          api.selectedAssignmentId === a.id && "bg-white/10",
                         )}
                       >
                         <div className="flex items-center justify-between gap-2">
                           <div>
-                            <p className="font-medium text-white">{a.driver_nombre ?? 'Chofer'}</p>
+                            <p className="font-medium text-white">
+                              {a.driver_nombre ?? "Chofer"}
+                            </p>
                             <p className="mt-1 text-xs text-white/50">
-                              Entregas: <span className="text-white/80">{a.deliveries_count ?? 0}</span>
+                              Entregas:{" "}
+                              <span className="text-white/80">
+                                {a.deliveries_count ?? 0}
+                              </span>
                             </p>
 
                             <div className="mt-2 flex flex-wrap gap-2">
                               <span className="rounded-full border border-white/10 bg-white/10 px-2 py-1 text-[11px] text-white/70">
-                                Ruta: {a.route?.status || 'NO_INICIADA'}
+                                Ruta: {a.route?.status || "NO_INICIADA"}
                               </span>
 
                               {kmDone !== null && (
@@ -2185,7 +2411,7 @@ FECHA: ${escapeHtml(formatOnlyDate(api.workDate))}
                         {api.selectedAssignment.driver_nombre} • {api.workDate}
                       </>
                     ) : (
-                      'Selecciona una asignación'
+                      "Selecciona una asignación"
                     )}
                   </p>
                 </div>
@@ -2203,7 +2429,9 @@ FECHA: ${escapeHtml(formatOnlyDate(api.workDate))}
                   )}
 
                   <button
-                    onClick={() => api.selectedAssignmentId && api.refreshDay(api.workDate)}
+                    onClick={() =>
+                      api.selectedAssignmentId && api.refreshDay(api.workDate)
+                    }
                     className="rounded-xl bg-white/10 p-2 text-white/80 hover:bg-white/20"
                     title="Refrescar"
                   >
@@ -2221,7 +2449,7 @@ FECHA: ${escapeHtml(formatOnlyDate(api.workDate))}
                   <div className="grid grid-cols-1 gap-3 md:grid-cols-4">
                     <SideKpi
                       title="Chofer"
-                      value={api.selectedAssignment?.driver_nombre || '—'}
+                      value={api.selectedAssignment?.driver_nombre || "—"}
                       icon={<UserRound className="h-4 w-4" />}
                     />
                     <SideKpi
@@ -2249,12 +2477,12 @@ FECHA: ${escapeHtml(formatOnlyDate(api.workDate))}
                     />
                     <SideKpi
                       title="Estado"
-                      value={api.selectedAssignment?.status || '—'}
+                      value={api.selectedAssignment?.status || "—"}
                       icon={<Tag className="h-4 w-4" />}
                     />
                     <SideKpi
                       title="Ruta"
-                      value={selectedRoute?.status || 'NO_INICIADA'}
+                      value={selectedRoute?.status || "NO_INICIADA"}
                       icon={<Route className="h-4 w-4" />}
                     />
                     <SideKpi
@@ -2302,15 +2530,23 @@ FECHA: ${escapeHtml(formatOnlyDate(api.workDate))}
 
                   {selectedAssignmentDeliveriesSorted.length === 0 ? (
                     <div className="p-8 text-center text-white/60">
-                      Esta asignación todavía no tiene entregas activas. Puedes seguir agregando más con
-                      <span className="font-semibold text-white"> Captura masiva</span>.
+                      Esta asignación todavía no tiene entregas activas. Puedes
+                      seguir agregando más con
+                      <span className="font-semibold text-white">
+                        {" "}
+                        Captura masiva
+                      </span>
+                      .
                     </div>
                   ) : (
                     <div className="overflow-hidden rounded-2xl border border-white/10 bg-black/10">
                       <div className="border-b border-white/10 px-4 py-3">
-                        <p className="font-medium text-white">Entregas activas de esta asignación</p>
+                        <p className="font-medium text-white">
+                          Entregas activas de esta asignación
+                        </p>
                         <p className="text-xs text-white/50">
-                          Cliente, folio, estado, hora de entrega y total esperado
+                          Cliente, folio, estado, hora de entrega y total
+                          esperado
                         </p>
                       </div>
 
@@ -2325,15 +2561,18 @@ FECHA: ${escapeHtml(formatOnlyDate(api.workDate))}
                               <div className="flex flex-col gap-3 md:flex-row md:items-start md:justify-between">
                                 <div className="flex items-start gap-3">
                                   <div className="flex h-10 w-10 items-center justify-center rounded-full bg-white/10 font-bold text-white">
-                                    {initials(d.customer_nombre_snapshot || 'CL')}
+                                    {initials(
+                                      d.customer_nombre_snapshot || "CL",
+                                    )}
                                   </div>
 
                                   <div>
                                     <p className="font-medium text-white">
-                                      {idx + 1}. {d.customer_nombre_snapshot || 'Cliente'}
+                                      {idx + 1}.{" "}
+                                      {d.customer_nombre_snapshot || "Cliente"}
                                     </p>
                                     <p className="text-xs text-white/50">
-                                      {d.diner_nombre_snapshot || 'Sin comedor'}
+                                      {d.diner_nombre_snapshot || "Sin comedor"}
                                     </p>
 
                                     <div className="mt-2 flex flex-wrap gap-2">
@@ -2344,11 +2583,12 @@ FECHA: ${escapeHtml(formatOnlyDate(api.workDate))}
 
                                       <span
                                         className={cx(
-                                          'rounded-full border px-2 py-1 text-xs',
-                                          priorityTone(d.priority)
+                                          "rounded-full border px-2 py-1 text-xs",
+                                          priorityTone(d.priority),
                                         )}
                                       >
-                                        Prioridad {d.priority ?? '—'} • {priorityLabel(d.priority)}
+                                        Prioridad {d.priority ?? "—"} •{" "}
+                                        {priorityLabel(d.priority)}
                                       </span>
 
                                       <span className="rounded-full border border-white/10 bg-white/10 px-2 py-1 text-xs text-white/70">
@@ -2357,29 +2597,39 @@ FECHA: ${escapeHtml(formatOnlyDate(api.workDate))}
 
                                       <span
                                         className={cx(
-                                          'rounded-full border px-2 py-1 text-xs',
+                                          "rounded-full border px-2 py-1 text-xs",
                                           confirmed
-                                            ? 'border-emerald-500/20 bg-emerald-500/10 text-emerald-100'
-                                            : 'border-amber-500/20 bg-amber-500/10 text-amber-100'
+                                            ? "border-emerald-500/20 bg-emerald-500/10 text-emerald-100"
+                                            : "border-amber-500/20 bg-amber-500/10 text-amber-100",
                                         )}
                                       >
-                                        Hora entrega: {formatDateTime(d.delivered_at)}
+                                        Hora entrega:{" "}
+                                        {formatDateTime(d.delivered_at)}
                                       </span>
 
                                       <span className="rounded-full border border-blue-500/20 bg-blue-500/10 px-2 py-1 text-xs text-blue-100">
-                                        Pago: {String(d.payment_method || 'EFECTIVO').toUpperCase()}
+                                        Pago:{" "}
+                                        {String(
+                                          d.payment_method || "EFECTIVO",
+                                        ).toUpperCase()}
                                       </span>
                                     </div>
                                   </div>
                                 </div>
 
                                 <div className="text-left md:text-right">
-                                  <p className="text-xs text-white/40">Total esperado</p>
-                                  <p className="font-semibold text-white">{money(d.total_expected)}</p>
+                                  <p className="text-xs text-white/40">
+                                    Total esperado
+                                  </p>
+                                  <p className="font-semibold text-white">
+                                    {money(d.total_expected)}
+                                  </p>
 
                                   {confirmed && (
                                     <>
-                                      <p className="mt-2 text-xs text-white/40">Total real</p>
+                                      <p className="mt-2 text-xs text-white/40">
+                                        Total real
+                                      </p>
                                       <p className="font-semibold text-emerald-200">
                                         {money(d.total_real)}
                                       </p>
@@ -2389,17 +2639,21 @@ FECHA: ${escapeHtml(formatOnlyDate(api.workDate))}
                                   <div className="mt-3 flex justify-start md:justify-end">
                                     {canCancel && (
                                       <button
-                                        onClick={() => handleCancelDelivery(d.id)}
+                                        onClick={() =>
+                                          handleCancelDelivery(d.id)
+                                        }
                                         disabled={isCancelling}
                                         className={cx(
-                                          'inline-flex items-center gap-2 rounded-xl px-3 py-2 text-xs font-medium transition',
+                                          "inline-flex items-center gap-2 rounded-xl px-3 py-2 text-xs font-medium transition",
                                           isCancelling
-                                            ? 'cursor-not-allowed bg-white/10 text-white/40'
-                                            : 'bg-red-500/20 text-red-200 hover:bg-red-500/30'
+                                            ? "cursor-not-allowed bg-white/10 text-white/40"
+                                            : "bg-red-500/20 text-red-200 hover:bg-red-500/30",
                                         )}
                                       >
                                         <Ban className="h-3.5 w-3.5" />
-                                        {isCancelling ? 'Cancelando...' : 'Cancelar entrega'}
+                                        {isCancelling
+                                          ? "Cancelando..."
+                                          : "Cancelar entrega"}
                                       </button>
                                     )}
                                   </div>
@@ -2415,9 +2669,12 @@ FECHA: ${escapeHtml(formatOnlyDate(api.workDate))}
                   {cancelledDeliveries.length > 0 && (
                     <div className="overflow-hidden rounded-2xl border border-red-500/20 bg-red-500/10">
                       <div className="border-b border-red-500/20 px-4 py-3">
-                        <p className="font-medium text-red-100">Entregas canceladas</p>
+                        <p className="font-medium text-red-100">
+                          Entregas canceladas
+                        </p>
                         <p className="text-xs text-red-200/70">
-                          Se conservan en historial, pero ya no cuentan en los KPIs operativos.
+                          Se conservan en historial, pero ya no cuentan en los
+                          KPIs operativos.
                         </p>
                       </div>
 
@@ -2427,15 +2684,16 @@ FECHA: ${escapeHtml(formatOnlyDate(api.workDate))}
                             <div className="flex flex-col gap-3 md:flex-row md:items-start md:justify-between">
                               <div className="flex items-start gap-3">
                                 <div className="flex h-10 w-10 items-center justify-center rounded-full bg-red-500/20 font-bold text-red-100">
-                                  {initials(d.customer_nombre_snapshot || 'CL')}
+                                  {initials(d.customer_nombre_snapshot || "CL")}
                                 </div>
 
                                 <div>
                                   <p className="font-medium text-red-100">
-                                    {idx + 1}. {d.customer_nombre_snapshot || 'Cliente'}
+                                    {idx + 1}.{" "}
+                                    {d.customer_nombre_snapshot || "Cliente"}
                                   </p>
                                   <p className="text-xs text-red-200/70">
-                                    {d.diner_nombre_snapshot || 'Sin comedor'}
+                                    {d.diner_nombre_snapshot || "Sin comedor"}
                                   </p>
 
                                   <div className="mt-2 flex flex-wrap gap-2">
@@ -2449,14 +2707,17 @@ FECHA: ${escapeHtml(formatOnlyDate(api.workDate))}
                                     </span>
 
                                     <span className="rounded-full border border-white/10 bg-white/10 px-2 py-1 text-xs text-white/70">
-                                      Hora entrega: {formatDateTime(d.delivered_at)}
+                                      Hora entrega:{" "}
+                                      {formatDateTime(d.delivered_at)}
                                     </span>
                                   </div>
                                 </div>
                               </div>
 
                               <div className="text-left md:text-right">
-                                <p className="text-xs text-red-200/60">Total esperado original</p>
+                                <p className="text-xs text-red-200/60">
+                                  Total esperado original
+                                </p>
                                 <p className="font-semibold text-red-100">
                                   {money(d.total_expected)}
                                 </p>
@@ -2484,13 +2745,21 @@ FECHA: ${escapeHtml(formatOnlyDate(api.workDate))}
             <div className="grid grid-cols-1 gap-5 xl:grid-cols-3">
               <div className="space-y-5 xl:col-span-2">
                 <div className="grid grid-cols-1 gap-3 md:grid-cols-5">
-                  <TopStat label="Clientes" value={batch.length} icon={<Users className="h-4 w-4" />} />
+                  <TopStat
+                    label="Clientes"
+                    value={batch.length}
+                    icon={<Users className="h-4 w-4" />}
+                  />
                   <TopStat
                     label="Productos"
                     value={batch.reduce((acc, b) => acc + b.items.length, 0)}
                     icon={<Layers3 className="h-4 w-4" />}
                   />
-                  <TopStat label="Piezas" value={routeQty} icon={<Package className="h-4 w-4" />} />
+                  <TopStat
+                    label="Piezas"
+                    value={routeQty}
+                    icon={<Package className="h-4 w-4" />}
+                  />
                   <TopStat
                     label="Total esperado"
                     value={money(routeTotal)}
@@ -2500,10 +2769,10 @@ FECHA: ${escapeHtml(formatOnlyDate(api.workDate))}
                     onClick={exportBatchDraftPdf}
                     disabled={batchDetailed.length === 0}
                     className={cx(
-                      'rounded-2xl border p-4 text-left transition',
+                      "rounded-2xl border p-4 text-left transition",
                       batchDetailed.length === 0
-                        ? 'cursor-not-allowed border-white/10 bg-white/5 text-white/30'
-                        : 'border-violet-500/20 bg-violet-500/10 text-violet-100 hover:bg-violet-500/20'
+                        ? "cursor-not-allowed border-white/10 bg-white/5 text-white/30"
+                        : "border-violet-500/20 bg-violet-500/10 text-violet-100 hover:bg-violet-500/20",
                     )}
                   >
                     <div className="flex items-center justify-between">
@@ -2520,49 +2789,58 @@ FECHA: ${escapeHtml(formatOnlyDate(api.workDate))}
 
                 <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
                   <div>
-                    <label className="mb-2 block text-sm text-white/70">Chofer</label>
+                    <label className="mb-2 block text-sm text-white/70">
+                      Chofer
+                    </label>
                     <select
                       value={driverId}
                       onChange={(e) => setDriverId(e.target.value)}
                       className="w-full rounded-xl border border-white/10 bg-white/5 px-4 py-3 text-white focus:outline-none focus:ring-2 focus:ring-[#1E4A7A]"
                     >
-                      <option value="">Selecciona un chofer con acceso activo</option>
+                      <option value="">
+                        Selecciona un chofer con acceso activo
+                      </option>
 
                       {assignableDrivers.map((d) => (
                         <option key={d.id} value={d.id}>
                           {d.nombre}
-                          {d.firebase_codigo ? ` • ${d.firebase_codigo}` : ''}
-                          {d.current_status ? ` • ${d.current_status}` : ''}
+                          {d.firebase_codigo ? ` • ${d.firebase_codigo}` : ""}
+                          {d.current_status ? ` • ${d.current_status}` : ""}
                         </option>
                       ))}
                     </select>
 
                     <p className="mt-1 text-xs text-white/40">
-                      Aquí solo aparecen choferes activos con acceso completo en entregas. Si ya existe asignación para este chofer en esta fecha, se reutiliza y se le agregan nuevas entregas.
+                      Aquí solo aparecen choferes activos con acceso completo en
+                      entregas. Si ya existe asignación para este chofer en esta
+                      fecha, se reutiliza y se le agregan nuevas entregas.
                     </p>
 
                     {selectedAssignableDriver && (
                       <div className="mt-3 rounded-xl border border-emerald-500/20 bg-emerald-500/10 p-3 text-xs text-emerald-100">
-                        Chofer seleccionado: <b>{selectedAssignableDriver.nombre}</b>
+                        Chofer seleccionado:{" "}
+                        <b>{selectedAssignableDriver.nombre}</b>
                         {selectedAssignableDriver.firebase_codigo
                           ? ` • Código inventario: ${selectedAssignableDriver.firebase_codigo}`
-                          : ''}
+                          : ""}
                         {selectedAssignableDriver.current_status
                           ? ` • Estado app: ${selectedAssignableDriver.current_status}`
-                          : ''}
+                          : ""}
                       </div>
                     )}
 
                     {inventoryOnlyDrivers.length > 0 && (
                       <div className="mt-3 rounded-xl border border-amber-500/20 bg-amber-500/10 p-3 text-xs text-amber-100">
-                        Hay <b>{inventoryOnlyDrivers.length}</b> chofer(es) activos en inventario sin acceso completo en entregas, por eso no salen en este selector.
+                        Hay <b>{inventoryOnlyDrivers.length}</b> chofer(es)
+                        activos en inventario sin acceso completo en entregas,
+                        por eso no salen en este selector.
                         <div className="mt-2 text-amber-200/80">
-                          Completa su acceso primero en la página de <b>Choferes</b>.
+                          Completa su acceso primero en la página de{" "}
+                          <b>Choferes</b>.
                         </div>
-
                         <button
                           type="button"
-                          onClick={() => router.push('/admin/choferes')}
+                          onClick={() => router.push("/admin/choferes")}
                           className="mt-3 inline-flex items-center gap-2 rounded-xl bg-white/10 px-3 py-2 text-xs text-white/80 hover:bg-white/20"
                         >
                           <Truck className="h-4 w-4" />
@@ -2573,13 +2851,16 @@ FECHA: ${escapeHtml(formatOnlyDate(api.workDate))}
 
                     {assignableDrivers.length === 0 && (
                       <div className="mt-3 rounded-xl border border-red-500/20 bg-red-500/10 p-3 text-xs text-red-100">
-                        No hay choferes asignables en este momento. Necesitas al menos un chofer activo con <b>id real en entregas</b>.
+                        No hay choferes asignables en este momento. Necesitas al
+                        menos un chofer activo con <b>id real en entregas</b>.
                       </div>
                     )}
                   </div>
 
                   <div>
-                    <label className="mb-2 block text-sm text-white/70">Fecha</label>
+                    <label className="mb-2 block text-sm text-white/70">
+                      Fecha
+                    </label>
                     <input
                       type="date"
                       value={api.workDate}
@@ -2615,28 +2896,29 @@ FECHA: ${escapeHtml(formatOnlyDate(api.workDate))}
                           onClick={() => !added && addCustomerToBatch(c.id)}
                           disabled={added}
                           className={cx(
-                            'flex w-full items-center justify-between rounded-xl border p-3 text-left transition',
+                            "flex w-full items-center justify-between rounded-xl border p-3 text-left transition",
                             added
-                              ? 'cursor-not-allowed border-green-500/20 bg-green-500/10 opacity-80'
-                              : 'border-white/10 bg-white/5 hover:bg-white/10'
+                              ? "cursor-not-allowed border-green-500/20 bg-green-500/10 opacity-80"
+                              : "border-white/10 bg-white/5 hover:bg-white/10",
                           )}
                         >
                           <div>
                             <p className="font-medium text-white">{c.nombre}</p>
                             <p className="text-xs text-white/50">
-                              {c.diner_nombre || 'Sin comedor'} • {c.telefono || 'Sin teléfono'}
+                              {c.diner_nombre || "Sin comedor"} •{" "}
+                              {c.telefono || "Sin teléfono"}
                             </p>
                           </div>
 
                           <span
                             className={cx(
-                              'rounded-full border px-2 py-1 text-xs',
+                              "rounded-full border px-2 py-1 text-xs",
                               added
-                                ? 'border-green-500/20 bg-green-500/10 text-green-200'
-                                : 'border-white/10 bg-white/10 text-white/70'
+                                ? "border-green-500/20 bg-green-500/10 text-green-200"
+                                : "border-white/10 bg-white/10 text-white/70",
                             )}
                           >
-                            {added ? 'Agregado' : 'Agregar'}
+                            {added ? "Agregado" : "Agregar"}
                           </span>
                         </button>
                       );
@@ -2656,13 +2938,18 @@ FECHA: ${escapeHtml(formatOnlyDate(api.workDate))}
                         Entregas a crear ({batch.length})
                       </p>
                       <p className="mt-1 text-xs text-white/50">
-                        Captura cantidades por producto. Prioridad 1 = urgente, 100 = baja.
+                        Captura cantidades por producto. Prioridad 1 = urgente,
+                        100 = baja.
                       </p>
                     </div>
 
                     {batch.length > 0 && (
                       <button
-                        onClick={() => batch.forEach((b) => fillSuggestedForCustomer(b.customer_id))}
+                        onClick={() =>
+                          batch.forEach((b) =>
+                            fillSuggestedForCustomer(b.customer_id),
+                          )
+                        }
                         className="inline-flex items-center gap-2 rounded-xl bg-[#1E4A7A] px-3 py-2 text-sm text-white hover:bg-[#2E6B9E]"
                       >
                         <Sparkles className="h-4 w-4" />
@@ -2678,12 +2965,14 @@ FECHA: ${escapeHtml(formatOnlyDate(api.workDate))}
                       </div>
                     ) : (
                       batchSorted.map((b) => {
-                        const c = api.customers.find((x) => x.id === b.customer_id);
+                        const c = api.customers.find(
+                          (x) => x.id === b.customer_id,
+                        );
                         const allowed = api.productsForCustomer(b.customer_id);
                         const subtotal = getCustomerSubtotal(b.customer_id);
                         const totalQtyCustomer = b.items.reduce(
                           (acc, it) => acc + safeNum(it.qty, 0),
-                          0
+                          0,
                         );
 
                         return (
@@ -2694,7 +2983,7 @@ FECHA: ${escapeHtml(formatOnlyDate(api.workDate))}
                             <div className="flex flex-col gap-4 xl:flex-row xl:items-start xl:justify-between">
                               <div className="flex items-start gap-3">
                                 <div className="flex h-11 w-11 items-center justify-center rounded-full bg-white/10 font-bold text-white">
-                                  {initials(c?.nombre || 'CL')}
+                                  {initials(c?.nombre || "CL")}
                                 </div>
 
                                 <div>
@@ -2702,7 +2991,8 @@ FECHA: ${escapeHtml(formatOnlyDate(api.workDate))}
                                     {c?.nombre || b.customer_id}
                                   </p>
                                   <p className="text-xs text-white/50">
-                                    {c?.diner_nombre || 'Sin comedor'} • {c?.telefono || 'Sin teléfono'}
+                                    {c?.diner_nombre || "Sin comedor"} •{" "}
+                                    {c?.telefono || "Sin teléfono"}
                                   </p>
 
                                   <div className="mt-2 flex flex-wrap gap-2">
@@ -2717,11 +3007,12 @@ FECHA: ${escapeHtml(formatOnlyDate(api.workDate))}
                                     </span>
                                     <span
                                       className={cx(
-                                        'rounded-full border px-2 py-1 text-xs',
-                                        priorityTone(b.priority)
+                                        "rounded-full border px-2 py-1 text-xs",
+                                        priorityTone(b.priority),
                                       )}
                                     >
-                                      Prioridad {b.priority} • {priorityLabel(b.priority)}
+                                      Prioridad {b.priority} •{" "}
+                                      {priorityLabel(b.priority)}
                                     </span>
                                   </div>
                                 </div>
@@ -2729,7 +3020,9 @@ FECHA: ${escapeHtml(formatOnlyDate(api.workDate))}
 
                               <div className="flex flex-wrap items-center gap-2">
                                 <button
-                                  onClick={() => fillSuggestedForCustomer(b.customer_id)}
+                                  onClick={() =>
+                                    fillSuggestedForCustomer(b.customer_id)
+                                  }
                                   className="inline-flex items-center gap-2 rounded-xl bg-[#1E4A7A] px-3 py-2 text-sm text-white hover:bg-[#2E6B9E]"
                                 >
                                   <Sparkles className="h-4 w-4" />
@@ -2737,7 +3030,9 @@ FECHA: ${escapeHtml(formatOnlyDate(api.workDate))}
                                 </button>
 
                                 <button
-                                  onClick={() => removeCustomerFromBatch(b.customer_id)}
+                                  onClick={() =>
+                                    removeCustomerFromBatch(b.customer_id)
+                                  }
                                   className="rounded-xl bg-red-500/20 px-3 py-2 text-red-200 hover:bg-red-500/30"
                                   title="Quitar cliente"
                                 >
@@ -2755,45 +3050,53 @@ FECHA: ${escapeHtml(formatOnlyDate(api.workDate))}
 
                                 <div className="flex flex-wrap items-center gap-2">
                                   <button
-                                    onClick={() => setPriorityPreset(b.customer_id, 1)}
+                                    onClick={() =>
+                                      setPriorityPreset(b.customer_id, 1)
+                                    }
                                     className={cx(
-                                      'rounded-lg border px-3 py-1.5 text-xs',
+                                      "rounded-lg border px-3 py-1.5 text-xs",
                                       b.priority === 1
-                                        ? 'border-red-500/30 bg-red-500/20 text-red-100'
-                                        : 'border-white/10 bg-white/5 text-white/70'
+                                        ? "border-red-500/30 bg-red-500/20 text-red-100"
+                                        : "border-white/10 bg-white/5 text-white/70",
                                     )}
                                   >
                                     Urgente (1)
                                   </button>
                                   <button
-                                    onClick={() => setPriorityPreset(b.customer_id, 15)}
+                                    onClick={() =>
+                                      setPriorityPreset(b.customer_id, 15)
+                                    }
                                     className={cx(
-                                      'rounded-lg border px-3 py-1.5 text-xs',
+                                      "rounded-lg border px-3 py-1.5 text-xs",
                                       b.priority === 15
-                                        ? 'border-orange-500/30 bg-orange-500/20 text-orange-100'
-                                        : 'border-white/10 bg-white/5 text-white/70'
+                                        ? "border-orange-500/30 bg-orange-500/20 text-orange-100"
+                                        : "border-white/10 bg-white/5 text-white/70",
                                     )}
                                   >
                                     Alta (15)
                                   </button>
                                   <button
-                                    onClick={() => setPriorityPreset(b.customer_id, 50)}
+                                    onClick={() =>
+                                      setPriorityPreset(b.customer_id, 50)
+                                    }
                                     className={cx(
-                                      'rounded-lg border px-3 py-1.5 text-xs',
+                                      "rounded-lg border px-3 py-1.5 text-xs",
                                       b.priority === 50
-                                        ? 'border-yellow-500/30 bg-yellow-500/20 text-yellow-100'
-                                        : 'border-white/10 bg-white/5 text-white/70'
+                                        ? "border-yellow-500/30 bg-yellow-500/20 text-yellow-100"
+                                        : "border-white/10 bg-white/5 text-white/70",
                                     )}
                                   >
                                     Media (50)
                                   </button>
                                   <button
-                                    onClick={() => setPriorityPreset(b.customer_id, 100)}
+                                    onClick={() =>
+                                      setPriorityPreset(b.customer_id, 100)
+                                    }
                                     className={cx(
-                                      'rounded-lg border px-3 py-1.5 text-xs',
+                                      "rounded-lg border px-3 py-1.5 text-xs",
                                       b.priority === 100
-                                        ? 'border-white/20 bg-white/20 text-white'
-                                        : 'border-white/10 bg-white/5 text-white/70'
+                                        ? "border-white/20 bg-white/20 text-white"
+                                        : "border-white/10 bg-white/5 text-white/70",
                                     )}
                                   >
                                     Baja (100)
@@ -2803,7 +3106,9 @@ FECHA: ${escapeHtml(formatOnlyDate(api.workDate))}
 
                               <div className="mt-3 flex items-center gap-2">
                                 <button
-                                  onClick={() => bumpPriority(b.customer_id, -5)}
+                                  onClick={() =>
+                                    bumpPriority(b.customer_id, -5)
+                                  }
                                   className="rounded-lg bg-white/10 p-2 text-white/70 hover:bg-white/20"
                                   title="Más urgente"
                                 >
@@ -2816,7 +3121,10 @@ FECHA: ${escapeHtml(formatOnlyDate(api.workDate))}
                                   max={100}
                                   value={b.priority}
                                   onChange={(e) =>
-                                    setPriority(b.customer_id, Number(e.target.value))
+                                    setPriority(
+                                      b.customer_id,
+                                      Number(e.target.value),
+                                    )
                                   }
                                   className="w-24 rounded-xl border border-white/10 bg-white/5 px-3 py-2 text-white focus:outline-none focus:ring-2 focus:ring-[#1E4A7A]"
                                 />
@@ -2837,7 +3145,9 @@ FECHA: ${escapeHtml(formatOnlyDate(api.workDate))}
 
                             <div className="mt-4">
                               <div className="mb-2 flex items-center justify-between">
-                                <p className="font-medium text-white">Productos permitidos del cliente</p>
+                                <p className="font-medium text-white">
+                                  Productos permitidos del cliente
+                                </p>
                                 <p className="text-xs text-white/50">
                                   Cantidad a cargar + sugerido + stock
                                 </p>
@@ -2845,42 +3155,52 @@ FECHA: ${escapeHtml(formatOnlyDate(api.workDate))}
 
                               {allowed.length === 0 ? (
                                 <div className="rounded-xl border border-yellow-500/20 bg-yellow-500/10 p-3 text-sm text-yellow-100">
-                                  Este cliente no tiene productos activos en <b>customer_products</b>.
+                                  Este cliente no tiene productos activos en{" "}
+                                  <b>customer_products</b>.
                                 </div>
                               ) : (
                                 <div className="grid grid-cols-1 gap-3 xl:grid-cols-2">
                                   {allowed.map((p) => {
-                                    const chosen = b.items.find((it) => it.product_id === p.id);
+                                    const chosen = b.items.find(
+                                      (it) => it.product_id === p.id,
+                                    );
                                     const subtotalItem = chosen
-                                      ? (p.precio_cliente_final || 0) * chosen.qty
+                                      ? (p.precio_cliente_final || 0) *
+                                        chosen.qty
                                       : 0;
                                     const outOfStock = p.stock_actual <= 0;
-                                    const isCustomPrice = p.precio_override !== null;
+                                    const isCustomPrice =
+                                      p.precio_override !== null;
 
                                     return (
                                       <div
                                         key={p.id}
                                         className={cx(
-                                          'rounded-xl border p-3 transition',
+                                          "rounded-xl border p-3 transition",
                                           chosen
-                                            ? 'border-[#4DADFF]/35 bg-[#4DADFF]/10'
-                                            : 'border-white/10 bg-white/5'
+                                            ? "border-[#4DADFF]/35 bg-[#4DADFF]/10"
+                                            : "border-white/10 bg-white/5",
                                         )}
                                       >
                                         <div className="flex items-start justify-between gap-2">
                                           <div className="min-w-0">
-                                            <p className="text-sm font-medium text-white">{p.nombre}</p>
+                                            <p className="text-sm font-medium text-white">
+                                              {p.nombre}
+                                            </p>
                                             <p className="mt-0.5 text-xs text-white/40">
-                                              {p.kind?.toUpperCase() || 'PRODUCTO'} • {p.ice_type || 'N/A'} • {p.kg_por_unidad}kg
+                                              {p.kind?.toUpperCase() ||
+                                                "PRODUCTO"}{" "}
+                                              • {p.ice_type || "N/A"} •{" "}
+                                              {p.kg_por_unidad}kg
                                             </p>
 
                                             <div className="mt-2 flex flex-wrap gap-2">
                                               <span
                                                 className={cx(
-                                                  'rounded-full border px-2 py-1 text-[11px]',
+                                                  "rounded-full border px-2 py-1 text-[11px]",
                                                   isCustomPrice
-                                                    ? 'border-green-500/20 bg-green-500/10 text-green-200'
-                                                    : 'border-white/10 bg-white/10 text-white/70'
+                                                    ? "border-green-500/20 bg-green-500/10 text-green-200"
+                                                    : "border-white/10 bg-white/10 text-white/70",
                                                 )}
                                               >
                                                 {isCustomPrice
@@ -2890,30 +3210,33 @@ FECHA: ${escapeHtml(formatOnlyDate(api.workDate))}
 
                                               <span
                                                 className={cx(
-                                                  'rounded-full border px-2 py-1 text-[11px]',
+                                                  "rounded-full border px-2 py-1 text-[11px]",
                                                   outOfStock
-                                                    ? 'border-red-500/20 bg-red-500/10 text-red-200'
-                                                    : 'border-white/10 bg-white/10 text-white/70'
+                                                    ? "border-red-500/20 bg-red-500/10 text-red-200"
+                                                    : "border-white/10 bg-white/10 text-white/70",
                                                 )}
                                               >
                                                 Stock: {p.stock_actual}
                                               </span>
 
                                               <span className="rounded-full border border-blue-500/20 bg-blue-500/10 px-2 py-1 text-[11px] text-blue-200">
-                                                Sugerido {p.nombre}: {p.suggested_qty}
+                                                Sugerido {p.nombre}:{" "}
+                                                {p.suggested_qty}
                                               </span>
                                             </div>
                                           </div>
 
                                           {!chosen ? (
                                             <button
-                                              onClick={() => addItem(b.customer_id, p)}
+                                              onClick={() =>
+                                                addItem(b.customer_id, p)
+                                              }
                                               disabled={outOfStock}
                                               className={cx(
-                                                'inline-flex items-center gap-2 rounded-xl px-3 py-2 text-sm',
+                                                "inline-flex items-center gap-2 rounded-xl px-3 py-2 text-sm",
                                                 outOfStock
-                                                  ? 'cursor-not-allowed bg-white/10 text-white/30'
-                                                  : 'bg-white/10 text-white hover:bg-white/20'
+                                                  ? "cursor-not-allowed bg-white/10 text-white/30"
+                                                  : "bg-white/10 text-white hover:bg-white/20",
                                               )}
                                             >
                                               <PlusCircle className="h-4 w-4" />
@@ -2921,7 +3244,9 @@ FECHA: ${escapeHtml(formatOnlyDate(api.workDate))}
                                             </button>
                                           ) : (
                                             <button
-                                              onClick={() => removeItem(b.customer_id, p.id)}
+                                              onClick={() =>
+                                                removeItem(b.customer_id, p.id)
+                                              }
                                               className="inline-flex items-center gap-2 rounded-xl bg-red-500/20 px-3 py-2 text-sm text-red-200 hover:bg-red-500/30"
                                             >
                                               <X className="h-4 w-4" />
@@ -2936,7 +3261,11 @@ FECHA: ${escapeHtml(formatOnlyDate(api.workDate))}
                                               <div className="flex items-center gap-2">
                                                 <button
                                                   onClick={() =>
-                                                    setQty(b.customer_id, p.id, chosen.qty - 1)
+                                                    setQty(
+                                                      b.customer_id,
+                                                      p.id,
+                                                      chosen.qty - 1,
+                                                    )
                                                   }
                                                   className="rounded-lg bg-white/10 p-2 text-white/70 hover:bg-white/20"
                                                   disabled={chosen.qty <= 1}
@@ -2953,7 +3282,7 @@ FECHA: ${escapeHtml(formatOnlyDate(api.workDate))}
                                                     setQty(
                                                       b.customer_id,
                                                       p.id,
-                                                      Number(e.target.value)
+                                                      Number(e.target.value),
                                                     )
                                                   }
                                                   className="w-24 rounded-xl border border-white/10 bg-white/5 px-3 py-2 text-white focus:outline-none focus:ring-2 focus:ring-[#1E4A7A]"
@@ -2961,7 +3290,11 @@ FECHA: ${escapeHtml(formatOnlyDate(api.workDate))}
 
                                                 <button
                                                   onClick={() =>
-                                                    setQty(b.customer_id, p.id, chosen.qty + 1)
+                                                    setQty(
+                                                      b.customer_id,
+                                                      p.id,
+                                                      chosen.qty + 1,
+                                                    )
                                                   }
                                                   className="rounded-lg bg-white/10 p-2 text-white/70 hover:bg-white/20"
                                                   title="+1"
@@ -2971,34 +3304,52 @@ FECHA: ${escapeHtml(formatOnlyDate(api.workDate))}
 
                                                 <button
                                                   onClick={() =>
-                                                    applySuggestedQty(b.customer_id, p.id)
+                                                    applySuggestedQty(
+                                                      b.customer_id,
+                                                      p.id,
+                                                    )
                                                   }
                                                   className="ml-2 rounded-lg bg-[#1E4A7A] px-3 py-2 text-xs text-white hover:bg-[#2E6B9E]"
                                                 >
-                                                  Usar sugerido ({p.suggested_qty})
+                                                  Usar sugerido (
+                                                  {p.suggested_qty})
                                                 </button>
                                               </div>
 
                                               <div className="grid grid-cols-1 gap-2 text-xs md:grid-cols-4">
                                                 <div className="rounded-lg bg-white/5 p-2 text-white/70">
-                                                  <span className="text-white/40">Producto:</span>{' '}
-                                                  <span className="text-white">{p.nombre}</span>
-                                                </div>
-
-                                                <div className="rounded-lg bg-white/5 p-2 text-white/70">
-                                                  <span className="text-white/40">Cantidad:</span>{' '}
-                                                  <span className="text-white">{chosen.qty}</span>
-                                                </div>
-
-                                                <div className="rounded-lg bg-white/5 p-2 text-white/70">
-                                                  <span className="text-white/40">Precio:</span>{' '}
+                                                  <span className="text-white/40">
+                                                    Producto:
+                                                  </span>{" "}
                                                   <span className="text-white">
-                                                    {money(p.precio_cliente_final)}
+                                                    {p.nombre}
                                                   </span>
                                                 </div>
 
                                                 <div className="rounded-lg bg-white/5 p-2 text-white/70">
-                                                  <span className="text-white/40">Subtotal:</span>{' '}
+                                                  <span className="text-white/40">
+                                                    Cantidad:
+                                                  </span>{" "}
+                                                  <span className="text-white">
+                                                    {chosen.qty}
+                                                  </span>
+                                                </div>
+
+                                                <div className="rounded-lg bg-white/5 p-2 text-white/70">
+                                                  <span className="text-white/40">
+                                                    Precio:
+                                                  </span>{" "}
+                                                  <span className="text-white">
+                                                    {money(
+                                                      p.precio_cliente_final,
+                                                    )}
+                                                  </span>
+                                                </div>
+
+                                                <div className="rounded-lg bg-white/5 p-2 text-white/70">
+                                                  <span className="text-white/40">
+                                                    Subtotal:
+                                                  </span>{" "}
                                                   <span className="text-white">
                                                     {money(subtotalItem)}
                                                   </span>
@@ -3006,20 +3357,23 @@ FECHA: ${escapeHtml(formatOnlyDate(api.workDate))}
                                               </div>
 
                                               <div className="rounded-lg border border-blue-500/20 bg-blue-500/10 p-2 text-xs text-blue-100">
-                                                Sugerido para <b>{p.nombre}</b>: <b>{p.suggested_qty}</b> piezas
+                                                Sugerido para <b>{p.nombre}</b>:{" "}
+                                                <b>{p.suggested_qty}</b> piezas
                                               </div>
 
                                               {chosen.qty > p.stock_actual && (
                                                 <div className="flex items-center gap-2 rounded-lg border border-red-500/20 bg-red-500/10 p-2 text-xs text-red-100">
                                                   <AlertTriangle className="h-4 w-4" />
-                                                  La cantidad rebasa el stock disponible.
+                                                  La cantidad rebasa el stock
+                                                  disponible.
                                                 </div>
                                               )}
 
                                               {chosen.qty <= p.stock_actual && (
                                                 <div className="flex items-center gap-2 rounded-lg border border-green-500/20 bg-green-500/10 p-2 text-xs text-green-100">
                                                   <CheckCircle2 className="h-4 w-4" />
-                                                  Cantidad dentro del stock disponible.
+                                                  Cantidad dentro del stock
+                                                  disponible.
                                                 </div>
                                               )}
                                             </div>
@@ -3034,7 +3388,9 @@ FECHA: ${escapeHtml(formatOnlyDate(api.workDate))}
 
                             {b.items.length === 0 && (
                               <p className="mt-3 text-xs text-red-200">
-                                ⚠️ Este cliente no tiene productos seleccionados. No podrás guardar hasta que tenga mínimo 1.
+                                ⚠️ Este cliente no tiene productos
+                                seleccionados. No podrás guardar hasta que tenga
+                                mínimo 1.
                               </p>
                             )}
                           </div>
@@ -3045,14 +3401,29 @@ FECHA: ${escapeHtml(formatOnlyDate(api.workDate))}
 
                   <div className="mt-5 rounded-2xl border border-white/10 bg-black/10 p-4">
                     <div className="mb-4 grid grid-cols-1 gap-3 md:grid-cols-4">
-                      <MiniResume label="Clientes" value={batch.length} icon={<Users className="h-4 w-4" />} />
+                      <MiniResume
+                        label="Clientes"
+                        value={batch.length}
+                        icon={<Users className="h-4 w-4" />}
+                      />
                       <MiniResume
                         label="Productos"
-                        value={batch.reduce((acc, b) => acc + b.items.length, 0)}
+                        value={batch.reduce(
+                          (acc, b) => acc + b.items.length,
+                          0,
+                        )}
                         icon={<Layers3 className="h-4 w-4" />}
                       />
-                      <MiniResume label="Piezas" value={routeQty} icon={<Package className="h-4 w-4" />} />
-                      <MiniResume label="Total" value={money(routeTotal)} icon={<DollarSign className="h-4 w-4" />} />
+                      <MiniResume
+                        label="Piezas"
+                        value={routeQty}
+                        icon={<Package className="h-4 w-4" />}
+                      />
+                      <MiniResume
+                        label="Total"
+                        value={money(routeTotal)}
+                        icon={<DollarSign className="h-4 w-4" />}
+                      />
                     </div>
 
                     <div className="flex gap-3">
@@ -3068,14 +3439,16 @@ FECHA: ${escapeHtml(formatOnlyDate(api.workDate))}
                         onClick={saveBatch}
                         disabled={!batchOk || api.busy}
                         className={cx(
-                          'inline-flex flex-1 items-center justify-center gap-2 rounded-xl px-4 py-3 font-medium transition-all',
+                          "inline-flex flex-1 items-center justify-center gap-2 rounded-xl px-4 py-3 font-medium transition-all",
                           !batchOk || api.busy
-                            ? 'cursor-not-allowed bg-white/10 text-white/30'
-                            : 'bg-gradient-to-r from-[#1E4A7A] to-[#2E6B9E] text-white hover:from-[#2E6B9E] hover:to-[#1E4A7A]'
+                            ? "cursor-not-allowed bg-white/10 text-white/30"
+                            : "bg-gradient-to-r from-[#1E4A7A] to-[#2E6B9E] text-white hover:from-[#2E6B9E] hover:to-[#1E4A7A]",
                         )}
                       >
                         <ShieldCheck className="h-4 w-4" />
-                        {api.busy ? 'Guardando...' : 'Guardar TODO (folios auto)'}
+                        {api.busy
+                          ? "Guardando..."
+                          : "Guardar TODO (folios auto)"}
                       </button>
                     </div>
                   </div>
@@ -3104,15 +3477,21 @@ FECHA: ${escapeHtml(formatOnlyDate(api.workDate))}
                         <div key={p.product_id} className="px-4 py-3">
                           <div className="flex items-start justify-between gap-3">
                             <div>
-                              <p className="text-sm font-medium text-white">{p.nombre}</p>
+                              <p className="text-sm font-medium text-white">
+                                {p.nombre}
+                              </p>
                               <p className="text-xs text-white/50">
                                 Clientes: {p.customers_count}
                               </p>
                             </div>
 
                             <div className="text-right">
-                              <p className="font-semibold text-white">{p.total_qty} pzas</p>
-                              <p className="text-xs text-white/50">{money(p.total_importe)}</p>
+                              <p className="font-semibold text-white">
+                                {p.total_qty} pzas
+                              </p>
+                              <p className="text-xs text-white/50">
+                                {money(p.total_importe)}
+                              </p>
                             </div>
                           </div>
                         </div>
@@ -3142,15 +3521,18 @@ FECHA: ${escapeHtml(formatOnlyDate(api.workDate))}
                         <div key={c.customer_id} className="px-4 py-4">
                           <div className="flex items-start justify-between gap-3">
                             <div>
-                              <p className="text-sm font-medium text-white">{c.customer_nombre}</p>
+                              <p className="text-sm font-medium text-white">
+                                {c.customer_nombre}
+                              </p>
                               <div className="mt-1 flex flex-wrap gap-2">
                                 <span
                                   className={cx(
-                                    'rounded-full border px-2 py-1 text-[11px]',
-                                    priorityTone(c.priority)
+                                    "rounded-full border px-2 py-1 text-[11px]",
+                                    priorityTone(c.priority),
                                   )}
                                 >
-                                  Prio {c.priority} • {priorityLabel(c.priority)}
+                                  Prio {c.priority} •{" "}
+                                  {priorityLabel(c.priority)}
                                 </span>
                                 <span className="rounded-full border border-white/10 bg-white/10 px-2 py-1 text-[11px] text-white/70">
                                   {c.total_qty} pzas
@@ -3160,7 +3542,9 @@ FECHA: ${escapeHtml(formatOnlyDate(api.workDate))}
 
                             <div className="text-right">
                               <p className="text-xs text-white/40">Subtotal</p>
-                              <p className="font-semibold text-white">{money(c.subtotal)}</p>
+                              <p className="font-semibold text-white">
+                                {money(c.subtotal)}
+                              </p>
                             </div>
                           </div>
 
@@ -3172,14 +3556,20 @@ FECHA: ${escapeHtml(formatOnlyDate(api.workDate))}
                                   className="flex items-center justify-between gap-2 rounded-lg bg-white/5 p-2"
                                 >
                                   <div>
-                                    <p className="text-xs text-white">{it.nombre}</p>
+                                    <p className="text-xs text-white">
+                                      {it.nombre}
+                                    </p>
                                     <p className="text-[11px] text-white/45">
                                       Sugerido: {it.suggested_qty}
                                     </p>
                                   </div>
                                   <div className="text-right">
-                                    <p className="text-xs font-medium text-white">{it.qty} pzas</p>
-                                    <p className="text-[11px] text-white/45">{money(it.subtotal)}</p>
+                                    <p className="text-xs font-medium text-white">
+                                      {it.qty} pzas
+                                    </p>
+                                    <p className="text-[11px] text-white/45">
+                                      {money(it.subtotal)}
+                                    </p>
                                   </div>
                                 </div>
                               ))}
@@ -3288,8 +3678,8 @@ function ModalShell({
           animate={{ scale: 1, y: 0 }}
           exit={{ scale: 0.95, y: 18 }}
           className={cx(
-            'my-8 max-h-[92vh] w-full overflow-y-auto rounded-2xl bg-gradient-to-br from-[#0A1A2F] to-[#1E4A7A] shadow-xl',
-            wide ? 'max-w-7xl' : 'max-w-md'
+            "my-8 max-h-[92vh] w-full overflow-y-auto rounded-2xl bg-gradient-to-br from-[#0A1A2F] to-[#1E4A7A] shadow-xl",
+            wide ? "max-w-7xl" : "max-w-md",
           )}
           onClick={(e) => e.stopPropagation()}
         >
