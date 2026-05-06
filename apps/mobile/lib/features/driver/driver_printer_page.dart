@@ -386,6 +386,7 @@ class _DriverPrinterPageState extends State<DriverPrinterPage> {
       driverName: widget.driverName,
       deliveredAt: DateTime.now().toIso8601String(),
       totalReal: 1050,
+      paymentMethod: 'EFECTIVO',
       copies: 1,
       items: [
         PrinterTicketItem(

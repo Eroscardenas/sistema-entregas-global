@@ -1660,6 +1660,18 @@ export default function AdminAsignacionesPage() {
       )
       .join("");
 
+    const bolsasVendidasRowProducts = productKeys
+      .map((productKey) => {
+        // BOLSAS VENDIDAS = lo realmente entregado al cliente.
+        // Usa únicamente entregas confirmadas y no canceladas.
+        const qty = soldByProduct.get(productKey) ?? 0;
+
+        return `
+          <td class="center summary-qty summary-cell-summary summary-merge-cell">${qty}</td>
+        `;
+      })
+      .join("");
+
     const salidasGlobalRowProducts = productKeys
       .map((productKey) => {
         const qty = getInventoryQtyForPdfKey(inventoryGlobal, productKey);
@@ -1696,6 +1708,12 @@ export default function AdminAsignacionesPage() {
       .join("");
 
     const summaryRowsHtml = `
+      <tr class="summary-row summary-row-dark">
+        <th colspan="3" class="summary-label summary-dark">BOLSAS VENDIDAS:</th>
+        ${bolsasVendidasRowProducts}
+        <td class="summary-dark"></td>
+        <td class="summary-dark"></td>
+      </tr>
       <tr class="summary-row summary-row-dark">
         <th colspan="3" class="summary-label summary-dark">SALIDAS GLOBAL:</th>
         ${salidasGlobalRowProducts}

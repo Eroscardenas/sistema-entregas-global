@@ -130,7 +130,6 @@ class PrinterService {
       }
 
       await _bluetooth.connect(device);
-
       await Future.delayed(const Duration(milliseconds: 500));
 
       final connected = await isConnected;
@@ -255,6 +254,22 @@ class PrinterService {
     return clean.substring(0, max);
   }
 
+  String _normalizePaymentMethod(String? value) {
+    final clean = (value ?? '').trim().toUpperCase();
+    if (clean == 'CREDITO' || clean == 'CRÉDITO') return 'CREDITO';
+    return 'EFECTIVO';
+  }
+
+  String _paymentLegend(String paymentMethod) {
+    final method = _normalizePaymentMethod(paymentMethod);
+
+    if (method == 'CREDITO') {
+      return 'PAGO A CREDITO - SUJETO A FACTURACION';
+    }
+
+    return 'PAGADO EN EFECTIVO';
+  }
+
   List<PrinterTicketItem> _mergeItems(List<PrinterTicketItem> items) {
     final map = <String, PrinterTicketItem>{};
 
@@ -336,15 +351,19 @@ class PrinterService {
     required String copyLabel,
     required String folio,
     required String customerName,
+    required String dinerName,
     required String driverName,
     required String? deliveredAt,
     required List<PrinterTicketItem> items,
     required double totalReal,
+    required String paymentMethod,
     required img.Image? logo,
   }) {
     final bytes = <int>[];
     final mergedItems = _mergeItems(items);
     final normalizedCopyLabel = copyLabel.trim().toUpperCase();
+    final normalizedPaymentMethod = _normalizePaymentMethod(paymentMethod);
+    final paymentLegend = _paymentLegend(normalizedPaymentMethod);
 
     bytes.addAll(generator.reset());
 
@@ -423,8 +442,47 @@ class PrinterService {
     ]));
 
     bytes.addAll(generator.text('FECHA: ${_safeDate(deliveredAt)}'));
-    bytes.addAll(generator.text('NOMBRE: ${_normalizeText(customerName, max: 64)}'));
-    bytes.addAll(generator.text('CHOFER: ${_normalizeText(driverName, max: 48)}'));
+    bytes.addAll(generator.text(
+      'NOMBRE: ${_normalizeText(customerName, max: 64)}',
+    ));
+
+    if (dinerName.trim().isNotEmpty) {
+      bytes.addAll(generator.text(
+        'COMEDOR: ${_normalizeText(dinerName, max: 64)}',
+      ));
+    }
+
+    bytes.addAll(generator.text(
+      'CHOFER: ${_normalizeText(driverName, max: 48)}',
+    ));
+
+    bytes.addAll(generator.hr(ch: '-'));
+
+    bytes.addAll(generator.text(
+      'TIPO DE PAGO',
+      styles: const PosStyles(
+        align: PosAlign.center,
+        bold: true,
+      ),
+    ));
+
+    bytes.addAll(generator.text(
+      normalizedPaymentMethod,
+      styles: const PosStyles(
+        align: PosAlign.center,
+        bold: true,
+        height: PosTextSize.size2,
+        width: PosTextSize.size2,
+      ),
+    ));
+
+    bytes.addAll(generator.text(
+      paymentLegend,
+      styles: const PosStyles(
+        align: PosAlign.center,
+        bold: true,
+      ),
+    ));
 
     bytes.addAll(generator.hr());
 
@@ -508,6 +566,25 @@ class PrinterService {
       ),
     ]));
 
+    bytes.addAll(generator.hr(ch: '-'));
+
+    bytes.addAll(generator.text(
+      paymentLegend,
+      styles: const PosStyles(
+        align: PosAlign.center,
+        bold: true,
+        height: PosTextSize.size2,
+      ),
+    ));
+
+    bytes.addAll(generator.text(
+      'PAGO: $normalizedPaymentMethod',
+      styles: const PosStyles(
+        align: PosAlign.center,
+        bold: true,
+      ),
+    ));
+
     bytes.addAll(_buildLegalBlock(
       generator: generator,
       deliveredAt: deliveredAt,
@@ -538,6 +615,7 @@ class PrinterService {
     required String? deliveredAt,
     required List<PrinterTicketItem> items,
     required double totalReal,
+    String paymentMethod = 'EFECTIVO',
     int copies = 1,
     String copyLabel = 'ORIGINAL',
     PaperSize paper = PaperSize.mm80,
@@ -556,10 +634,12 @@ class PrinterService {
           copyLabel: copyLabel,
           folio: folio,
           customerName: customerName,
+          dinerName: dinerName,
           driverName: driverName,
           deliveredAt: deliveredAt,
           items: items,
           totalReal: totalReal,
+          paymentMethod: paymentMethod,
           logo: logo,
         ),
       );
@@ -576,6 +656,7 @@ class PrinterService {
     required String? deliveredAt,
     required List<PrinterTicketItem> items,
     required double totalReal,
+    String paymentMethod = 'EFECTIVO',
     int copies = 1,
     String copyLabel = 'ORIGINAL',
   }) async {
@@ -599,6 +680,7 @@ class PrinterService {
         deliveredAt: deliveredAt,
         items: items,
         totalReal: totalReal,
+        paymentMethod: paymentMethod,
         copies: copies,
         copyLabel: copyLabel,
         paper: PaperSize.mm80,

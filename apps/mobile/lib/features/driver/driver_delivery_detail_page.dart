@@ -2,12 +2,14 @@ import 'dart:convert';
 import 'dart:typed_data';
 
 import 'package:flutter/material.dart';
-import 'package:flutter/services.dart' show rootBundle, FilteringTextInputFormatter;
+import 'package:flutter/services.dart'
+    show rootBundle, FilteringTextInputFormatter;
 import 'package:supabase_flutter/supabase_flutter.dart';
 import 'package:pdf/pdf.dart';
 import 'package:pdf/widgets.dart' as pw;
 import 'package:printing/printing.dart';
 import 'package:http/http.dart' as http;
+import 'package:url_launcher/url_launcher.dart';
 
 import 'package:mobile/services/printer_service.dart';
 
@@ -52,6 +54,8 @@ class _DriverDeliveryDetailPageState extends State<DriverDeliveryDetailPage> {
   String? _driverId;
   String? _workDate;
   String? _driverCode;
+  String? _customerId;
+  String? _mapsUrl;
 
   String _driverName = 'Chofer';
   String _dinerName = '';
@@ -105,7 +109,9 @@ class _DriverDeliveryDetailPageState extends State<DriverDeliveryDetailPage> {
     final type = _normalizeText(iceType);
     final k = _normalizeText(kind);
 
-    if (type.contains('BARRA') || name.contains('BARRA') || k.contains('BARRA')) {
+    if (type.contains('BARRA') ||
+        name.contains('BARRA') ||
+        k.contains('BARRA')) {
       return 'BARRA';
     }
 
@@ -179,6 +185,42 @@ class _DriverDeliveryDetailPageState extends State<DriverDeliveryDetailPage> {
         return Colors.orangeAccent;
       default:
         return Colors.white70;
+    }
+  }
+
+  bool _isValidMapsUrl(String? value) {
+    final url = (value ?? '').trim();
+    if (url.isEmpty) return false;
+
+    final uri = Uri.tryParse(url);
+    if (uri == null) return false;
+
+    return uri.hasScheme &&
+        (uri.scheme == 'http' || uri.scheme == 'https') &&
+        uri.host.isNotEmpty;
+  }
+
+  Future<void> _openMaps() async {
+    final url = (_mapsUrl ?? '').trim();
+
+    if (!_isValidMapsUrl(url)) {
+      _showError('Este cliente no tiene un link válido de Google Maps.');
+      return;
+    }
+
+    final uri = Uri.parse(url);
+
+    try {
+      final opened = await launchUrl(
+        uri,
+        mode: LaunchMode.externalApplication,
+      );
+
+      if (!opened) {
+        _showError('No se pudo abrir Google Maps.');
+      }
+    } catch (e) {
+      _showError('No se pudo abrir Maps: $e');
     }
   }
 
@@ -309,6 +351,23 @@ class _DriverDeliveryDetailPageState extends State<DriverDeliveryDetailPage> {
     return map;
   }
 
+  Future<String?> _loadCustomerMapsUrl(String customerId) async {
+    if (customerId.trim().isEmpty) return null;
+
+    try {
+      final customer = await _sb
+          .from('customers')
+          .select('id,maps_url')
+          .eq('id', customerId)
+          .maybeSingle();
+
+      final url = (customer?['maps_url'] ?? '').toString().trim();
+      return url.isEmpty ? null : url;
+    } catch (_) {
+      return null;
+    }
+  }
+
   Future<void> _load() async {
     if (!mounted) return;
 
@@ -321,7 +380,7 @@ class _DriverDeliveryDetailPageState extends State<DriverDeliveryDetailPage> {
       final delivery = await _sb
           .from('deliveries')
           .select(
-            'id, assignment_id, status, delivered_at, total_expected, total_real, diner_nombre_snapshot, payment_method',
+            'id, customer_id, assignment_id, status, delivered_at, total_expected, total_real, diner_nombre_snapshot, payment_method',
           )
           .eq('id', widget.deliveryId)
           .maybeSingle();
@@ -329,6 +388,10 @@ class _DriverDeliveryDetailPageState extends State<DriverDeliveryDetailPage> {
       if (delivery == null) {
         throw Exception('No se encontró la entrega.');
       }
+
+      final customerId = (delivery['customer_id'] ?? '').toString();
+      final mapsUrl =
+          customerId.isEmpty ? null : await _loadCustomerMapsUrl(customerId);
 
       final assignmentId = (delivery['assignment_id'] ?? '').toString();
       if (assignmentId.isEmpty) {
@@ -470,6 +533,8 @@ class _DriverDeliveryDetailPageState extends State<DriverDeliveryDetailPage> {
       _driverName = nextDriverName;
 
       setState(() {
+        _customerId = customerId.isEmpty ? null : customerId;
+        _mapsUrl = mapsUrl;
         _driverCode = nextDriverCode;
         _assignmentId = assignmentId;
         _driverId = driverId;
@@ -1171,7 +1236,9 @@ class _DriverDeliveryDetailPageState extends State<DriverDeliveryDetailPage> {
       );
     } catch (e) {
       if (!mounted) return;
-      _showError('No se pudo generar PDF: ${e.toString().replaceFirst('Exception: ', '')}');
+      _showError(
+        'No se pudo generar PDF: ${e.toString().replaceFirst('Exception: ', '')}',
+      );
     } finally {
       if (mounted) setState(() => _busy = false);
     }
@@ -1192,6 +1259,7 @@ class _DriverDeliveryDetailPageState extends State<DriverDeliveryDetailPage> {
         driverName: _driverName,
         deliveredAt: _deliveredAt,
         totalReal: _isDelivered ? _totalReal : _previewTotalReal,
+        paymentMethod: _paymentMethod,
         copies: 1,
         copyLabel: 'ORIGINAL',
         items: items,
@@ -1199,7 +1267,9 @@ class _DriverDeliveryDetailPageState extends State<DriverDeliveryDetailPage> {
 
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Original enviado a impresora Bluetooth.')),
+        const SnackBar(
+          content: Text('Original enviado a impresora Bluetooth.'),
+        ),
       );
     } catch (e) {
       if (!mounted) return;
@@ -1224,6 +1294,7 @@ class _DriverDeliveryDetailPageState extends State<DriverDeliveryDetailPage> {
         driverName: _driverName,
         deliveredAt: _deliveredAt,
         totalReal: _isDelivered ? _totalReal : _previewTotalReal,
+        paymentMethod: _paymentMethod,
         copies: 1,
         copyLabel: 'COPIA',
         items: items,
@@ -1304,6 +1375,7 @@ class _DriverDeliveryDetailPageState extends State<DriverDeliveryDetailPage> {
   Widget build(BuildContext context) {
     final isDelivered = _isDelivered;
     final statusColor = _statusColor(_status);
+    final hasMaps = _isValidMapsUrl(_mapsUrl);
 
     return Scaffold(
       backgroundColor: _navy,
@@ -1366,7 +1438,8 @@ class _DriverDeliveryDetailPageState extends State<DriverDeliveryDetailPage> {
                                         vertical: 6,
                                       ),
                                       decoration: BoxDecoration(
-                                        borderRadius: BorderRadius.circular(999),
+                                        borderRadius:
+                                            BorderRadius.circular(999),
                                         color: statusColor.withOpacity(0.15),
                                         border: Border.all(
                                           color: statusColor.withOpacity(0.30),
@@ -1399,7 +1472,8 @@ class _DriverDeliveryDetailPageState extends State<DriverDeliveryDetailPage> {
                                     fontWeight: FontWeight.w700,
                                   ),
                                 ),
-                                if (_workDate != null && _workDate!.isNotEmpty) ...[
+                                if (_workDate != null &&
+                                    _workDate!.isNotEmpty) ...[
                                   const SizedBox(height: 4),
                                   Text(
                                     'Fecha salida: $_workDate',
@@ -1409,7 +1483,8 @@ class _DriverDeliveryDetailPageState extends State<DriverDeliveryDetailPage> {
                                     ),
                                   ),
                                 ],
-                                if (_driverCode != null && _driverCode!.trim().isNotEmpty) ...[
+                                if (_driverCode != null &&
+                                    _driverCode!.trim().isNotEmpty) ...[
                                   const SizedBox(height: 4),
                                   Text(
                                     'Código inventario: $_driverCode',
@@ -1440,6 +1515,46 @@ class _DriverDeliveryDetailPageState extends State<DriverDeliveryDetailPage> {
                                   ),
                                 ],
                                 const SizedBox(height: 12),
+                                SizedBox(
+                                  width: double.infinity,
+                                  child: ElevatedButton.icon(
+                                    onPressed:
+                                        (_busy || !hasMaps) ? null : _openMaps,
+                                    icon: const Icon(Icons.map_outlined),
+                                    label: Text(
+                                      hasMaps
+                                          ? 'Abrir ubicación en Maps'
+                                          : 'Sin link de Maps',
+                                    ),
+                                    style: ElevatedButton.styleFrom(
+                                      backgroundColor:
+                                          hasMaps ? _success : Colors.white24,
+                                      foregroundColor: Colors.white,
+                                      disabledBackgroundColor:
+                                          Colors.white.withOpacity(0.10),
+                                      disabledForegroundColor:
+                                          Colors.white.withOpacity(0.45),
+                                      padding: const EdgeInsets.symmetric(
+                                        vertical: 13,
+                                      ),
+                                      shape: RoundedRectangleBorder(
+                                        borderRadius: BorderRadius.circular(14),
+                                      ),
+                                    ),
+                                  ),
+                                ),
+                                if (!hasMaps) ...[
+                                  const SizedBox(height: 6),
+                                  Text(
+                                    'Este cliente no tiene maps_url guardado en clientes.',
+                                    style: TextStyle(
+                                      color: Colors.white.withOpacity(0.55),
+                                      fontWeight: FontWeight.w600,
+                                      fontSize: 12,
+                                    ),
+                                  ),
+                                ],
+                                const SizedBox(height: 12),
                                 Row(
                                   children: [
                                     Expanded(
@@ -1451,7 +1566,8 @@ class _DriverDeliveryDetailPageState extends State<DriverDeliveryDetailPage> {
                                     const SizedBox(width: 10),
                                     Expanded(
                                       child: _StatChip(
-                                        label: isDelivered ? 'Real' : 'Real preview',
+                                        label:
+                                            isDelivered ? 'Real' : 'Real preview',
                                         value: _money(
                                           isDelivered
                                               ? _totalReal
@@ -1475,7 +1591,9 @@ class _DriverDeliveryDetailPageState extends State<DriverDeliveryDetailPage> {
                                   decoration: BoxDecoration(
                                     borderRadius: BorderRadius.circular(14),
                                     color: _accent.withOpacity(0.10),
-                                    border: Border.all(color: _accent.withOpacity(0.24)),
+                                    border: Border.all(
+                                      color: _accent.withOpacity(0.24),
+                                    ),
                                   ),
                                 ),
                                 const SizedBox(height: 12),
@@ -1515,7 +1633,8 @@ class _DriverDeliveryDetailPageState extends State<DriverDeliveryDetailPage> {
                                         Text(
                                           'Método de pago: $_paymentMethod',
                                           style: TextStyle(
-                                            color: Colors.white.withOpacity(0.85),
+                                            color:
+                                                Colors.white.withOpacity(0.85),
                                             fontWeight: FontWeight.w700,
                                           ),
                                         ),
@@ -1525,9 +1644,12 @@ class _DriverDeliveryDetailPageState extends State<DriverDeliveryDetailPage> {
                                           child: ElevatedButton.icon(
                                             onPressed:
                                                 _busy ? null : _openPdfPreview,
-                                            icon: const Icon(Icons.picture_as_pdf),
-                                            label:
-                                                const Text('Abrir PDF de entrega'),
+                                            icon: const Icon(
+                                              Icons.picture_as_pdf,
+                                            ),
+                                            label: const Text(
+                                              'Abrir PDF de entrega',
+                                            ),
                                             style: ElevatedButton.styleFrom(
                                               backgroundColor: _burgundy,
                                               foregroundColor: Colors.white,
@@ -1542,10 +1664,12 @@ class _DriverDeliveryDetailPageState extends State<DriverDeliveryDetailPage> {
                                         SizedBox(
                                           width: double.infinity,
                                           child: ElevatedButton.icon(
-                                            onPressed:
-                                                _busy ? null : _printBluetoothTicket,
+                                            onPressed: _busy
+                                                ? null
+                                                : _printBluetoothTicket,
                                             icon: const Icon(Icons.print),
-                                            label: const Text('Imprimir original'),
+                                            label:
+                                                const Text('Imprimir original'),
                                             style: ElevatedButton.styleFrom(
                                               backgroundColor: _royal,
                                               foregroundColor: Colors.white,
@@ -1560,15 +1684,17 @@ class _DriverDeliveryDetailPageState extends State<DriverDeliveryDetailPage> {
                                         SizedBox(
                                           width: double.infinity,
                                           child: OutlinedButton.icon(
-                                            onPressed:
-                                                _busy ? null : _printBluetoothCopy,
+                                            onPressed: _busy
+                                                ? null
+                                                : _printBluetoothCopy,
                                             icon: const Icon(Icons.copy),
-                                            label: const Text('Imprimir copia'),
+                                            label:
+                                                const Text('Imprimir copia'),
                                             style: OutlinedButton.styleFrom(
                                               foregroundColor: Colors.white,
                                               side: BorderSide(
-                                                color:
-                                                    Colors.white.withOpacity(0.35),
+                                                color: Colors.white
+                                                    .withOpacity(0.35),
                                               ),
                                               shape: RoundedRectangleBorder(
                                                 borderRadius:
@@ -1586,245 +1712,250 @@ class _DriverDeliveryDetailPageState extends State<DriverDeliveryDetailPage> {
                           ),
                           const SizedBox(height: 14),
                           ListView.separated(
-                              shrinkWrap: true,
-                              physics: const NeverScrollableScrollPhysics(),
-                              itemCount: _items.length,
-                              separatorBuilder: (_, __) =>
-                                  const SizedBox(height: 10),
-                              itemBuilder: (_, i) {
-                                final it = _items[i];
-                                final subtotal =
-                                    it.qtyReal * it.precioAplicado;
-                                final controller =
-                                    _qtyControllers[it.productId];
+                            shrinkWrap: true,
+                            physics: const NeverScrollableScrollPhysics(),
+                            itemCount: _items.length,
+                            separatorBuilder: (_, __) =>
+                                const SizedBox(height: 10),
+                            itemBuilder: (_, i) {
+                              final it = _items[i];
+                              final subtotal = it.qtyReal * it.precioAplicado;
+                              final controller = _qtyControllers[it.productId];
 
-                                if (controller == null) {
-                                  return const SizedBox.shrink();
-                                }
+                              if (controller == null) {
+                                return const SizedBox.shrink();
+                              }
 
-                                final canEdit = !isDelivered && !_busy;
-                                final hasStock = it.maxAllowedQty > 0;
-                                final canRemove = canEdit && it.qtyReal > 0;
-                                final canAdd = canEdit &&
-                                    hasStock &&
-                                    it.qtyReal < it.maxAllowedQty;
+                              final canEdit = !isDelivered && !_busy;
+                              final hasStock = it.maxAllowedQty > 0;
+                              final canRemove = canEdit && it.qtyReal > 0;
+                              final canAdd = canEdit &&
+                                  hasStock &&
+                                  it.qtyReal < it.maxAllowedQty;
 
-                                final availableColor = hasStock ? _success : _danger;
+                              final availableColor =
+                                  hasStock ? _success : _danger;
 
-                                return _GlassCard(
-                                  child: Column(
-                                    crossAxisAlignment:
-                                        CrossAxisAlignment.start,
-                                    children: [
-                                      Row(
-                                        children: [
-                                          Expanded(
-                                            child: Text(
-                                              it.nombre,
-                                              style: const TextStyle(
-                                                color: Colors.white,
-                                                fontWeight: FontWeight.w900,
-                                              ),
+                              return _GlassCard(
+                                child: Column(
+                                  crossAxisAlignment: CrossAxisAlignment.start,
+                                  children: [
+                                    Row(
+                                      children: [
+                                        Expanded(
+                                          child: Text(
+                                            it.nombre,
+                                            style: const TextStyle(
+                                              color: Colors.white,
+                                              fontWeight: FontWeight.w900,
                                             ),
                                           ),
-                                          Container(
-                                            padding: const EdgeInsets.symmetric(
-                                              horizontal: 10,
-                                              vertical: 6,
-                                            ),
-                                            decoration: BoxDecoration(
-                                              borderRadius: BorderRadius.circular(999),
-                                              color: availableColor.withOpacity(0.14),
-                                              border: Border.all(
-                                                color: availableColor.withOpacity(0.35),
-                                              ),
-                                            ),
-                                            child: Text(
-                                              hasStock ? 'Disponible' : 'Sin salida',
-                                              style: TextStyle(
-                                                color: availableColor,
-                                                fontWeight: FontWeight.w900,
-                                                fontSize: 12,
-                                              ),
+                                        ),
+                                        Container(
+                                          padding: const EdgeInsets.symmetric(
+                                            horizontal: 10,
+                                            vertical: 6,
+                                          ),
+                                          decoration: BoxDecoration(
+                                            borderRadius:
+                                                BorderRadius.circular(999),
+                                            color:
+                                                availableColor.withOpacity(0.14),
+                                            border: Border.all(
+                                              color: availableColor
+                                                  .withOpacity(0.35),
                                             ),
                                           ),
-                                        ],
+                                          child: Text(
+                                            hasStock
+                                                ? 'Disponible'
+                                                : 'Sin salida',
+                                            style: TextStyle(
+                                              color: availableColor,
+                                              fontWeight: FontWeight.w900,
+                                              fontSize: 12,
+                                            ),
+                                          ),
+                                        ),
+                                      ],
+                                    ),
+                                    const SizedBox(height: 4),
+                                    Text(
+                                      '${it.kind.toUpperCase()} • ${it.iceType} • ${it.kgPorUnidad}kg',
+                                      style: TextStyle(
+                                        color: Colors.white.withOpacity(0.60),
+                                        fontSize: 12,
                                       ),
-                                      const SizedBox(height: 4),
+                                    ),
+                                    const SizedBox(height: 10),
+                                    Wrap(
+                                      spacing: 8,
+                                      runSpacing: 8,
+                                      children: [
+                                        _MiniInfo(
+                                          label: 'Asignado cliente',
+                                          value: '${it.qtyAssigned}',
+                                        ),
+                                        _MiniInfo(
+                                          label: 'Salida global',
+                                          value: '${it.outputQty}',
+                                        ),
+                                        _MiniInfo(
+                                          label: 'Entregado otros',
+                                          value: '${it.deliveredOtherQty}',
+                                        ),
+                                        _MiniInfo(
+                                          label: 'Disponible',
+                                          value: '${it.maxAllowedQty}',
+                                        ),
+                                        _MiniInfo(
+                                          label: 'Real',
+                                          value: '${it.qtyReal}',
+                                        ),
+                                        _MiniInfo(
+                                          label: 'Precio',
+                                          value: _money(it.precioAplicado),
+                                        ),
+                                        _MiniInfo(
+                                          label: 'Subtotal real',
+                                          value: _money(subtotal),
+                                        ),
+                                      ],
+                                    ),
+                                    const SizedBox(height: 12),
+                                    Row(
+                                      children: [
+                                        IconButton(
+                                          onPressed: canRemove
+                                              ? () =>
+                                                  _setQty(i, it.qtyReal - 1)
+                                              : null,
+                                          icon: Icon(
+                                            Icons.remove_circle_outline,
+                                            color: canRemove
+                                                ? Colors.white
+                                                : Colors.white24,
+                                          ),
+                                        ),
+                                        SizedBox(
+                                          width: 84,
+                                          child: TextField(
+                                            controller: controller,
+                                            enabled: canEdit,
+                                            keyboardType: TextInputType.number,
+                                            inputFormatters: [
+                                              FilteringTextInputFormatter
+                                                  .digitsOnly,
+                                            ],
+                                            textAlign: TextAlign.center,
+                                            style: const TextStyle(
+                                              color: Colors.white,
+                                            ),
+                                            decoration: InputDecoration(
+                                              isDense: true,
+                                              filled: true,
+                                              fillColor: Colors.white
+                                                  .withOpacity(0.08),
+                                              border: OutlineInputBorder(
+                                                borderRadius:
+                                                    BorderRadius.circular(12),
+                                                borderSide: BorderSide(
+                                                  color: Colors.white
+                                                      .withOpacity(0.10),
+                                                ),
+                                              ),
+                                              enabledBorder: OutlineInputBorder(
+                                                borderRadius:
+                                                    BorderRadius.circular(12),
+                                                borderSide: BorderSide(
+                                                  color: Colors.white
+                                                      .withOpacity(0.10),
+                                                ),
+                                              ),
+                                              focusedBorder:
+                                                  const OutlineInputBorder(
+                                                borderRadius: BorderRadius.all(
+                                                  Radius.circular(12),
+                                                ),
+                                                borderSide:
+                                                    BorderSide(color: _accent),
+                                              ),
+                                            ),
+                                            onChanged: (v) =>
+                                                _setQtyFromText(i, v),
+                                          ),
+                                        ),
+                                        IconButton(
+                                          onPressed: canAdd
+                                              ? () =>
+                                                  _setQty(i, it.qtyReal + 1)
+                                              : null,
+                                          icon: Icon(
+                                            Icons.add_circle_outline,
+                                            color: canAdd
+                                                ? Colors.white
+                                                : Colors.white24,
+                                          ),
+                                        ),
+                                        const Spacer(),
+                                        TextButton(
+                                          onPressed:
+                                              canEdit ? () => _setQty(i, 0) : null,
+                                          child: const Text('No dejó'),
+                                        ),
+                                        const SizedBox(width: 6),
+                                        TextButton(
+                                          onPressed: canEdit && hasStock
+                                              ? () => _setQty(
+                                                    i,
+                                                    it.qtyAssigned >
+                                                            it.maxAllowedQty
+                                                        ? it.maxAllowedQty
+                                                        : it.qtyAssigned,
+                                                  )
+                                              : null,
+                                          child: const Text('Completo'),
+                                        ),
+                                      ],
+                                    ),
+                                    if (!isDelivered &&
+                                        it.qtyAssigned != it.qtyReal) ...[
+                                      const SizedBox(height: 8),
                                       Text(
-                                        '${it.kind.toUpperCase()} • ${it.iceType} • ${it.kgPorUnidad}kg',
+                                        it.qtyReal > it.qtyAssigned
+                                            ? 'Se está entregando más de lo asignado al cliente. Permitido porque hay salida disponible.'
+                                            : 'Se está entregando menos de lo asignado al cliente.',
                                         style: TextStyle(
-                                          color: Colors.white.withOpacity(0.60),
+                                          color: _warning.withOpacity(0.95),
+                                          fontWeight: FontWeight.w700,
                                           fontSize: 12,
                                         ),
                                       ),
-                                      const SizedBox(height: 10),
-                                      Wrap(
-                                        spacing: 8,
-                                        runSpacing: 8,
-                                        children: [
-                                          _MiniInfo(
-                                            label: 'Asignado cliente',
-                                            value: '${it.qtyAssigned}',
-                                          ),
-                                          _MiniInfo(
-                                            label: 'Salida global',
-                                            value: '${it.outputQty}',
-                                          ),
-                                          _MiniInfo(
-                                            label: 'Entregado otros',
-                                            value: '${it.deliveredOtherQty}',
-                                          ),
-                                          _MiniInfo(
-                                            label: 'Disponible',
-                                            value: '${it.maxAllowedQty}',
-                                          ),
-                                          _MiniInfo(
-                                            label: 'Real',
-                                            value: '${it.qtyReal}',
-                                          ),
-                                          _MiniInfo(
-                                            label: 'Precio',
-                                            value: _money(it.precioAplicado),
-                                          ),
-                                          _MiniInfo(
-                                            label: 'Subtotal real',
-                                            value: _money(subtotal),
-                                          ),
-                                        ],
-                                      ),
-                                      const SizedBox(height: 12),
-                                      Row(
-                                        children: [
-                                          IconButton(
-                                            onPressed: canRemove
-                                                ? () => _setQty(i, it.qtyReal - 1)
-                                                : null,
-                                            icon: Icon(
-                                              Icons.remove_circle_outline,
-                                              color: canRemove
-                                                  ? Colors.white
-                                                  : Colors.white24,
-                                            ),
-                                          ),
-                                          SizedBox(
-                                            width: 84,
-                                            child: TextField(
-                                              controller: controller,
-                                              enabled: canEdit,
-                                              keyboardType:
-                                                  TextInputType.number,
-                                              inputFormatters: [
-                                                FilteringTextInputFormatter
-                                                    .digitsOnly,
-                                              ],
-                                              textAlign: TextAlign.center,
-                                              style: const TextStyle(
-                                                color: Colors.white,
-                                              ),
-                                              decoration: InputDecoration(
-                                                isDense: true,
-                                                filled: true,
-                                                fillColor: Colors.white
-                                                    .withOpacity(0.08),
-                                                border: OutlineInputBorder(
-                                                  borderRadius:
-                                                      BorderRadius.circular(12),
-                                                  borderSide: BorderSide(
-                                                    color: Colors.white
-                                                        .withOpacity(0.10),
-                                                  ),
-                                                ),
-                                                enabledBorder:
-                                                    OutlineInputBorder(
-                                                  borderRadius:
-                                                      BorderRadius.circular(12),
-                                                  borderSide: BorderSide(
-                                                    color: Colors.white
-                                                        .withOpacity(0.10),
-                                                  ),
-                                                ),
-                                                focusedBorder:
-                                                    const OutlineInputBorder(
-                                                  borderRadius:
-                                                      BorderRadius.all(
-                                                    Radius.circular(12),
-                                                  ),
-                                                  borderSide:
-                                                      BorderSide(color: _accent),
-                                                ),
-                                              ),
-                                              onChanged: (v) =>
-                                                  _setQtyFromText(i, v),
-                                            ),
-                                          ),
-                                          IconButton(
-                                            onPressed: canAdd
-                                                ? () => _setQty(i, it.qtyReal + 1)
-                                                : null,
-                                            icon: Icon(
-                                              Icons.add_circle_outline,
-                                              color: canAdd
-                                                  ? Colors.white
-                                                  : Colors.white24,
-                                            ),
-                                          ),
-                                          const Spacer(),
-                                          TextButton(
-                                            onPressed: canEdit
-                                                ? () => _setQty(i, 0)
-                                                : null,
-                                            child: const Text('No dejó'),
-                                          ),
-                                          const SizedBox(width: 6),
-                                          TextButton(
-                                            onPressed: canEdit && hasStock
-                                                ? () => _setQty(
-                                                      i,
-                                                      it.qtyAssigned > it.maxAllowedQty
-                                                          ? it.maxAllowedQty
-                                                          : it.qtyAssigned,
-                                                    )
-                                                : null,
-                                            child: const Text('Completo'),
-                                          ),
-                                        ],
-                                      ),
-                                      if (!isDelivered && it.qtyAssigned != it.qtyReal) ...[
-                                        const SizedBox(height: 8),
-                                        Text(
-                                          it.qtyReal > it.qtyAssigned
-                                              ? 'Se está entregando más de lo asignado al cliente. Permitido porque hay salida disponible.'
-                                              : 'Se está entregando menos de lo asignado al cliente.',
-                                          style: TextStyle(
-                                            color: _warning.withOpacity(0.95),
-                                            fontWeight: FontWeight.w700,
-                                            fontSize: 12,
-                                          ),
-                                        ),
-                                      ],
-                                      if (!isDelivered && !hasStock) ...[
-                                        const SizedBox(height: 8),
-                                        Text(
-                                          'No hay salida global disponible para este producto. No permite capturar cantidad mayor a 0.',
-                                          style: TextStyle(
-                                            color: Colors.redAccent.withOpacity(0.95),
-                                            fontWeight: FontWeight.w800,
-                                            fontSize: 12,
-                                          ),
-                                        ),
-                                      ],
                                     ],
-                                  ),
-                                );
-                              },
-                            ),
+                                    if (!isDelivered && !hasStock) ...[
+                                      const SizedBox(height: 8),
+                                      Text(
+                                        'No hay salida global disponible para este producto. No permite capturar cantidad mayor a 0.',
+                                        style: TextStyle(
+                                          color: Colors.redAccent
+                                              .withOpacity(0.95),
+                                          fontWeight: FontWeight.w800,
+                                          fontSize: 12,
+                                        ),
+                                      ),
+                                    ],
+                                  ],
+                                ),
+                              );
+                            },
+                          ),
                           const SizedBox(height: 12),
                           SizedBox(
                             width: double.infinity,
                             child: ElevatedButton.icon(
-                              onPressed:
-                                  (_busy || isDelivered) ? null : _confirmDelivery,
+                              onPressed: (_busy || isDelivered)
+                                  ? null
+                                  : _confirmDelivery,
                               icon: const Icon(Icons.check_circle_outline),
                               label: Text(
                                 _busy

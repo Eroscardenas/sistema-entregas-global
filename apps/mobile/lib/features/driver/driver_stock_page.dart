@@ -623,7 +623,7 @@ class _DriverStockPageState extends State<DriverStockPage> {
                                 const SizedBox(width: 8),
                                 Expanded(
                                   child: Text(
-                                    'Disponible = salidas reales de inventario de hoy menos entregas confirmadas de hoy. Solo se muestran productos asignados hoy.',
+                                    'Disponible = salidas reales de inventario de hoy menos entregas confirmadas de hoy.',
                                     style: TextStyle(
                                       color: Colors.white.withOpacity(0.82),
                                       fontSize: 12,
@@ -671,6 +671,7 @@ class _DriverStockPageState extends State<DriverStockPage> {
 
                         return _GlassCard(
                           child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
                             children: [
                               Row(
                                 children: [
@@ -702,6 +703,7 @@ class _DriverStockPageState extends State<DriverStockPage> {
                                           style: const TextStyle(
                                             color: Colors.white,
                                             fontWeight: FontWeight.w900,
+                                            fontSize: 15,
                                           ),
                                         ),
                                         const SizedBox(height: 4),
@@ -740,19 +742,16 @@ class _DriverStockPageState extends State<DriverStockPage> {
                                   ),
                                 ],
                               ),
+                              const SizedBox(height: 14),
+                              _StockProgressBar(
+                                outputQty: r.outputQty,
+                                deliveredQty: r.deliveredQty,
+                                availableQty: r.availableQty,
+                                availableColor: availableColor,
+                              ),
                               const SizedBox(height: 12),
                               Row(
                                 children: [
-                                  Expanded(
-                                    child: _MiniMetric(
-                                      label: 'Asignado',
-                                      value: '${r.assignedQty} pzas',
-                                      subValue:
-                                          '${r.assignedKg.toStringAsFixed(1)} kg',
-                                      color: Colors.white,
-                                    ),
-                                  ),
-                                  const SizedBox(width: 8),
                                   Expanded(
                                     child: _MiniMetric(
                                       label: 'Salida',
@@ -888,6 +887,156 @@ class _StatChip extends StatelessWidget {
           ),
         ],
       ),
+    );
+  }
+}
+
+class _StockProgressBar extends StatelessWidget {
+  final int outputQty;
+  final int deliveredQty;
+  final int availableQty;
+  final Color availableColor;
+
+  const _StockProgressBar({
+    required this.outputQty,
+    required this.deliveredQty,
+    required this.availableQty,
+    required this.availableColor,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final safeOutput = outputQty <= 0 ? 1 : outputQty;
+    final deliveredRatio = (deliveredQty / safeOutput).clamp(0.0, 1.0);
+    final availableRatio = (availableQty / safeOutput).clamp(0.0, 1.0);
+
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.all(12),
+      decoration: BoxDecoration(
+        borderRadius: BorderRadius.circular(16),
+        color: Colors.white.withOpacity(0.06),
+        border: Border.all(color: Colors.white.withOpacity(0.10)),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              const Icon(
+                Icons.route_outlined,
+                color: Colors.white,
+                size: 18,
+              ),
+              const SizedBox(width: 8),
+              Expanded(
+                child: Text(
+                  'Flujo de stock',
+                  style: TextStyle(
+                    color: Colors.white.withOpacity(0.82),
+                    fontWeight: FontWeight.w900,
+                    fontSize: 12,
+                  ),
+                ),
+              ),
+              Text(
+                '$availableQty disponibles',
+                style: TextStyle(
+                  color: availableColor,
+                  fontWeight: FontWeight.w900,
+                  fontSize: 12,
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 10),
+          ClipRRect(
+            borderRadius: BorderRadius.circular(999),
+            child: Container(
+              height: 12,
+              width: double.infinity,
+              color: Colors.white.withOpacity(0.12),
+              child: Row(
+                children: [
+                  if (deliveredRatio > 0)
+                    Expanded(
+                      flex: (deliveredRatio * 1000).round().clamp(1, 1000).toInt(),
+                      child: Container(color: Colors.white.withOpacity(0.35)),
+                    ),
+                  if (availableRatio > 0)
+                    Expanded(
+                      flex: (availableRatio * 1000).round().clamp(1, 1000).toInt(),
+                      child: Container(color: availableColor.withOpacity(0.95)),
+                    ),
+                  finalSpacer(deliveredRatio, availableRatio),
+                ],
+              ),
+            ),
+          ),
+          const SizedBox(height: 8),
+          Row(
+            children: [
+              _LegendDot(
+                label: 'Entregado: $deliveredQty',
+                color: Colors.white.withOpacity(0.45),
+              ),
+              const SizedBox(width: 10),
+              _LegendDot(
+                label: 'Disponible: $availableQty',
+                color: availableColor,
+              ),
+            ],
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget finalSpacer(double deliveredRatio, double availableRatio) {
+    final used = (deliveredRatio + availableRatio).clamp(0.0, 1.0);
+    final remaining = 1.0 - used;
+
+    if (remaining <= 0) return const SizedBox.shrink();
+
+    return Expanded(
+      flex: (remaining * 1000).round().clamp(1, 1000).toInt(),
+      child: const SizedBox.shrink(),
+    );
+  }
+}
+
+class _LegendDot extends StatelessWidget {
+  final String label;
+  final Color color;
+
+  const _LegendDot({
+    required this.label,
+    required this.color,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return Row(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        Container(
+          width: 8,
+          height: 8,
+          decoration: BoxDecoration(
+            color: color,
+            shape: BoxShape.circle,
+          ),
+        ),
+        const SizedBox(width: 5),
+        Text(
+          label,
+          style: TextStyle(
+            color: Colors.white.withOpacity(0.72),
+            fontWeight: FontWeight.w700,
+            fontSize: 11,
+          ),
+        ),
+      ],
     );
   }
 }
