@@ -366,6 +366,94 @@ function getDocTime(raw: MovementDoc) {
   return null;
 }
 
+
+type MatchedSalidaDoc = {
+  id: string;
+  data: MovementDoc;
+  time: Date | null;
+  totals: Record<string, number>;
+  labels: Record<string, string>;
+  sortTime: number;
+};
+
+function salidaGroupKey(raw: MovementDoc, driverCode?: string | null, driverName?: string | null) {
+  const salidaSubtipo = normalize(raw.salidaSubtipo);
+  const salidaDestino = normalize(raw.salidaDestino);
+  const destinatario = normalize(raw.destinatario || raw.clienteNombre);
+  const driver = compact(driverCode || driverName || destinatario);
+
+  return [salidaSubtipo || "SALIDA", salidaDestino || "TRANSPORTE", driver || compact(destinatario)].join("__");
+}
+
+function totalsForMovement(raw: MovementDoc) {
+  const totals: Record<string, number> = {};
+  const labels: Record<string, string> = {};
+
+  for (const item of movementItems(raw)) {
+    const qty = Math.abs(toNumber(item.cantidad ?? item.delta));
+    if (qty <= 0) continue;
+
+    const key = productKey(item);
+    const label = productLabel(item);
+
+    if (!key) continue;
+
+    totals[key] = (totals[key] || 0) + qty;
+    if (!labels[key]) labels[key] = label;
+  }
+
+  return { totals, labels };
+}
+
+function isLikelyReplacementSnapshot(newest: MatchedSalidaDoc, older: MatchedSalidaDoc) {
+  const newestKeys = Object.keys(newest.totals);
+  const olderKeys = Object.keys(older.totals);
+
+  if (newestKeys.length === 0 || olderKeys.length === 0) return false;
+
+  const newestKeySet = new Set(newestKeys);
+  const olderContainedInNewest = olderKeys.every((key) => newestKeySet.has(key));
+
+  // Si el movimiento anterior sólo tiene productos que también aparecen en el
+  // más nuevo, normalmente es una versión vieja de la misma salida editada en
+  // la página de inventario. Esto evita duplicar cantidades como 15KG rolito o
+  // frappe cuando se guardó/corrigió la misma salida más de una vez.
+  return olderContainedInNewest;
+}
+
+function selectEffectiveSalidaDocs(
+  matched: MatchedSalidaDoc[],
+  driverCode?: string | null,
+  driverName?: string | null,
+) {
+  if (matched.length <= 1) return matched;
+
+  const groups = new Map<string, MatchedSalidaDoc[]>();
+
+  for (const doc of matched) {
+    const key = salidaGroupKey(doc.data, driverCode, driverName);
+    const current = groups.get(key) || [];
+    current.push(doc);
+    groups.set(key, current);
+  }
+
+  const selected: MatchedSalidaDoc[] = [];
+
+  for (const group of groups.values()) {
+    const sorted = [...group].sort((a, b) => b.sortTime - a.sortTime);
+    const kept: MatchedSalidaDoc[] = [];
+
+    for (const doc of sorted) {
+      const isReplacement = kept.some((newer) => isLikelyReplacementSnapshot(newer, doc));
+      if (!isReplacement) kept.push(doc);
+    }
+
+    selected.push(...kept);
+  }
+
+  return selected.sort((a, b) => a.sortTime - b.sortTime);
+}
+
 async function readMovementsWithAdmin(start: Date, end: Date): Promise<PlainDoc[]> {
   const db = getFirebaseAdminDb();
   if (!db) return [];
@@ -535,6 +623,8 @@ export async function GET(req: Request) {
     let matchedSalida = 0;
     let matchedDriver = 0;
 
+    const matchedDocs: MatchedSalidaDoc[] = [];
+
     for (const entry of docs) {
       scanned += 1;
       const raw = entry.data;
@@ -548,17 +638,28 @@ export async function GET(req: Request) {
       if (!driverMatches(raw, driverCode, driverName)) continue;
       matchedDriver += 1;
 
-      for (const item of movementItems(raw)) {
-        const qty = Math.abs(toNumber(item.cantidad ?? item.delta));
+      const { totals, labels } = totalsForMovement(raw);
+      const hasQty = Object.values(totals).some((qty) => qty > 0);
+      if (!hasQty) continue;
+
+      matchedDocs.push({
+        id: entry.id,
+        data: raw,
+        time: docDate,
+        totals,
+        labels,
+        sortTime: docDate?.getTime() || 0,
+      });
+    }
+
+    const effectiveDocs = selectEffectiveSalidaDocs(matchedDocs, driverCode, driverName);
+
+    for (const doc of effectiveDocs) {
+      for (const [key, qty] of Object.entries(doc.totals)) {
         if (qty <= 0) continue;
 
-        const key = productKey(item);
-        const label = productLabel(item);
-
-        if (!key) continue;
-
         qtyByKey[key] = (qtyByKey[key] || 0) + qty;
-        if (!labelByKey[key]) labelByKey[key] = label;
+        if (!labelByKey[key]) labelByKey[key] = doc.labels[key] || key;
       }
     }
 
@@ -575,6 +676,10 @@ export async function GET(req: Request) {
         scanned,
         matchedSalida,
         matchedDriver,
+        effectiveSalidaDocs: effectiveDocs.length,
+        skippedPossibleSnapshots: Math.max(0, matchedDocs.length - effectiveDocs.length),
+        matchedDocIds: matchedDocs.map((doc) => doc.id),
+        effectiveDocIds: effectiveDocs.map((doc) => doc.id),
         hasAdminConfig,
         hasClientConfig,
       },

@@ -10,7 +10,8 @@ const T_DRIVERS = 'drivers';
 const T_CUSTOMERS = 'customers';
 const T_DINERS = 'diners';
 
-const T_PRODUCTS = 'inventory_product_settings';
+const T_SUPABASE_PRODUCTS = 'products';
+const T_PRODUCT_MAPPING = 'product_inventory_mapping';
 const T_CPP = 'customer_inventory_products';
 
 const T_ASSIGNMENTS = 'assignments';
@@ -49,7 +50,9 @@ export type CustomerUI = {
 };
 
 export type ProductUI = {
+  // SIEMPRE debe ser products.id, porque delivery_items.product_id apunta a products.id.
   id: string;
+  inventory_product_setting_id?: string | null;
   nombre: string;
   precio_base: number;
   stock_actual: number;
@@ -60,7 +63,9 @@ export type ProductUI = {
 
 export type CustomerProductUI = {
   customer_id: string;
+  // SIEMPRE debe ser products.id.
   product_id: string;
+  inventory_product_setting_id?: string | null;
   precio_override: number | null;
   activo: boolean;
 };
@@ -196,6 +201,35 @@ function normalizePaymentMethod(value: unknown): string {
   return s === 'CREDITO' ? 'CREDITO' : 'EFECTIVO';
 }
 
+
+function normalizeIceType(value: unknown): string {
+  const s = String(value ?? '')
+    .trim()
+    .toUpperCase()
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '');
+
+  if (!s) return '';
+  if (s.includes('BARRA')) return 'BARRA';
+  if (s.includes('GOURMET')) return 'GOURMET';
+  if (s.includes('FRAP')) return 'FRAPPE';
+  if (s.includes('ENFRIAR')) return 'ENFRIAR';
+  if (s.includes('ROLITO')) return 'ROLITO';
+  if (s.includes('NORMAL')) return 'ROLITO';
+  return s;
+}
+
+function inventoryKey(tipo: unknown, kg: unknown): string {
+  const t = normalizeIceType(tipo);
+  const n = Number(kg ?? 0);
+  const normalizedKg = Number.isFinite(n) ? Number(n.toFixed(4)) : 0;
+  return `${t}__${normalizedKg}`;
+}
+
+function isActiveProduct(row: any): boolean {
+  return Boolean(row?.active ?? row?.activo ?? true);
+}
+
 export function useAssignmentsBuilderAdmin() {
   const {
     products: commercialProducts,
@@ -247,31 +281,47 @@ export function useAssignmentsBuilderAdmin() {
   }, [deliveriesOfSelected, itemsByDelivery]);
 
   const loadCatalog = useCallback(async () => {
-    const [driversRes, dinersRes, customersRes, pricingRes] = await Promise.all([
-      sb
-        .from(T_DRIVERS)
-        .select(
-          'id,nombre,activo,current_status,firebase_codigo,firebase_nombre,synced_from_inventory'
-        )
-        .order('nombre', { ascending: true }),
+    const [driversRes, dinersRes, customersRes, pricingRes, productsRes, mappingRes] =
+      await Promise.all([
+        sb
+          .from(T_DRIVERS)
+          .select(
+            'id,nombre,activo,current_status,firebase_codigo,firebase_nombre,synced_from_inventory'
+          )
+          .order('nombre', { ascending: true }),
 
-      sb.from(T_DINERS).select('id,nombre'),
+        sb.from(T_DINERS).select('id,nombre'),
 
-      sb
-        .from(T_CUSTOMERS)
-        .select('id,nombre,diner_id,telefono,capacidad_equipo,activo')
-        .order('nombre', { ascending: true }),
+        sb
+          .from(T_CUSTOMERS)
+          .select('id,nombre,diner_id,telefono,capacidad_equipo,activo')
+          .order('nombre', { ascending: true }),
 
-      sb
-        .from(T_CPP)
-        .select('customer_id,inventory_product_setting_id,precio_override,activo')
-        .eq('activo', true),
-    ]);
+        sb
+          .from(T_CPP)
+          .select('customer_id,inventory_product_setting_id,precio_override,activo')
+          .eq('activo', true),
+
+        sb
+          .from(T_SUPABASE_PRODUCTS)
+          .select('id,nombre,kind,ice_type,kg_por_unidad,precio_base,stock_actual,active,activo')
+          .or('active.eq.true,activo.eq.true')
+          .order('nombre', { ascending: true }),
+
+        sb
+          .from(T_PRODUCT_MAPPING)
+          .select(
+            'id,supabase_product_id,firebase_bolsa_vacia_codigo,firebase_tipo_hielo,firebase_product_name,peso_kg,is_active'
+          )
+          .eq('is_active', true),
+      ]);
 
     if (driversRes.error) throw driversRes.error;
     if (dinersRes.error) throw dinersRes.error;
     if (customersRes.error) throw customersRes.error;
     if (pricingRes.error) throw pricingRes.error;
+    if (productsRes.error) throw productsRes.error;
+    if (mappingRes.error) throw mappingRes.error;
 
     const dinersMap = new Map<string, string>();
 
@@ -299,37 +349,127 @@ export function useAssignmentsBuilderAdmin() {
       activo: Boolean(r.activo ?? true),
     }));
 
-    const mappedProducts: ProductUI[] = (commercialProducts ?? [])
-      .filter((p: any) => {
-        return Boolean(p.configured) && Boolean(p.activoComercial) && Boolean(p.settingId);
-      })
-      .map((p: any): ProductUI => {
-        const tipo = String(p.tipoHielo ?? '').trim();
-        const kg = Number(p.pesoKg ?? 0);
-        const nombre = String(p.nombreComercial ?? p.displayName ?? '').trim();
+    const supabaseProductById = new Map<string, any>();
 
-        return {
-          id: String(p.settingId),
-          nombre: nombre || String(p.displayName ?? 'Producto'),
-          precio_base: Number(p.precioBase ?? 0),
-          stock_actual: Math.max(0, Math.floor(Number(p.stockActual ?? 0))),
-          kind: tipo === 'BARRA' ? 'barra' : 'bolsa',
-          ice_type: tipo || null,
-          kg_por_unidad: kg > 0 ? kg : 1,
-        };
-      });
+    for (const p of productsRes.data ?? []) {
+      if (!p?.id || !isActiveProduct(p)) continue;
+      supabaseProductById.set(String(p.id), p);
+    }
 
-    const mappedCustomerProducts: CustomerProductUI[] = (pricingRes.data ?? []).map(
-      (r: any) => ({
+    const mappingByInventoryKey = new Map<string, any>();
+
+    for (const m of mappingRes.data ?? []) {
+      const supabaseProductId = String(m.supabase_product_id || '').trim();
+      if (!supabaseProductId) continue;
+      if (!supabaseProductById.has(supabaseProductId)) {
+        console.warn('[Asignaciones] Mapping apunta a products.id inexistente/inactivo:', m);
+        continue;
+      }
+
+      mappingByInventoryKey.set(
+        inventoryKey(m.firebase_tipo_hielo, m.peso_kg),
+        {
+          ...m,
+          supabase_product_id: supabaseProductId,
+        }
+      );
+    }
+
+    const mappedProducts: ProductUI[] = [];
+    const productBySettingId = new Map<string, ProductUI>();
+
+    for (const p of commercialProducts ?? []) {
+      const settingId = String((p as any).settingId ?? '').trim();
+      const tipo = String((p as any).tipoHielo ?? '').trim();
+      const kg = Number((p as any).pesoKg ?? 0);
+      const nombreInventario = String(
+        (p as any).nombreComercial ?? (p as any).displayName ?? ''
+      ).trim();
+
+      if (!Boolean((p as any).configured) || !Boolean((p as any).activoComercial) || !settingId) {
+        continue;
+      }
+
+      const mapping = mappingByInventoryKey.get(inventoryKey(tipo, kg));
+
+      if (!mapping?.supabase_product_id) {
+        console.warn('[Asignaciones] Producto de inventario sin mapping a products.id:', {
+          settingId,
+          nombre: nombreInventario,
+          tipo,
+          kg,
+        });
+        continue;
+      }
+
+      const supabaseProduct = supabaseProductById.get(mapping.supabase_product_id);
+
+      if (!supabaseProduct) {
+        console.warn('[Asignaciones] Mapping sin producto Supabase activo:', {
+          settingId,
+          nombre: nombreInventario,
+          tipo,
+          kg,
+          supabase_product_id: mapping.supabase_product_id,
+        });
+        continue;
+      }
+
+      const product: ProductUI = {
+        // CRÍTICO: este id es products.id, NO inventory_product_settings.id.
+        id: String(supabaseProduct.id),
+        inventory_product_setting_id: settingId,
+        nombre:
+          String(supabaseProduct.nombre || '').trim() ||
+          nombreInventario ||
+          String((p as any).displayName ?? 'Producto'),
+        precio_base: Number((p as any).precioBase ?? supabaseProduct.precio_base ?? 0),
+        stock_actual: Math.max(
+          0,
+          Math.floor(Number((p as any).stockActual ?? supabaseProduct.stock_actual ?? 0))
+        ),
+        kind:
+          String(supabaseProduct.kind || '').trim() ||
+          (normalizeIceType(tipo) === 'BARRA' ? 'barra' : 'bolsa'),
+        ice_type: normalizeIceType(tipo) || String(supabaseProduct.ice_type || '') || null,
+        kg_por_unidad:
+          kg > 0
+            ? kg
+            : Number(supabaseProduct.kg_por_unidad ?? 1) > 0
+              ? Number(supabaseProduct.kg_por_unidad ?? 1)
+              : 1,
+      };
+
+      mappedProducts.push(product);
+      productBySettingId.set(settingId, product);
+    }
+
+    const mappedCustomerProducts: CustomerProductUI[] = [];
+
+    for (const r of pricingRes.data ?? []) {
+      const settingId = String(r.inventory_product_setting_id || '').trim();
+      const product = productBySettingId.get(settingId);
+
+      if (!product) {
+        console.warn('[Asignaciones] Cliente tiene producto sin mapping válido:', {
+          customer_id: r.customer_id,
+          inventory_product_setting_id: settingId,
+        });
+        continue;
+      }
+
+      mappedCustomerProducts.push({
         customer_id: String(r.customer_id),
-        product_id: String(r.inventory_product_setting_id),
+        // CRÍTICO: delivery_items.product_id necesita products.id.
+        product_id: product.id,
+        inventory_product_setting_id: settingId,
         precio_override:
           r.precio_override === null || r.precio_override === undefined
             ? null
             : Number(r.precio_override),
         activo: Boolean(r.activo ?? true),
-      })
-    );
+      });
+    }
 
     setDrivers(mappedDrivers);
     setCustomers(mappedCustomers);
@@ -516,20 +656,13 @@ export function useAssignmentsBuilderAdmin() {
 
       if (missingIds.length > 0) {
         const { data: productRows, error: productErr } = await sb
-          .from(T_PRODUCTS)
-          .select('id,nombre_comercial,firebase_tipo_hielo,peso_kg')
+          .from(T_SUPABASE_PRODUCTS)
+          .select('id,nombre,kind,ice_type,kg_por_unidad')
           .in('id', missingIds);
 
         if (!productErr) {
           for (const p of productRows ?? []) {
-            const tipo = String(p.firebase_tipo_hielo ?? '').trim();
-            const kg = Number(p.peso_kg ?? 0);
-            const fallback = tipo && kg > 0 ? `${tipo} ${kg}KG` : 'Producto';
-
-            productNameMap.set(
-              String(p.id),
-              String(p.nombre_comercial ?? fallback)
-            );
+            productNameMap.set(String(p.id), String(p.nombre ?? 'Producto'));
           }
         }
       }
@@ -583,15 +716,33 @@ export function useAssignmentsBuilderAdmin() {
         await loadCatalog();
         await loadAssignmentsOfDay(date);
 
-        setDeliveriesOfSelected([]);
-        setItemsByDelivery({});
+        // IMPORTANTE:
+        // Antes aquí se limpiaban siempre las entregas seleccionadas:
+        // setDeliveriesOfSelected([]);
+        // setItemsByDelivery({});
+        //
+        // Eso provocaba que, al cancelar una entrega y llamar refreshDay(),
+        // la asignación siguiera seleccionada pero la lista quedara vacía.
+        // Como selectedAssignmentId no cambiaba, el useEffect no volvía a cargar
+        // las entregas y la pantalla mostraba: "no tiene entregas activas".
+        if (selectedAssignmentId) {
+          await loadDeliveriesForAssignment(selectedAssignmentId);
+        } else {
+          setDeliveriesOfSelected([]);
+          setItemsByDelivery({});
+        }
       } catch (e: unknown) {
         setErr(safeErr(e));
       } finally {
         setLoading(false);
       }
     },
-    [loadCatalog, loadAssignmentsOfDay]
+    [
+      loadCatalog,
+      loadAssignmentsOfDay,
+      loadDeliveriesForAssignment,
+      selectedAssignmentId,
+    ]
   );
 
   useEffect(() => {
@@ -734,14 +885,16 @@ export function useAssignmentsBuilderAdmin() {
 
         const validItems = b.items
           .map((it) => {
-            const p = allowedMap.get(it.product_id);
+            const productId = String(it.product_id || '').trim();
+            const p = allowedMap.get(productId);
             if (!p) return null;
 
             const qty = Math.max(1, Math.floor(Number(it.qty || 1)));
             const precioAplicado = Number(p.precio_cliente_final || 0);
 
             return {
-              product_id: it.product_id,
+              // CRÍTICO: p.id ya es products.id gracias al mapping en loadCatalog().
+              product_id: p.id,
               qty,
               precio_aplicado: precioAplicado,
               subtotal: precioAplicado * qty,
@@ -753,6 +906,35 @@ export function useAssignmentsBuilderAdmin() {
           precio_aplicado: number;
           subtotal: number;
         }>;
+
+        const productIds = Array.from(new Set(validItems.map((it) => it.product_id)));
+
+        if (productIds.length > 0) {
+          const { data: existingProducts, error: productCheckErr } = await sb
+            .from(T_SUPABASE_PRODUCTS)
+            .select('id')
+            .in('id', productIds);
+
+          if (productCheckErr) throw productCheckErr;
+
+          const existingSet = new Set(
+            (existingProducts ?? []).map((p: any) => String(p.id))
+          );
+
+          const missing = productIds.filter((id) => !existingSet.has(id));
+
+          if (missing.length > 0) {
+            console.error('[Asignaciones] product_id inválido para delivery_items:', {
+              missing,
+              validItems,
+              allowed,
+              batchItems: b.items,
+            });
+            throw new Error(
+              `Producto inválido para asignación. No existe en products.id: ${missing.join(', ')}`
+            );
+          }
+        }
 
         if (validItems.length === 0) continue;
 
@@ -792,11 +974,16 @@ export function useAssignmentsBuilderAdmin() {
           precio_aplicado: it.precio_aplicado,
         }));
 
+        console.info('[Asignaciones] ITEMS A INSERTAR EN delivery_items:', itemsPayload);
+
         const { error: itemErr } = await sb
           .from(T_DELIVERY_ITEMS)
           .insert(itemsPayload);
 
-        if (itemErr) throw itemErr;
+        if (itemErr) {
+          await sb.from(T_DELIVERIES).delete().eq('id', deliveryId);
+          throw itemErr;
+        }
       }
 
       await loadAssignmentsOfDay(workDate);

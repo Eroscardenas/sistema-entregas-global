@@ -628,12 +628,31 @@ function canonicalInventoryOutputKeyForPdf(
 
   if (!raw && !label) return "";
 
+  // Si la API ya manda una llave canónica, respetarla SIEMPRE.
+  // Esto evita que FRAP_15 se vuelva ROLITO_15 cuando el label genérico
+  // viene como "Bolsa vacía 15KG".
+  const rawUnderscoreMatch = raw.match(
+    /^(ROLITO|FRAP|FRAPPE|GOURMET|ENFRIAR)_(\d+(?:\.\d+)?)$/,
+  );
+
+  if (rawUnderscoreMatch) {
+    const type =
+      rawUnderscoreMatch[1] === "FRAPPE" ? "FRAP" : rawUnderscoreMatch[1];
+    const kg = rawUnderscoreMatch[2].replace(/\.0+$/, "");
+    return `${type}_${kg}`;
+  }
+
+  if (raw === "BARRA") return "BARRA";
+
   if (raw.includes("__")) {
     const parts = raw
       .split("__")
       .map((x) => x.trim())
       .filter(Boolean);
-    const tipo = normalizeIceTypeForPdf(parts[1] || label || raw);
+
+    // En llaves compuestas del inventario, la parte 2 suele ser el tipo
+    // real de hielo. No dejar que el label genérico reemplace ese tipo.
+    const tipo = normalizeIceTypeForPdf(parts[1] || raw);
     const kg = extractKgForPdf(parts[2], label, raw);
 
     if (tipo === "BARRA") return "BARRA";
@@ -643,8 +662,8 @@ function canonicalInventoryOutputKeyForPdf(
 
   return buildProductKeyForPdf({
     name: label || raw,
-    iceType: label || raw,
-    kg: extractKgForPdf(label, raw) || null,
+    iceType: raw || label,
+    kg: extractKgForPdf(raw, label) || null,
     kind: null,
     productId: raw,
   });
