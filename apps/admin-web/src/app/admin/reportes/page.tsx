@@ -1,7 +1,7 @@
-'use client';
+"use client";
 
-import React, { useCallback, useEffect, useMemo, useState } from 'react';
-import { motion, AnimatePresence } from 'framer-motion';
+import React, { useCallback, useEffect, useMemo, useState } from "react";
+import { motion, AnimatePresence } from "framer-motion";
 import {
   BarChart3,
   CalendarDays,
@@ -28,40 +28,30 @@ import {
   CheckCircle2,
   Link2,
   Warehouse,
-} from 'lucide-react';
+} from "lucide-react";
 
-import { useRouter } from 'next/navigation';
-import { PATHS } from '@/lib/constants/paths';
-import { useAdminGuard } from '@/lib/hooks/useAdminGuard';
-import { supabaseBrowser } from '@/lib/supabase/client';
-import { inventoryDb } from '@/lib/firebase/inventory.client';
-import {
-  collection,
-  getDocs,
-  limit as qLimit,
-  orderBy,
-  query,
-  Timestamp,
-  where,
-} from 'firebase/firestore';
+import { useRouter } from "next/navigation";
+import { PATHS } from "@/lib/constants/paths";
+import { useAdminGuard } from "@/lib/hooks/useAdminGuard";
+import { supabaseBrowser } from "@/lib/supabase/client";
 
 const sb = supabaseBrowser as unknown as any;
 
-const T_DRIVERS = 'drivers';
-const T_ASSIGNMENTS = 'assignments';
-const T_DELIVERIES = 'deliveries';
-const T_DELIVERY_ITEMS = 'delivery_items';
-const T_PRODUCTS = 'products';
+const T_DRIVERS = "drivers";
+const T_ASSIGNMENTS = "assignments";
+const T_DELIVERIES = "deliveries";
+const T_DELIVERY_ITEMS = "delivery_items";
+const T_PRODUCTS = "products";
 
 function cx(...xs: Array<string | false | null | undefined>) {
-  return xs.filter(Boolean).join(' ');
+  return xs.filter(Boolean).join(" ");
 }
 
 function money(n?: number | null) {
-  if (typeof n !== 'number' || Number.isNaN(n)) return '—';
-  return n.toLocaleString('es-MX', {
-    style: 'currency',
-    currency: 'MXN',
+  if (typeof n !== "number" || Number.isNaN(n)) return "—";
+  return n.toLocaleString("es-MX", {
+    style: "currency",
+    currency: "MXN",
     maximumFractionDigits: 2,
   });
 }
@@ -89,86 +79,94 @@ function parseLocalDate(value?: string | null) {
 
 function formatDate(value?: string | null) {
   const d = parseLocalDate(value);
-  if (!d) return '—';
+  if (!d) return "—";
 
-  return new Intl.DateTimeFormat('es-MX', {
-    dateStyle: 'medium',
-    timeStyle: 'short',
+  return new Intl.DateTimeFormat("es-MX", {
+    dateStyle: "medium",
+    timeStyle: "short",
   }).format(d);
 }
 
 function formatOnlyDate(value?: string | null) {
   const d = parseLocalDate(value);
-  if (!d) return value || '—';
+  if (!d) return value || "—";
 
-  return new Intl.DateTimeFormat('es-MX', {
-    dateStyle: 'medium',
+  return new Intl.DateTimeFormat("es-MX", {
+    dateStyle: "medium",
   }).format(d);
 }
 
 function initials(name?: string | null) {
-  return String(name || '')
-    .trim()
-    .split(/\s+/)
-    .filter(Boolean)
-    .map((w) => w[0])
-    .join('')
-    .toUpperCase()
-    .slice(0, 2) || 'RP';
+  return (
+    String(name || "")
+      .trim()
+      .split(/\s+/)
+      .filter(Boolean)
+      .map((w) => w[0])
+      .join("")
+      .toUpperCase()
+      .slice(0, 2) || "RP"
+  );
 }
 
 function getErrorMessage(err: any, fallback: string) {
-  return err?.message || err?.details || err?.hint || err?.error_description || fallback;
+  return (
+    err?.message ||
+    err?.details ||
+    err?.hint ||
+    err?.error_description ||
+    fallback
+  );
 }
 
 function escapeHtml(value: string) {
   return String(value)
-    .replaceAll('&', '&amp;')
-    .replaceAll('<', '&lt;')
-    .replaceAll('>', '&gt;')
-    .replaceAll('"', '&quot;')
-    .replaceAll("'", '&#039;');
+    .replaceAll("&", "&amp;")
+    .replaceAll("<", "&lt;")
+    .replaceAll(">", "&gt;")
+    .replaceAll('"', "&quot;")
+    .replaceAll("'", "&#039;");
 }
 
-type DiffState = 'MAS' | 'MENOS' | 'EXACTO';
+type DiffState = "MAS" | "MENOS" | "EXACTO";
 
 function getDiffState(diff: number): DiffState {
-  if (diff > 0) return 'MAS';
-  if (diff < 0) return 'MENOS';
-  return 'EXACTO';
+  if (diff > 0) return "MAS";
+  if (diff < 0) return "MENOS";
+  return "EXACTO";
 }
 
 function getDiffPresentation(diff: number) {
   const state = getDiffState(diff);
 
-  if (state === 'MAS') {
+  if (state === "MAS") {
     return {
       state,
-      label: 'Dejó más',
-      shortLabel: 'Más',
-      text: 'text-emerald-200',
-      chip: 'bg-emerald-500/10 border-emerald-400/20 text-emerald-100',
+      label: "Dejó más",
+      shortLabel: "Más",
+      text: "text-emerald-200",
+      chip: "bg-emerald-500/10 border-emerald-400/20 text-emerald-100",
       icon: <TrendingUp className="h-4 w-4" />,
     };
   }
 
-  if (state === 'MENOS') {
+  if (state === "MENOS") {
     return {
       state,
-      label: 'Dejó menos',
-      shortLabel: 'Menos',
-      text: 'text-red-200',
-      chip: 'bg-red-500/10 border-red-400/20 text-red-100',
+      label: "Dejó menos",
+      shortLabel: "Menos",
+      text: "text-red-200",
+      chip: "bg-red-500/10 border-red-400/20 text-red-100",
       icon: <TrendingDown className="h-4 w-4" />,
     };
   }
 
   return {
     state,
-    label: 'Exacto',
-    shortLabel: 'Exacto',
-    text: 'text-white',
-    chip: 'bg-white/10 border-white/10 text-white/70',
+    label: "Exacto",
+    shortLabel: "Exacto",
+    text: "text-white",
+    chip: "bg-white/10 border-white/10 text-white/70",
     icon: <CheckCircle2 className="h-4 w-4" />,
   };
 }
@@ -179,12 +177,12 @@ function fmtSignedQty(n: number) {
 }
 
 function normalizeLooseText(value?: string | null) {
-  return String(value || '')
+  return String(value || "")
     .trim()
     .toUpperCase()
-    .normalize('NFD')
-    .replace(/[\u0300-\u036f]/g, '')
-    .replace(/\s+/g, ' ');
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .replace(/\s+/g, " ");
 }
 
 function toDateStart(value: string) {
@@ -198,19 +196,24 @@ function toDateEndExclusive(value: string) {
 }
 
 function inventoryProductDisplayName(item?: InventoryMovementBatchItem | null) {
-  const byName = String(item?.productoNombre || '').trim();
+  const byName = String(item?.productoNombre || "").trim();
   if (byName) return byName;
 
-  const codigo = String(item?.productoCodigo || item?.bolsaVaciaCodigo || '').trim();
-  const tipo = String(item?.tipoHielo || '').trim();
+  const codigo = String(
+    item?.productoCodigo || item?.bolsaVaciaCodigo || "",
+  ).trim();
+  const tipo = String(item?.tipoHielo || "").trim();
 
   if (codigo && tipo) return `${codigo} ${tipo}`;
-  return codigo || tipo || 'PRODUCTO';
+  return codigo || tipo || "PRODUCTO";
 }
 
-function buildDriverDestinatarioCandidates(driverName?: string | null, driverCode?: string | null) {
-  const name = String(driverName || '').trim();
-  const code = String(driverCode || '').trim();
+function buildDriverDestinatarioCandidates(
+  driverName?: string | null,
+  driverCode?: string | null,
+) {
+  const name = String(driverName || "").trim();
+  const code = String(driverCode || "").trim();
 
   const raw = new Set<string>();
 
@@ -224,7 +227,7 @@ function buildDriverDestinatarioCandidates(driverName?: string | null, driverCod
 function movementMatchesDriver(
   movement: InventoryMovementDoc,
   driverName?: string | null,
-  driverCode?: string | null
+  driverCode?: string | null,
 ) {
   const normalizedDestinatario = normalizeLooseText(movement.destinatario);
   const normalizedCliente = normalizeLooseText(movement.clienteNombre);
@@ -241,13 +244,15 @@ function movementMatchesDriver(
   });
 }
 
-type ReportMode = 'general' | 'driver' | 'assignment';
+type ReportMode = "general" | "driver" | "assignment";
 
 type DriverRow = {
   id: string;
   nombre: string | null;
   activo: boolean | null;
   current_status: string | null;
+  firebase_codigo?: string | null;
+  firebase_nombre?: string | null;
 };
 
 type AssignmentRow = {
@@ -285,6 +290,9 @@ type DeliveryItemRow = {
 type ProductRow = {
   id: string;
   nombre: string | null;
+  kind?: string | null;
+  ice_type?: string | null;
+  kg_por_unidad?: number | string | null;
 };
 
 type InventoryEmployeeRow = {
@@ -321,6 +329,7 @@ type InventoryMovementDoc = {
 };
 
 type InventoryProductOutput = {
+  key: string;
   nombre: string;
   cantidad: number;
 };
@@ -336,6 +345,7 @@ type InventoryAssignmentOutput = {
 
 type DeliveryItemReport = DeliveryItemRow & {
   product_nombre: string;
+  product_key: string;
   subtotal_estimado: number;
   subtotal_real: number;
   qty_diff: number;
@@ -391,31 +401,228 @@ type DriverFilterOption = {
   id: string;
   nombre: string;
   firebase_codigo?: string | null;
-  source: 'supabase' | 'inventory_only';
+  source: "supabase" | "inventory_only";
 };
 
-async function listInventoryEmployeesTransport(): Promise<InventoryEmployeeRow[]> {
-  const ref = collection(inventoryDb, 'empleados');
+async function listInventoryEmployeesTransport(): Promise<
+  InventoryEmployeeRow[]
+> {
+  // Reportes ya usa el código Firebase guardado en Supabase drivers.firebase_codigo.
+  // Dejamos este fallback vacío para no depender de Firestore directo desde el cliente.
+  return [];
+}
 
-  const qy = query(
-    ref,
-    where('role', '==', 'TRANSPORTE'),
-    orderBy('nombre', 'asc'),
-    qLimit(500)
+function normalizeIceTypeReport(value?: string | null) {
+  const t = normalizeLooseText(value);
+  if (!t) return "";
+  if (t.includes("BARRA")) return "BARRA";
+  if (t.includes("GOURMET")) return "GOURMET";
+  if (t.includes("FRAP")) return "FRAP";
+  if (t.includes("ENFRIAR")) return "ENFRIAR";
+  if (t.includes("ROLITO")) return "ROLITO";
+  if (t.includes("NORMAL")) return "ROLITO";
+  return t.replace(/[^A-Z0-9]+/g, "_").replace(/^_+|_+$/g, "");
+}
+
+function extractKgReport(...values: Array<string | number | null | undefined>) {
+  for (const value of values) {
+    if (typeof value === "number" && Number.isFinite(value) && value > 0) {
+      return Number.isInteger(value)
+        ? String(value)
+        : String(value).replace(/\.0+$/, "");
+    }
+
+    const text = normalizeLooseText(String(value ?? ""));
+    const match = text.match(/(\d+(?:\.\d+)?)\s*(?:KG|KILO|KILOS)/);
+    if (match?.[1]) return match[1].replace(/\.0+$/, "");
+  }
+
+  return "";
+}
+
+function buildReportProductKey(input: {
+  name?: string | null;
+  iceType?: string | null;
+  kg?: number | string | null;
+  kind?: string | null;
+  productId?: string | null;
+}) {
+  const name = normalizeLooseText(input.name);
+  const iceType = normalizeIceTypeReport(input.iceType);
+  const kind = normalizeLooseText(input.kind);
+
+  if (iceType === "BARRA" || name.includes("BARRA") || kind.includes("BARRA")) {
+    return "BARRA";
+  }
+
+  const kg = extractKgReport(
+    input.kg as string | number | null | undefined,
+    input.name,
   );
 
-  const snap = await getDocs(qy);
+  let type = iceType;
+  if (!type) {
+    if (name.includes("GOURMET")) type = "GOURMET";
+    else if (name.includes("FRAP")) type = "FRAP";
+    else if (name.includes("ENFRIAR")) type = "ENFRIAR";
+    else if (
+      name.includes("ROLITO") ||
+      name.includes("BOLSA") ||
+      name.includes("HIELO")
+    )
+      type = "ROLITO";
+  }
 
-  return snap.docs.map((d) => {
-    const data = d.data() as Record<string, unknown>;
+  if (type && kg) return `${type}_${kg}`;
+  if (type) return type;
+
+  const fallback =
+    name ||
+    String(input.productId || "")
+      .trim()
+      .toUpperCase();
+  return fallback || "";
+}
+
+function labelFromReportProductKey(key: string, fallback?: string | null) {
+  const clean = String(key || "")
+    .trim()
+    .toUpperCase();
+  if (clean === "BARRA") return "BARRA";
+
+  const [typeRaw, kg] = clean.split("_");
+  const type = typeRaw === "FRAPPE" ? "FRAP" : typeRaw;
+
+  if (type && kg) return `${type} ${kg}KG`;
+  return String(fallback || clean || "PRODUCTO").trim();
+}
+
+function canonicalInventoryOutputKeyReport(
+  keyRaw?: string | null,
+  labelRaw?: string | null,
+) {
+  const raw = String(keyRaw || "")
+    .trim()
+    .toUpperCase();
+  const label = String(labelRaw || "").trim();
+
+  if (!raw && !label) return "";
+
+  const rawUnderscoreMatch = raw.match(
+    /^(ROLITO|FRAP|FRAPPE|GOURMET|ENFRIAR)_(\d+(?:\.\d+)?)$/,
+  );
+
+  if (rawUnderscoreMatch) {
+    const type =
+      rawUnderscoreMatch[1] === "FRAPPE" ? "FRAP" : rawUnderscoreMatch[1];
+    const kg = rawUnderscoreMatch[2].replace(/\.0+$/, "");
+    return `${type}_${kg}`;
+  }
+
+  if (raw === "BARRA") return "BARRA";
+
+  if (raw.includes("__")) {
+    const parts = raw
+      .split("__")
+      .map((x) => x.trim())
+      .filter(Boolean);
+    const tipo = normalizeIceTypeReport(parts[1] || raw);
+    const kg = extractKgReport(parts[2], label, raw);
+
+    if (tipo === "BARRA") return "BARRA";
+    if (tipo && kg) return `${tipo}_${kg}`;
+    if (tipo) return tipo;
+  }
+
+  return buildReportProductKey({
+    name: label || raw,
+    iceType: raw || label,
+    kg: extractKgReport(raw, label) || null,
+    kind: null,
+    productId: raw,
+  });
+}
+
+async function getInventoryOutputViaApi(input: {
+  assignment_id: string;
+  work_date: string;
+  driver_name: string;
+  driver_code: string | null;
+}): Promise<InventoryAssignmentOutput> {
+  const params = new URLSearchParams();
+  params.set("date", input.work_date);
+  if (input.driver_code) params.set("driverCode", input.driver_code);
+  if (input.driver_name) params.set("driverName", input.driver_name);
+
+  const response = await fetch(
+    `/api/inventory/global-outputs?${params.toString()}`,
+    {
+      method: "GET",
+      cache: "no-store",
+    },
+  );
+
+  const json = await response.json().catch(() => null);
+
+  if (!response.ok || !json?.ok) {
+    console.warn("[Reportes] No se pudieron leer salidas global desde API:", {
+      assignment_id: input.assignment_id,
+      status: response.status,
+      error: json?.error || json,
+    });
 
     return {
-      firebase_id: d.id,
-      firebase_codigo: String(data.codigo ?? '').trim(),
-      firebase_nombre: String(data.nombre ?? '').trim(),
-      firebase_activo: data.isActive !== false,
+      assignment_id: input.assignment_id,
+      driver_name: input.driver_name || "Chofer",
+      driver_code: input.driver_code || null,
+      work_date: input.work_date || "",
+      total_qty: 0,
+      products: [],
     };
-  });
+  }
+
+  const rawQtyByKey = json.qtyByKey || {};
+  const rawLabelByKey = json.labelByKey || {};
+
+  const productMap = new Map<string, InventoryProductOutput>();
+
+  for (const [keyRaw, qtyRaw] of Object.entries(rawQtyByKey)) {
+    const rawKey = String(keyRaw || "")
+      .trim()
+      .toUpperCase();
+    const rawLabel = String(
+      rawLabelByKey[keyRaw] ||
+        rawLabelByKey[rawKey] ||
+        labelFromReportProductKey(rawKey),
+    ).trim();
+
+    const key = canonicalInventoryOutputKeyReport(rawKey, rawLabel);
+    const cantidad = Math.abs(safeNum(qtyRaw, 0));
+
+    if (!key || cantidad <= 0) continue;
+
+    const current = productMap.get(key);
+    const nombre = labelFromReportProductKey(key, rawLabel);
+
+    if (current) {
+      current.cantidad += cantidad;
+    } else {
+      productMap.set(key, { key, nombre, cantidad });
+    }
+  }
+
+  const products = Array.from(productMap.values()).sort(
+    (a, b) => b.cantidad - a.cantidad || a.nombre.localeCompare(b.nombre, "es"),
+  );
+
+  return {
+    assignment_id: input.assignment_id,
+    driver_name: input.driver_name || "Chofer",
+    driver_code: input.driver_code || null,
+    work_date: input.work_date || "",
+    total_qty: products.reduce((acc, p) => acc + p.cantidad, 0),
+    products,
+  };
 }
 
 async function listInventoryOutputsByAssignment(
@@ -424,102 +631,25 @@ async function listInventoryOutputsByAssignment(
     work_date: string | null;
     driver_name: string | null;
     driver_code: string | null;
-  }>
+  }>,
 ) {
   const validAssignments = assignments.filter(
-    (a) => a.work_date && a.driver_name
+    (a) => a.work_date && a.driver_name,
   );
-
-  if (validAssignments.length === 0) {
-    return new Map<string, InventoryAssignmentOutput>();
-  }
-
-  const uniqueDates = Array.from(
-    new Set(validAssignments.map((a) => String(a.work_date)))
-  ).sort();
-
-  const minDate = uniqueDates[0];
-  const maxDate = uniqueDates[uniqueDates.length - 1];
-
-  const start = toDateStart(minDate);
-  const endExclusive = toDateEndExclusive(maxDate);
-
-  const qy = query(
-    collection(inventoryDb, 'movimientos'),
-    where('fecha', '>=', Timestamp.fromDate(start)),
-    where('fecha', '<', Timestamp.fromDate(endExclusive)),
-    orderBy('fecha', 'asc'),
-    qLimit(5000)
-  );
-
-  const snap = await getDocs(qy);
-  const docs = snap.docs.map((docSnap) => docSnap.data() as InventoryMovementDoc);
-
   const out = new Map<string, InventoryAssignmentOutput>();
 
-  for (const assignment of validAssignments) {
-    const productMap = new Map<string, number>();
+  await Promise.all(
+    validAssignments.map(async (assignment) => {
+      const data = await getInventoryOutputViaApi({
+        assignment_id: assignment.assignment_id,
+        work_date: String(assignment.work_date),
+        driver_name: String(assignment.driver_name || "Chofer"),
+        driver_code: assignment.driver_code || null,
+      });
 
-    for (const raw of docs) {
-      if (String(raw.tipo || '').trim().toUpperCase() !== 'SALIDA_BOLSA') continue;
-      if (String(raw.salidaSubtipo || '').trim().toUpperCase() !== 'ENTREGA_TRANSPORTE') continue;
-      if (!movementMatchesDriver(raw, assignment.driver_name, assignment.driver_code)) continue;
-
-      const rawDate =
-        raw.fecha instanceof Timestamp
-          ? raw.fecha.toDate()
-          : raw.fecha instanceof Date
-          ? raw.fecha
-          : raw.createdAt instanceof Timestamp
-          ? raw.createdAt.toDate()
-          : raw.createdAt instanceof Date
-          ? raw.createdAt
-          : null;
-
-      if (!rawDate) continue;
-
-      const movementDate = rawDate.toISOString().slice(0, 10);
-      if (movementDate !== assignment.work_date) continue;
-
-      if (Array.isArray(raw.items) && raw.items.length > 0) {
-        for (const item of raw.items) {
-          const nombre = inventoryProductDisplayName(item);
-          const cantidad = Math.abs(safeNum(item?.cantidad, safeNum(item?.delta, 0)));
-          if (!nombre || cantidad <= 0) continue;
-
-          productMap.set(nombre, (productMap.get(nombre) ?? 0) + cantidad);
-        }
-        continue;
-      }
-
-      const fallbackNombre = String(raw.productoNombre || raw.productoCodigo || '').trim();
-      const fallbackCantidad = Math.abs(
-        safeNum(raw.cantidad, safeNum(raw.deltaPrincipal, 0))
-      );
-
-      if (fallbackNombre && fallbackCantidad > 0) {
-        productMap.set(
-          fallbackNombre,
-          (productMap.get(fallbackNombre) ?? 0) + fallbackCantidad
-        );
-      }
-    }
-
-    const products = Array.from(productMap.entries())
-      .map(([nombre, cantidad]) => ({ nombre, cantidad }))
-      .sort((a, b) => b.cantidad - a.cantidad || a.nombre.localeCompare(b.nombre));
-
-    const total_qty = products.reduce((acc, p) => acc + p.cantidad, 0);
-
-    out.set(assignment.assignment_id, {
-      assignment_id: assignment.assignment_id,
-      driver_name: assignment.driver_name || 'Chofer',
-      driver_code: assignment.driver_code || null,
-      work_date: assignment.work_date || '',
-      total_qty,
-      products,
-    });
-  }
+      out.set(assignment.assignment_id, data);
+    }),
+  );
 
   return out;
 }
@@ -530,37 +660,41 @@ export default function ReportesPage() {
 
   const today = new Date();
   const yyyy = today.getFullYear();
-  const mm = String(today.getMonth() + 1).padStart(2, '0');
-  const dd = String(today.getDate()).padStart(2, '0');
+  const mm = String(today.getMonth() + 1).padStart(2, "0");
+  const dd = String(today.getDate()).padStart(2, "0");
   const todayStr = `${yyyy}-${mm}-${dd}`;
 
   const [dateFrom, setDateFrom] = useState(todayStr);
   const [dateTo, setDateTo] = useState(todayStr);
-  const [driverFilter, setDriverFilter] = useState<string>('all');
-  const [statusFilter, setStatusFilter] = useState<string>('all');
-  const [query, setQuery] = useState('');
-  const [reportMode, setReportMode] = useState<ReportMode>('general');
+  const [driverFilter, setDriverFilter] = useState<string>("all");
+  const [statusFilter, setStatusFilter] = useState<string>("all");
+  const [query, setQuery] = useState("");
+  const [reportMode, setReportMode] = useState<ReportMode>("general");
 
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
-  const [pageError, setPageError] = useState('');
+  const [pageError, setPageError] = useState("");
 
   const [drivers, setDrivers] = useState<DriverRow[]>([]);
-  const [inventoryDrivers, setInventoryDrivers] = useState<InventoryEmployeeRow[]>([]);
+  const [inventoryDrivers, setInventoryDrivers] = useState<
+    InventoryEmployeeRow[]
+  >([]);
   const [rows, setRows] = useState<AssignmentReport[]>([]);
-  const [selectedAssignmentId, setSelectedAssignmentId] = useState('');
+  const [selectedAssignmentId, setSelectedAssignmentId] = useState("");
 
   const selectedAssignment = useMemo(
     () => rows.find((x) => x.id === selectedAssignmentId) ?? null,
-    [rows, selectedAssignmentId]
+    [rows, selectedAssignmentId],
   );
 
   const fetchData = useCallback(async () => {
     const [driversRes, inventoryDriversRes] = await Promise.all([
       sb
         .from(T_DRIVERS)
-        .select('id,nombre,activo,current_status')
-        .order('nombre', { ascending: true }),
+        .select(
+          "id,nombre,activo,current_status,firebase_codigo,firebase_nombre",
+        )
+        .order("nombre", { ascending: true }),
       listInventoryEmployeesTransport(),
     ]);
 
@@ -570,24 +704,18 @@ export default function ReportesPage() {
 
     const inventoryDriversData = inventoryDriversRes;
 
-    const inventoryByName = new Map<string, InventoryEmployeeRow>();
-    inventoryDriversData.forEach((emp) => {
-      if (emp.firebase_nombre) {
-        inventoryByName.set(normalizeLooseText(emp.firebase_nombre), emp);
-      }
-    });
-
     const assignmentsQuery = sb
       .from(T_ASSIGNMENTS)
-      .select('id,driver_id,work_date,status,created_at')
-      .gte('work_date', dateFrom)
-      .lte('work_date', dateTo)
-      .order('work_date', { ascending: false });
+      .select("id,driver_id,work_date,status,created_at")
+      .gte("work_date", dateFrom)
+      .lte("work_date", dateTo)
+      .order("work_date", { ascending: false });
 
-    if (driverFilter !== 'all') assignmentsQuery.eq('driver_id', driverFilter);
-    if (statusFilter !== 'all') assignmentsQuery.eq('status', statusFilter);
+    if (driverFilter !== "all") assignmentsQuery.eq("driver_id", driverFilter);
+    if (statusFilter !== "all") assignmentsQuery.eq("status", statusFilter);
 
-    const { data: assignmentsData, error: assignmentsErr } = await assignmentsQuery;
+    const { data: assignmentsData, error: assignmentsErr } =
+      await assignmentsQuery;
     if (assignmentsErr) throw assignmentsErr;
 
     const assignments = (assignmentsData ?? []) as AssignmentRow[];
@@ -601,10 +729,10 @@ export default function ReportesPage() {
       const { data: deliveriesData, error: deliveriesErr } = await sb
         .from(T_DELIVERIES)
         .select(
-          'id,assignment_id,customer_id,customer_nombre_snapshot,diner_nombre_snapshot,folio,priority,total_expected,total_real,status,created_at'
+          "id,assignment_id,customer_id,customer_nombre_snapshot,diner_nombre_snapshot,folio,priority,total_expected,total_real,status,created_at",
         )
-        .in('assignment_id', assignmentIds)
-        .order('created_at', { ascending: true });
+        .in("assignment_id", assignmentIds)
+        .order("created_at", { ascending: true });
 
       if (deliveriesErr) throw deliveriesErr;
       deliveries = (deliveriesData ?? []) as DeliveryRow[];
@@ -614,22 +742,24 @@ export default function ReportesPage() {
       if (deliveryIds.length > 0) {
         const { data: itemsData, error: itemsErr } = await sb
           .from(T_DELIVERY_ITEMS)
-          .select('id,delivery_id,product_id,qty_assigned,qty_real,precio_aplicado,created_at')
-          .in('delivery_id', deliveryIds)
-          .order('created_at', { ascending: true });
+          .select(
+            "id,delivery_id,product_id,qty_assigned,qty_real,precio_aplicado,created_at",
+          )
+          .in("delivery_id", deliveryIds)
+          .order("created_at", { ascending: true });
 
         if (itemsErr) throw itemsErr;
         items = (itemsData ?? []) as DeliveryItemRow[];
 
         const productIds = Array.from(
-          new Set(items.map((i) => i.product_id).filter(Boolean))
+          new Set(items.map((i) => i.product_id).filter(Boolean)),
         ) as string[];
 
         if (productIds.length > 0) {
           const { data: productsData, error: productsErr } = await sb
             .from(T_PRODUCTS)
-            .select('id,nombre')
-            .in('id', productIds);
+            .select("id,nombre,kind,ice_type,kg_por_unidad")
+            .in("id", productIds);
 
           if (productsErr) throw productsErr;
           products = (productsData ?? []) as ProductRow[];
@@ -642,9 +772,9 @@ export default function ReportesPage() {
       driverMap.set(d.id, d);
     });
 
-    const productMap = new Map<string, string>();
+    const productMap = new Map<string, ProductRow>();
     products.forEach((p) => {
-      productMap.set(p.id, p.nombre || 'Producto');
+      productMap.set(String(p.id), p);
     });
 
     const itemsByDelivery = new Map<string, DeliveryItemReport[]>();
@@ -652,10 +782,22 @@ export default function ReportesPage() {
       const qtyAssigned = safeNum(item.qty_assigned, 0);
       const qtyReal = safeNum(item.qty_real, safeNum(item.qty_assigned, 0));
       const precio = safeNum(item.precio_aplicado, 0);
+      const productMeta = item.product_id
+        ? productMap.get(String(item.product_id))
+        : null;
+      const productNombre = productMeta?.nombre || "Producto";
+      const productKey = buildReportProductKey({
+        name: productNombre,
+        iceType: productMeta?.ice_type || null,
+        kg: productMeta?.kg_por_unidad || null,
+        kind: productMeta?.kind || null,
+        productId: item.product_id || null,
+      });
 
       const parsed: DeliveryItemReport = {
         ...item,
-        product_nombre: item.product_id ? productMap.get(item.product_id) || 'Producto' : 'Producto',
+        product_nombre: productNombre,
+        product_key: productKey || normalizeLooseText(productNombre),
         subtotal_estimado: qtyAssigned * precio,
         subtotal_real: qtyReal * precio,
         qty_diff: qtyReal - qtyAssigned,
@@ -669,7 +811,8 @@ export default function ReportesPage() {
 
     const deliveriesByAssignment = new Map<string, DeliveryReport[]>();
     deliveries.forEach((delivery) => {
-      const totalDiff = safeNum(delivery.total_real, 0) - safeNum(delivery.total_expected, 0);
+      const totalDiff =
+        safeNum(delivery.total_real, 0) - safeNum(delivery.total_expected, 0);
 
       const parsed: DeliveryReport = {
         ...delivery,
@@ -686,16 +829,25 @@ export default function ReportesPage() {
 
     const baseAssignments = assignments.map((assignment) => {
       const driverNombre = assignment.driver_id
-        ? driverMap.get(assignment.driver_id)?.nombre || 'Chofer'
-        : 'Sin chofer';
+        ? driverMap.get(assignment.driver_id)?.nombre || "Chofer"
+        : "Sin chofer";
 
-      const invDriver =
-        inventoryByName.get(normalizeLooseText(driverNombre)) ?? null;
+      const driverRow = assignment.driver_id
+        ? driverMap.get(assignment.driver_id)
+        : null;
+      const driverFirebaseCodigo =
+        String(driverRow?.firebase_codigo || "").trim() ||
+        inventoryDriversData.find(
+          (emp) =>
+            normalizeLooseText(emp.firebase_nombre) ===
+            normalizeLooseText(driverNombre),
+        )?.firebase_codigo ||
+        null;
 
       return {
         ...assignment,
         driver_nombre: driverNombre,
-        driver_firebase_codigo: invDriver?.firebase_codigo || null,
+        driver_firebase_codigo: driverFirebaseCodigo,
         deliveries: deliveriesByAssignment.get(assignment.id) ?? [],
       };
     });
@@ -706,20 +858,19 @@ export default function ReportesPage() {
         work_date: assignment.work_date,
         driver_name: assignment.driver_nombre,
         driver_code: assignment.driver_firebase_codigo,
-      }))
+      })),
     );
 
     const merged: AssignmentReport[] = baseAssignments.map((assignment) => ({
       ...assignment,
-      inventory_outputs:
-        inventoryOutputsByAssignment.get(assignment.id) ?? {
-          assignment_id: assignment.id,
-          driver_name: assignment.driver_nombre || 'Chofer',
-          driver_code: assignment.driver_firebase_codigo || null,
-          work_date: assignment.work_date || '',
-          total_qty: 0,
-          products: [],
-        },
+      inventory_outputs: inventoryOutputsByAssignment.get(assignment.id) ?? {
+        assignment_id: assignment.id,
+        driver_name: assignment.driver_nombre || "Chofer",
+        driver_code: assignment.driver_firebase_codigo || null,
+        work_date: assignment.work_date || "",
+        total_qty: 0,
+        products: [],
+      },
     }));
 
     const q = query.trim().toLowerCase();
@@ -727,24 +878,27 @@ export default function ReportesPage() {
       ? merged
       : merged.filter((assignment) => {
           const haystack = [
-            assignment.driver_nombre ?? '',
-            assignment.driver_firebase_codigo ?? '',
-            assignment.status ?? '',
-            assignment.work_date ?? '',
+            assignment.driver_nombre ?? "",
+            assignment.driver_firebase_codigo ?? "",
+            assignment.status ?? "",
+            assignment.work_date ?? "",
             ...assignment.inventory_outputs.products.flatMap((p) => [
               p.nombre,
               String(p.cantidad),
             ]),
             ...assignment.deliveries.flatMap((d) => [
-              d.customer_nombre_snapshot ?? '',
-              d.diner_nombre_snapshot ?? '',
-              d.folio ?? '',
-              d.status ?? '',
+              d.customer_nombre_snapshot ?? "",
+              d.diner_nombre_snapshot ?? "",
+              d.folio ?? "",
+              d.status ?? "",
               getDiffPresentation(d.total_diff).label,
-              ...d.items.flatMap((i) => [i.product_nombre ?? '', getDiffPresentation(i.qty_diff).label]),
+              ...d.items.flatMap((i) => [
+                i.product_nombre ?? "",
+                getDiffPresentation(i.qty_diff).label,
+              ]),
             ]),
           ]
-            .join(' ')
+            .join(" ")
             .toLowerCase();
 
           return haystack.includes(q);
@@ -760,7 +914,7 @@ export default function ReportesPage() {
   const loadData = useCallback(async () => {
     try {
       setLoading(true);
-      setPageError('');
+      setPageError("");
 
       const data = await fetchData();
       setDrivers(data.drivers);
@@ -769,19 +923,19 @@ export default function ReportesPage() {
 
       setSelectedAssignmentId((prev) => {
         if (prev && data.rows.some((x) => x.id === prev)) return prev;
-        return data.rows[0]?.id ?? '';
+        return data.rows[0]?.id ?? "";
       });
     } catch (err: any) {
-      console.error('Error loading reports data:', {
+      console.error("Error loading reports data:", {
         message: err?.message,
         details: err?.details,
         hint: err?.hint,
         code: err?.code,
         full: err,
       });
-      setPageError(getErrorMessage(err, 'No se pudieron cargar los reportes.'));
+      setPageError(getErrorMessage(err, "No se pudieron cargar los reportes."));
       setRows([]);
-      setSelectedAssignmentId('');
+      setSelectedAssignmentId("");
     } finally {
       setLoading(false);
     }
@@ -790,7 +944,7 @@ export default function ReportesPage() {
   const refreshData = useCallback(async () => {
     try {
       setRefreshing(true);
-      setPageError('');
+      setPageError("");
 
       const data = await fetchData();
       setDrivers(data.drivers);
@@ -799,17 +953,19 @@ export default function ReportesPage() {
 
       setSelectedAssignmentId((prev) => {
         if (prev && data.rows.some((x) => x.id === prev)) return prev;
-        return data.rows[0]?.id ?? '';
+        return data.rows[0]?.id ?? "";
       });
     } catch (err: any) {
-      console.error('Error refreshing reports data:', {
+      console.error("Error refreshing reports data:", {
         message: err?.message,
         details: err?.details,
         hint: err?.hint,
         code: err?.code,
         full: err,
       });
-      setPageError(getErrorMessage(err, 'No se pudieron actualizar los reportes.'));
+      setPageError(
+        getErrorMessage(err, "No se pudieron actualizar los reportes."),
+      );
     } finally {
       setRefreshing(false);
     }
@@ -835,10 +991,10 @@ export default function ReportesPage() {
       .forEach((d) => {
         options.push({
           id: d.id,
-          nombre: d.nombre || 'Chofer',
-          source: 'supabase',
+          nombre: d.nombre || "Chofer",
+          source: "supabase",
         });
-        used.add(normalizeLooseText(d.nombre || 'Chofer'));
+        used.add(normalizeLooseText(d.nombre || "Chofer"));
       });
 
     inventoryDrivers
@@ -849,13 +1005,13 @@ export default function ReportesPage() {
 
         options.push({
           id: `inventory:${d.firebase_codigo || d.firebase_id}`,
-          nombre: d.firebase_nombre || 'Transporte',
+          nombre: d.firebase_nombre || "Transporte",
           firebase_codigo: d.firebase_codigo || null,
-          source: 'inventory_only',
+          source: "inventory_only",
         });
       });
 
-    return options.sort((a, b) => a.nombre.localeCompare(b.nombre, 'es'));
+    return options.sort((a, b) => a.nombre.localeCompare(b.nombre, "es"));
   }, [drivers, inventoryDrivers]);
 
   const statusOptions = useMemo(() => {
@@ -868,7 +1024,10 @@ export default function ReportesPage() {
 
   const kpis = useMemo(() => {
     const assignmentsCount = rows.length;
-    const deliveriesCount = rows.reduce((acc, a) => acc + a.deliveries.length, 0);
+    const deliveriesCount = rows.reduce(
+      (acc, a) => acc + a.deliveries.length,
+      0,
+    );
 
     const customerSet = new Set<string>();
     const driverSet = new Set<string>();
@@ -900,7 +1059,10 @@ export default function ReportesPage() {
 
         delivery.items.forEach((item) => {
           totalPieces += safeNum(item.qty_assigned, 0);
-          totalPiecesReal += safeNum(item.qty_real, safeNum(item.qty_assigned, 0));
+          totalPiecesReal += safeNum(
+            item.qty_real,
+            safeNum(item.qty_assigned, 0),
+          );
         });
       });
     });
@@ -916,7 +1078,7 @@ export default function ReportesPage() {
       totalReal,
       totalInventoryOutput,
       totalDifference: totalReal - totalExpected,
-      inventoryVsExpectedDifference: totalInventoryOutput - totalPieces,
+      inventoryVsExpectedDifference: totalInventoryOutput - totalPiecesReal,
       moreCount,
       lessCount,
       exactCount,
@@ -927,8 +1089,10 @@ export default function ReportesPage() {
     const map = new Map<string, DriverSummary & { customerSet: Set<string> }>();
 
     rows.forEach((assignment) => {
-      const driverId = assignment.driver_id || `inventory:${assignment.driver_nombre || 'sin-chofer'}`;
-      const driverNombre = assignment.driver_nombre || 'Sin chofer';
+      const driverId =
+        assignment.driver_id ||
+        `inventory:${assignment.driver_nombre || "sin-chofer"}`;
+      const driverNombre = assignment.driver_nombre || "Sin chofer";
 
       if (!map.has(driverId)) {
         map.set(driverId, {
@@ -970,11 +1134,15 @@ export default function ReportesPage() {
 
         delivery.items.forEach((item) => {
           row.total_pieces += safeNum(item.qty_assigned, 0);
-          row.total_pieces_real += safeNum(item.qty_real, safeNum(item.qty_assigned, 0));
+          row.total_pieces_real += safeNum(
+            item.qty_real,
+            safeNum(item.qty_assigned, 0),
+          );
         });
       });
 
-      row.inventory_vs_expected_diff = row.inventory_total_pieces - row.total_pieces;
+      row.inventory_vs_expected_diff =
+        row.inventory_total_pieces - row.total_pieces_real;
     });
 
     const out = Array.from(map.values()).map((r) => ({
@@ -1000,7 +1168,7 @@ export default function ReportesPage() {
       (a, b) =>
         b.total_expected - a.total_expected ||
         b.deliveries_count - a.deliveries_count ||
-        a.driver_nombre.localeCompare(b.driver_nombre)
+        a.driver_nombre.localeCompare(b.driver_nombre),
     );
 
     return out;
@@ -1019,12 +1187,16 @@ export default function ReportesPage() {
     rows.forEach((assignment) => {
       assignment.deliveries.forEach((delivery) => {
         delivery.items.forEach((item) => {
-          const key = item.product_id || item.product_nombre || item.id;
+          const key =
+            item.product_key ||
+            item.product_id ||
+            item.product_nombre ||
+            item.id;
 
           if (!map.has(key)) {
             map.set(key, {
               product_id: key,
-              nombre: item.product_nombre || 'Producto',
+              nombre: item.product_nombre || "Producto",
               total_qty: 0,
               total_qty_real: 0,
               total_importe: 0,
@@ -1042,7 +1214,10 @@ export default function ReportesPage() {
 
           const row = map.get(key)!;
           row.total_qty += safeNum(item.qty_assigned, 0);
-          row.total_qty_real += safeNum(item.qty_real, safeNum(item.qty_assigned, 0));
+          row.total_qty_real += safeNum(
+            item.qty_real,
+            safeNum(item.qty_assigned, 0),
+          );
           row.total_importe += safeNum(item.subtotal_estimado, 0);
           row.total_importe_real += safeNum(item.subtotal_real, 0);
           row.assignmentSet.add(assignment.id);
@@ -1052,12 +1227,12 @@ export default function ReportesPage() {
       });
 
       assignment.inventory_outputs.products.forEach((p) => {
-        const key = normalizeLooseText(p.nombre) || p.nombre;
+        const key = p.key || normalizeLooseText(p.nombre) || p.nombre;
 
         if (!map.has(key)) {
           map.set(key, {
             product_id: key,
-            nombre: p.nombre || 'Producto',
+            nombre: p.nombre || "Producto",
             total_qty: 0,
             total_qty_real: 0,
             total_importe: 0,
@@ -1086,7 +1261,7 @@ export default function ReportesPage() {
       total_importe: r.total_importe,
       total_importe_real: r.total_importe_real,
       inventory_total_qty: r.inventory_total_qty,
-      inventory_vs_expected_diff: r.inventory_total_qty - r.total_qty,
+      inventory_vs_expected_diff: r.inventory_total_qty - r.total_qty_real,
       assignments_count: r.assignmentSet.size,
       deliveries_count: r.deliverySet.size,
       customers_count: r.customerSet.size,
@@ -1094,9 +1269,10 @@ export default function ReportesPage() {
 
     out.sort(
       (a, b) =>
-        Math.max(b.total_qty, b.inventory_total_qty) - Math.max(a.total_qty, a.inventory_total_qty) ||
+        Math.max(b.total_qty, b.inventory_total_qty) -
+          Math.max(a.total_qty, a.inventory_total_qty) ||
         b.total_importe - a.total_importe ||
-        a.nombre.localeCompare(b.nombre)
+        a.nombre.localeCompare(b.nombre),
     );
 
     return out;
@@ -1106,12 +1282,12 @@ export default function ReportesPage() {
     const topDriver = driverSummary[0];
     const topProduct = productSummary[0];
 
-    let busiestDate = '';
+    let busiestDate = "";
     let busiestDateCount = 0;
     const byDate = new Map<string, number>();
 
     rows.forEach((a) => {
-      const d = a.work_date || 'Sin fecha';
+      const d = a.work_date || "Sin fecha";
       byDate.set(d, (byDate.get(d) ?? 0) + a.deliveries.length);
     });
 
@@ -1131,36 +1307,43 @@ export default function ReportesPage() {
   }, [rows, driverSummary, productSummary]);
 
   const reportLabel = useMemo(() => {
-    if (reportMode === 'driver') return 'Reporte por chofer';
-    if (reportMode === 'assignment') return 'Reporte detallado por asignación';
-    return 'Reporte general';
+    if (reportMode === "driver") return "Reporte por chofer";
+    if (reportMode === "assignment") return "Reporte detallado por asignación";
+    return "Reporte general";
   }, [reportMode]);
 
   const exportToPdf = useCallback(() => {
     const selectedDriver =
-      driverFilter === 'all'
-        ? 'Todos'
-        : driverOptions.find((d) => d.id === driverFilter)?.nombre || 'Chofer';
+      driverFilter === "all"
+        ? "Todos"
+        : driverOptions.find((d) => d.id === driverFilter)?.nombre || "Chofer";
 
-    const selectedStatus = statusFilter === 'all' ? 'Todos' : statusFilter;
+    const selectedStatus = statusFilter === "all" ? "Todos" : statusFilter;
 
     const assignmentsRows = rows
       .map((a) => {
         const totalPieces = a.deliveries.reduce(
-          (acc, d) => acc + d.items.reduce((x, i) => x + safeNum(i.qty_assigned, 0), 0),
-          0
+          (acc, d) =>
+            acc + d.items.reduce((x, i) => x + safeNum(i.qty_assigned, 0), 0),
+          0,
         );
 
-        const totalExpected = a.deliveries.reduce((acc, d) => acc + safeNum(d.total_expected, 0), 0);
-        const totalReal = a.deliveries.reduce((acc, d) => acc + safeNum(d.total_real, 0), 0);
+        const totalExpected = a.deliveries.reduce(
+          (acc, d) => acc + safeNum(d.total_expected, 0),
+          0,
+        );
+        const totalReal = a.deliveries.reduce(
+          (acc, d) => acc + safeNum(d.total_real, 0),
+          0,
+        );
         const totalDifference = totalReal - totalExpected;
         const diffLabel = getDiffPresentation(totalDifference).label;
 
         return `
           <tr>
             <td>${escapeHtml(formatOnlyDate(a.work_date))}</td>
-            <td>${escapeHtml(a.driver_nombre || '—')}</td>
-            <td>${escapeHtml(a.driver_firebase_codigo || '—')}</td>
+            <td>${escapeHtml(a.driver_nombre || "—")}</td>
+            <td>${escapeHtml(a.driver_firebase_codigo || "—")}</td>
             <td>${a.deliveries.length}</td>
             <td>${totalPieces}</td>
             <td>${a.inventory_outputs.total_qty}</td>
@@ -1168,18 +1351,18 @@ export default function ReportesPage() {
             <td>${escapeHtml(money(totalReal))}</td>
             <td>${escapeHtml(money(totalDifference))}</td>
             <td>${escapeHtml(diffLabel)}</td>
-            <td>${escapeHtml(a.status || '—')}</td>
+            <td>${escapeHtml(a.status || "—")}</td>
           </tr>
         `;
       })
-      .join('');
+      .join("");
 
     const driversRows = driverSummary
       .map(
         (d) => `
           <tr>
             <td>${escapeHtml(d.driver_nombre)}</td>
-            <td>${escapeHtml(d.driver_firebase_codigo || '—')}</td>
+            <td>${escapeHtml(d.driver_firebase_codigo || "—")}</td>
             <td>${d.assignments_count}</td>
             <td>${d.deliveries_count}</td>
             <td>${d.customers_count}</td>
@@ -1193,9 +1376,9 @@ export default function ReportesPage() {
             <td>${d.exact_count}</td>
             <td>${d.less_count}</td>
           </tr>
-        `
+        `,
       )
-      .join('');
+      .join("");
 
     const productsRows = productSummary
       .slice(0, 25)
@@ -1213,20 +1396,20 @@ export default function ReportesPage() {
             <td>${p.deliveries_count}</td>
             <td>${p.customers_count}</td>
           </tr>
-        `
+        `,
       )
-      .join('');
+      .join("");
 
     const detailBlock =
-      reportMode === 'assignment' && selectedAssignment
+      reportMode === "assignment" && selectedAssignment
         ? `
         <section class="block">
           <h2>Detalle de asignación seleccionada</h2>
           <div class="meta-grid">
             <div><strong>Fecha:</strong> ${escapeHtml(formatOnlyDate(selectedAssignment.work_date))}</div>
-            <div><strong>Chofer:</strong> ${escapeHtml(selectedAssignment.driver_nombre || '—')}</div>
-            <div><strong>Código inventario:</strong> ${escapeHtml(selectedAssignment.driver_firebase_codigo || '—')}</div>
-            <div><strong>Estatus:</strong> ${escapeHtml(selectedAssignment.status || '—')}</div>
+            <div><strong>Chofer:</strong> ${escapeHtml(selectedAssignment.driver_nombre || "—")}</div>
+            <div><strong>Código inventario:</strong> ${escapeHtml(selectedAssignment.driver_firebase_codigo || "—")}</div>
+            <div><strong>Estatus:</strong> ${escapeHtml(selectedAssignment.status || "—")}</div>
             <div><strong>Entregas:</strong> ${selectedAssignment.deliveries.length}</div>
             <div><strong>Salida inventario:</strong> ${selectedAssignment.inventory_outputs.total_qty} pzas</div>
           </div>
@@ -1252,9 +1435,9 @@ export default function ReportesPage() {
                             <td>${escapeHtml(p.nombre)}</td>
                             <td>${p.cantidad}</td>
                           </tr>
-                        `
+                        `,
                       )
-                      .join('')
+                      .join("")
               }
             </tbody>
           </table>
@@ -1264,19 +1447,20 @@ export default function ReportesPage() {
           <h2>Detalle por cliente</h2>
           ${
             selectedAssignment.deliveries.length === 0
-              ? '<p>Sin entregas registradas.</p>'
+              ? "<p>Sin entregas registradas.</p>"
               : selectedAssignment.deliveries
-                  .map((d, idx) => `
+                  .map(
+                    (d, idx) => `
                     <div style="border:1px solid #d1d5db;border-radius:12px;padding:12px;margin-bottom:16px;">
                       <div style="margin-bottom:10px;">
                         <div style="font-size:14px;font-weight:700;">
-                          ${idx + 1}. ${escapeHtml(d.customer_nombre_snapshot || 'Cliente')}
+                          ${idx + 1}. ${escapeHtml(d.customer_nombre_snapshot || "Cliente")}
                         </div>
                         <div style="font-size:12px;color:#6b7280;margin-top:4px;">
-                          Comedor: ${escapeHtml(d.diner_nombre_snapshot || 'Sin comedor')} •
-                          Folio: ${escapeHtml(d.folio || '—')} •
+                          Comedor: ${escapeHtml(d.diner_nombre_snapshot || "Sin comedor")} •
+                          Folio: ${escapeHtml(d.folio || "—")} •
                           Prioridad: ${safeNum(d.priority, 0)} •
-                          Estado: ${escapeHtml(d.status || '—')}
+                          Estado: ${escapeHtml(d.status || "—")}
                         </div>
                       </div>
 
@@ -1316,9 +1500,10 @@ export default function ReportesPage() {
                             d.items.length === 0
                               ? '<tr><td colspan="7">Sin productos registrados</td></tr>'
                               : d.items
-                                  .map((item) => `
+                                  .map(
+                                    (item) => `
                                     <tr>
-                                      <td>${escapeHtml(item.product_nombre || 'Producto')}</td>
+                                      <td>${escapeHtml(item.product_nombre || "Producto")}</td>
                                       <td>${safeNum(item.qty_assigned, 0)}</td>
                                       <td>${safeNum(item.qty_real, safeNum(item.qty_assigned, 0))}</td>
                                       <td>${escapeHtml(fmtSignedQty(item.qty_diff))}</td>
@@ -1326,18 +1511,20 @@ export default function ReportesPage() {
                                       <td>${escapeHtml(money(item.subtotal_real))}</td>
                                       <td>${escapeHtml(getDiffPresentation(item.qty_diff).label)}</td>
                                     </tr>
-                                  `)
-                                  .join('')
+                                  `,
+                                  )
+                                  .join("")
                           }
                         </tbody>
                       </table>
                     </div>
-                  `)
-                  .join('')
+                  `,
+                  )
+                  .join("")
           }
         </section>
       `
-        : '';
+        : "";
 
     const html = `
       <html>
@@ -1412,7 +1599,7 @@ export default function ReportesPage() {
             <div class="kpi"><div class="kpi-label">Total esperado</div><div class="kpi-value">${escapeHtml(money(kpis.totalExpected))}</div></div>
             <div class="kpi"><div class="kpi-label">Total real</div><div class="kpi-value">${escapeHtml(money(kpis.totalReal))}</div></div>
             <div class="kpi"><div class="kpi-label">Diferencia real</div><div class="kpi-value">${escapeHtml(money(kpis.totalDifference))}</div></div>
-            <div class="kpi"><div class="kpi-label">Inv vs esperado</div><div class="kpi-value">${kpis.inventoryVsExpectedDifference}</div></div>
+            <div class="kpi"><div class="kpi-label">Inv vs real</div><div class="kpi-value">${kpis.inventoryVsExpectedDifference}</div></div>
             <div class="kpi"><div class="kpi-label">Más / Exacto / Menos</div><div class="kpi-value">${kpis.moreCount} / ${kpis.exactCount} / ${kpis.lessCount}</div></div>
           </section>
 
@@ -1478,7 +1665,7 @@ export default function ReportesPage() {
                   <th>Pzas reales</th>
                   <th>Importe esperado</th>
                   <th>Importe real</th>
-                  <th>Inv vs esperado</th>
+                  <th>Inv vs real</th>
                   <th>Asignaciones</th>
                   <th>Entregas</th>
                   <th>Clientes</th>
@@ -1499,7 +1686,7 @@ export default function ReportesPage() {
       </html>
     `;
 
-    const win = window.open('', '_blank', 'width=1100,height=900');
+    const win = window.open("", "_blank", "width=1100,height=900");
     if (!win) return;
 
     win.document.open();
@@ -1536,12 +1723,18 @@ export default function ReportesPage() {
   if (!guard.isAuthed) return null;
 
   const totalDiffPresentation = getDiffPresentation(kpis.totalDifference);
-  const inventoryExpectedTone = getDiffPresentation(kpis.inventoryVsExpectedDifference);
+  const inventoryExpectedTone = getDiffPresentation(
+    kpis.inventoryVsExpectedDifference,
+  );
 
   return (
     <div className="min-h-screen bg-gradient-to-br from-[#0A1A2F] via-[#1E4A7A]/90 to-[#2D1B3A]">
       <div className="mx-auto max-w-7xl px-4 py-6 sm:px-6 lg:px-8">
-        <motion.div initial={{ opacity: 0, y: -18 }} animate={{ opacity: 1, y: 0 }} className="mb-6">
+        <motion.div
+          initial={{ opacity: 0, y: -18 }}
+          animate={{ opacity: 1, y: 0 }}
+          className="mb-6"
+        >
           <div className="flex items-center justify-between gap-3">
             <div className="flex items-center gap-4">
               <div className="rounded-2xl bg-gradient-to-br from-[#1E4A7A] to-[#2D1B3A] p-3 shadow-lg">
@@ -1550,7 +1743,8 @@ export default function ReportesPage() {
               <div>
                 <h1 className="text-2xl font-bold text-white">Reportes</h1>
                 <p className="text-sm text-white/55">
-                  Vista ejecutiva de entregas + inventario por chofer, asignación y producto.
+                  Vista ejecutiva de entregas + inventario por chofer,
+                  asignación y producto.
                 </p>
               </div>
             </div>
@@ -1565,22 +1759,32 @@ export default function ReportesPage() {
               </button>
 
               <button
+                onClick={() => router.push("/admin/reportes/minuta")}
+                className="flex items-center gap-2 rounded-xl border border-purple-400/20 bg-purple-500/20 px-4 py-2 text-sm font-semibold text-purple-100 transition-colors hover:bg-purple-500/30"
+              >
+                <ClipboardList className="h-4 w-4" />
+                Minuta
+              </button>
+
+              <button
                 onClick={() => void refreshData()}
                 disabled={refreshing}
                 className="rounded-xl bg-white/10 p-3 text-white/80 hover:bg-white/20 disabled:opacity-50"
                 title="Refrescar"
               >
-                <RefreshCw className={cx('h-4 w-4', refreshing && 'animate-spin')} />
+                <RefreshCw
+                  className={cx("h-4 w-4", refreshing && "animate-spin")}
+                />
               </button>
 
               <button
                 onClick={exportToPdf}
                 disabled={rows.length === 0}
                 className={cx(
-                  'flex items-center gap-2 rounded-xl px-4 py-3 font-medium transition-all shadow-lg',
+                  "flex items-center gap-2 rounded-xl px-4 py-3 font-medium transition-all shadow-lg",
                   rows.length === 0
-                    ? 'bg-white/10 text-white/30 cursor-not-allowed'
-                    : 'bg-gradient-to-r from-purple-900 to-purple-600 text-white hover:from-purple-600 hover:to-purple-500'
+                    ? "bg-white/10 text-white/30 cursor-not-allowed"
+                    : "bg-gradient-to-r from-purple-900 to-purple-600 text-white hover:from-purple-600 hover:to-purple-500",
                 )}
               >
                 <Download className="h-4 w-4" />
@@ -1601,7 +1805,9 @@ export default function ReportesPage() {
               <div className="flex items-center gap-3 text-red-200">
                 <AlertCircle className="h-5 w-5" />
                 <div>
-                  <p className="font-medium">No se pudieron cargar los reportes</p>
+                  <p className="font-medium">
+                    No se pudieron cargar los reportes
+                  </p>
                   <p className="text-sm text-red-100/85">{pageError}</p>
                 </div>
               </div>
@@ -1617,9 +1823,15 @@ export default function ReportesPage() {
                 onChange={(e) => setReportMode(e.target.value as ReportMode)}
                 className="w-full rounded-xl border border-white/10 bg-white/5 px-4 py-3 text-white focus:outline-none focus:ring-2 focus:ring-[#1E4A7A]"
               >
-                <option value="general" className="bg-[#0A1A2F] text-white">General</option>
-                <option value="driver" className="bg-[#0A1A2F] text-white">Por chofer</option>
-                <option value="assignment" className="bg-[#0A1A2F] text-white">Detallado por asignación</option>
+                <option value="general" className="bg-[#0A1A2F] text-white">
+                  General
+                </option>
+                <option value="driver" className="bg-[#0A1A2F] text-white">
+                  Por chofer
+                </option>
+                <option value="assignment" className="bg-[#0A1A2F] text-white">
+                  Detallado por asignación
+                </option>
               </select>
             </FieldBlock>
 
@@ -1647,12 +1859,18 @@ export default function ReportesPage() {
                 onChange={(e) => setDriverFilter(e.target.value)}
                 className="w-full rounded-xl border border-white/10 bg-white/5 px-4 py-3 text-white focus:outline-none focus:ring-2 focus:ring-[#1E4A7A]"
               >
-                <option value="all" className="bg-[#0A1A2F] text-white">Todos</option>
+                <option value="all" className="bg-[#0A1A2F] text-white">
+                  Todos
+                </option>
                 {driverOptions.map((d) => (
-                  <option key={d.id} value={d.id} className="bg-[#0A1A2F] text-white">
+                  <option
+                    key={d.id}
+                    value={d.id}
+                    className="bg-[#0A1A2F] text-white"
+                  >
                     {d.nombre}
-                    {d.firebase_codigo ? ` • ${d.firebase_codigo}` : ''}
-                    {d.source === 'inventory_only' ? ' • solo inventario' : ''}
+                    {d.firebase_codigo ? ` • ${d.firebase_codigo}` : ""}
+                    {d.source === "inventory_only" ? " • solo inventario" : ""}
                   </option>
                 ))}
               </select>
@@ -1664,7 +1882,9 @@ export default function ReportesPage() {
                 onChange={(e) => setStatusFilter(e.target.value)}
                 className="w-full rounded-xl border border-white/10 bg-white/5 px-4 py-3 text-white focus:outline-none focus:ring-2 focus:ring-[#1E4A7A]"
               >
-                <option value="all" className="bg-[#0A1A2F] text-white">Todos</option>
+                <option value="all" className="bg-[#0A1A2F] text-white">
+                  Todos
+                </option>
                 {statusOptions.map((s) => (
                   <option key={s} value={s} className="bg-[#0A1A2F] text-white">
                     {s}
@@ -1698,10 +1918,10 @@ export default function ReportesPage() {
               onClick={() => {
                 setDateFrom(todayStr);
                 setDateTo(todayStr);
-                setDriverFilter('all');
-                setStatusFilter('all');
-                setQuery('');
-                setReportMode('general');
+                setDriverFilter("all");
+                setStatusFilter("all");
+                setQuery("");
+                setReportMode("general");
               }}
               className="rounded-xl bg-white/10 px-4 py-2 text-sm text-white/80 hover:bg-white/20"
             >
@@ -1709,31 +1929,97 @@ export default function ReportesPage() {
             </button>
 
             <span className="ml-auto text-sm text-white/55">
-              Rango: <span className="font-semibold text-white">{formatOnlyDate(dateFrom)}</span> —{' '}
-              <span className="font-semibold text-white">{formatOnlyDate(dateTo)}</span>
+              Rango:{" "}
+              <span className="font-semibold text-white">
+                {formatOnlyDate(dateFrom)}
+              </span>{" "}
+              —{" "}
+              <span className="font-semibold text-white">
+                {formatOnlyDate(dateTo)}
+              </span>
             </span>
           </div>
         </div>
 
         <div className="mb-5 grid grid-cols-1 gap-3 md:grid-cols-2 xl:grid-cols-9">
-          <TopStat label="Asignaciones" value={kpis.assignmentsCount} icon={<ClipboardList className="h-4 w-4" />} />
-          <TopStat label="Entregas" value={kpis.deliveriesCount} icon={<ListOrdered className="h-4 w-4" />} />
-          <TopStat label="Clientes" value={kpis.customersCount} icon={<Users className="h-4 w-4" />} />
-          <TopStat label="Choferes" value={kpis.driversCount} icon={<Truck className="h-4 w-4" />} />
-          <TopStat label="Piezas esp." value={kpis.totalPieces} icon={<Boxes className="h-4 w-4" />} />
-          <TopStat label="Piezas reales" value={kpis.totalPiecesReal} icon={<Boxes className="h-4 w-4" />} />
-          <TopStat label="Salida inventario" value={kpis.totalInventoryOutput} icon={<Warehouse className="h-4 w-4" />} />
-          <TopStat label="Total esperado" value={money(kpis.totalExpected)} icon={<DollarSign className="h-4 w-4" />} />
-          <TopStat label="Total real" value={money(kpis.totalReal)} icon={<CircleDollarSign className="h-4 w-4" />} />
+          <TopStat
+            label="Asignaciones"
+            value={kpis.assignmentsCount}
+            icon={<ClipboardList className="h-4 w-4" />}
+          />
+          <TopStat
+            label="Entregas"
+            value={kpis.deliveriesCount}
+            icon={<ListOrdered className="h-4 w-4" />}
+          />
+          <TopStat
+            label="Clientes"
+            value={kpis.customersCount}
+            icon={<Users className="h-4 w-4" />}
+          />
+          <TopStat
+            label="Choferes"
+            value={kpis.driversCount}
+            icon={<Truck className="h-4 w-4" />}
+          />
+          <TopStat
+            label="Piezas esp."
+            value={kpis.totalPieces}
+            icon={<Boxes className="h-4 w-4" />}
+          />
+          <TopStat
+            label="Piezas reales"
+            value={kpis.totalPiecesReal}
+            icon={<Boxes className="h-4 w-4" />}
+          />
+          <TopStat
+            label="Salida inventario"
+            value={kpis.totalInventoryOutput}
+            icon={<Warehouse className="h-4 w-4" />}
+          />
+          <TopStat
+            label="Total esperado"
+            value={money(kpis.totalExpected)}
+            icon={<DollarSign className="h-4 w-4" />}
+          />
+          <TopStat
+            label="Total real"
+            value={money(kpis.totalReal)}
+            icon={<CircleDollarSign className="h-4 w-4" />}
+          />
         </div>
 
         <div className="mb-5 grid grid-cols-1 gap-3 md:grid-cols-6">
-          <TopStat label="Diferencia total" value={money(kpis.totalDifference)} icon={<Scale className="h-4 w-4" />} />
-          <TopStat label="Estado general" value={totalDiffPresentation.label} icon={totalDiffPresentation.icon} />
-          <TopStat label="Inv vs esperado" value={kpis.inventoryVsExpectedDifference} icon={<Warehouse className="h-4 w-4" />} />
-          <TopStat label="Estado inventario" value={inventoryExpectedTone.label} icon={inventoryExpectedTone.icon} />
-          <TopStat label="Dejó más" value={kpis.moreCount} icon={<TrendingUp className="h-4 w-4" />} />
-          <TopStat label="Dejó menos" value={kpis.lessCount} icon={<TrendingDown className="h-4 w-4" />} />
+          <TopStat
+            label="Diferencia total"
+            value={money(kpis.totalDifference)}
+            icon={<Scale className="h-4 w-4" />}
+          />
+          <TopStat
+            label="Estado general"
+            value={totalDiffPresentation.label}
+            icon={totalDiffPresentation.icon}
+          />
+          <TopStat
+            label="Inv vs real"
+            value={kpis.inventoryVsExpectedDifference}
+            icon={<Warehouse className="h-4 w-4" />}
+          />
+          <TopStat
+            label="Estado inventario"
+            value={inventoryExpectedTone.label}
+            icon={inventoryExpectedTone.icon}
+          />
+          <TopStat
+            label="Dejó más"
+            value={kpis.moreCount}
+            icon={<TrendingUp className="h-4 w-4" />}
+          />
+          <TopStat
+            label="Dejó menos"
+            value={kpis.lessCount}
+            icon={<TrendingDown className="h-4 w-4" />}
+          />
         </div>
 
         <div className="mb-6 grid grid-cols-1 gap-6 lg:grid-cols-3">
@@ -1751,7 +2037,9 @@ export default function ReportesPage() {
 
               <div className="divide-y divide-white/10 max-h-[72vh] overflow-y-auto">
                 {loading ? (
-                  <div className="p-6 text-center text-white/50">Cargando...</div>
+                  <div className="p-6 text-center text-white/50">
+                    Cargando...
+                  </div>
                 ) : rows.length === 0 ? (
                   <div className="p-6 text-center text-white/50">
                     No hay asignaciones para este filtro.
@@ -1760,20 +2048,36 @@ export default function ReportesPage() {
                   rows.map((a) => {
                     const active = a.id === selectedAssignmentId;
                     const totalPieces = a.deliveries.reduce(
-                      (acc, d) => acc + d.items.reduce((x, i) => x + safeNum(i.qty_assigned, 0), 0),
-                      0
+                      (acc, d) =>
+                        acc +
+                        d.items.reduce(
+                          (x, i) => x + safeNum(i.qty_assigned, 0),
+                          0,
+                        ),
+                      0,
+                    );
+                    const totalPiecesReal = a.deliveries.reduce(
+                      (acc, d) =>
+                        acc +
+                        d.items.reduce(
+                          (x, i) =>
+                            x + safeNum(i.qty_real, safeNum(i.qty_assigned, 0)),
+                          0,
+                        ),
+                      0,
                     );
                     const totalExpected = a.deliveries.reduce(
                       (acc, d) => acc + safeNum(d.total_expected, 0),
-                      0
+                      0,
                     );
                     const totalReal = a.deliveries.reduce(
                       (acc, d) => acc + safeNum(d.total_real, 0),
-                      0
+                      0,
                     );
                     const totalDifference = totalReal - totalExpected;
                     const diffTone = getDiffPresentation(totalDifference);
-                    const inventoryExpectedDiff = a.inventory_outputs.total_qty - totalPieces;
+                    const inventoryExpectedDiff =
+                      a.inventory_outputs.total_qty - totalPiecesReal;
                     const invTone = getDiffPresentation(inventoryExpectedDiff);
 
                     return (
@@ -1781,8 +2085,8 @@ export default function ReportesPage() {
                         key={a.id}
                         onClick={() => setSelectedAssignmentId(a.id)}
                         className={cx(
-                          'w-full text-left p-4 hover:bg-white/5 transition',
-                          active && 'bg-white/10'
+                          "w-full text-left p-4 hover:bg-white/5 transition",
+                          active && "bg-white/10",
                         )}
                       >
                         <div className="flex items-start gap-3">
@@ -1794,16 +2098,18 @@ export default function ReportesPage() {
                             <div className="flex items-start justify-between gap-2">
                               <div className="min-w-0">
                                 <p className="text-white font-medium truncate">
-                                  {a.driver_nombre || 'Chofer'}
+                                  {a.driver_nombre || "Chofer"}
                                 </p>
                                 <p className="text-xs text-white/50 mt-1">
                                   {formatOnlyDate(a.work_date)}
-                                  {a.driver_firebase_codigo ? ` • ${a.driver_firebase_codigo}` : ''}
+                                  {a.driver_firebase_codigo
+                                    ? ` • ${a.driver_firebase_codigo}`
+                                    : ""}
                                 </p>
                               </div>
 
                               <span className="text-[11px] px-2 py-1 rounded-full border bg-white/10 border-white/10 text-white/70 shrink-0">
-                                {a.status || '—'}
+                                {a.status || "—"}
                               </span>
                             </div>
 
@@ -1823,11 +2129,22 @@ export default function ReportesPage() {
                               <span className="text-[11px] px-2 py-1 rounded-full border bg-violet-500/10 border-violet-400/20 text-violet-100">
                                 Real: {money(totalReal)}
                               </span>
-                              <span className={cx('text-[11px] px-2 py-1 rounded-full border', diffTone.chip)}>
+                              <span
+                                className={cx(
+                                  "text-[11px] px-2 py-1 rounded-full border",
+                                  diffTone.chip,
+                                )}
+                              >
                                 {diffTone.shortLabel}: {money(totalDifference)}
                               </span>
-                              <span className={cx('text-[11px] px-2 py-1 rounded-full border', invTone.chip)}>
-                                Inv vs esp: {fmtSignedQty(inventoryExpectedDiff)}
+                              <span
+                                className={cx(
+                                  "text-[11px] px-2 py-1 rounded-full border",
+                                  invTone.chip,
+                                )}
+                              >
+                                Inv vs real:{" "}
+                                {fmtSignedQty(inventoryExpectedDiff)}
                               </span>
                             </div>
                           </div>
@@ -1853,17 +2170,21 @@ export default function ReportesPage() {
                 <div className="grid grid-cols-1 md:grid-cols-4 gap-3">
                   <SideKpi
                     title="Chofer líder"
-                    value={executiveSummary.topDriver?.driver_nombre || '—'}
+                    value={executiveSummary.topDriver?.driver_nombre || "—"}
                     icon={<Truck className="h-4 w-4" />}
                   />
                   <SideKpi
                     title="Producto líder"
-                    value={executiveSummary.topProduct?.nombre || '—'}
+                    value={executiveSummary.topProduct?.nombre || "—"}
                     icon={<Package className="h-4 w-4" />}
                   />
                   <SideKpi
                     title="Fecha más cargada"
-                    value={executiveSummary.busiestDate ? formatOnlyDate(executiveSummary.busiestDate) : '—'}
+                    value={
+                      executiveSummary.busiestDate
+                        ? formatOnlyDate(executiveSummary.busiestDate)
+                        : "—"
+                    }
                     icon={<CalendarDays className="h-4 w-4" />}
                   />
                   <SideKpi
@@ -1874,42 +2195,76 @@ export default function ReportesPage() {
                 </div>
 
                 <div className="rounded-2xl bg-black/10 border border-white/10 p-4">
-                  <p className="text-white font-medium mb-2">Resumen ejecutivo</p>
+                  <p className="text-white font-medium mb-2">
+                    Resumen ejecutivo
+                  </p>
                   <p className="text-sm leading-7 text-white/65">
-                    En el rango analizado se registran{' '}
-                    <span className="font-semibold text-white">{kpis.assignmentsCount}</span>{' '}
-                    asignaciones, con{' '}
-                    <span className="font-semibold text-white">{kpis.deliveriesCount}</span>{' '}
-                    entregas,{' '}
-                    <span className="font-semibold text-white">{kpis.totalPieces}</span> piezas esperadas,
-                    {' '}<span className="font-semibold text-white">{kpis.totalPiecesReal}</span> piezas reales,
-                    {' '}<span className="font-semibold text-white">{kpis.totalInventoryOutput}</span> piezas
-                    registradas como salida en inventario, un total esperado de{' '}
-                    <span className="font-semibold text-white">{money(kpis.totalExpected)}</span>,
-                    un total real de{' '}
-                    <span className="font-semibold text-white">{money(kpis.totalReal)}</span> y una
-                    diferencia de{' '}
-                    <span className={cx('font-semibold', totalDiffPresentation.text)}>
+                    En el rango analizado se registran{" "}
+                    <span className="font-semibold text-white">
+                      {kpis.assignmentsCount}
+                    </span>{" "}
+                    asignaciones, con{" "}
+                    <span className="font-semibold text-white">
+                      {kpis.deliveriesCount}
+                    </span>{" "}
+                    entregas,{" "}
+                    <span className="font-semibold text-white">
+                      {kpis.totalPieces}
+                    </span>{" "}
+                    piezas esperadas,{" "}
+                    <span className="font-semibold text-white">
+                      {kpis.totalPiecesReal}
+                    </span>{" "}
+                    piezas reales,{" "}
+                    <span className="font-semibold text-white">
+                      {kpis.totalInventoryOutput}
+                    </span>{" "}
+                    piezas registradas como salida en inventario, un total
+                    esperado de{" "}
+                    <span className="font-semibold text-white">
+                      {money(kpis.totalExpected)}
+                    </span>
+                    , un total real de{" "}
+                    <span className="font-semibold text-white">
+                      {money(kpis.totalReal)}
+                    </span>{" "}
+                    y una diferencia de{" "}
+                    <span
+                      className={cx(
+                        "font-semibold",
+                        totalDiffPresentation.text,
+                      )}
+                    >
                       {money(kpis.totalDifference)}
-                    </span>.
-                    {' '}Contra inventario, la diferencia vs piezas esperadas es{' '}
-                    <span className={cx('font-semibold', inventoryExpectedTone.text)}>
+                    </span>
+                    . Contra inventario, la diferencia vs piezas reales es{" "}
+                    <span
+                      className={cx(
+                        "font-semibold",
+                        inventoryExpectedTone.text,
+                      )}
+                    >
                       {fmtSignedQty(kpis.inventoryVsExpectedDifference)}
-                    </span>.
+                    </span>
+                    .
                     {executiveSummary.topDriver ? (
                       <>
-                        {' '}El chofer con mayor carga del periodo es{' '}
+                        {" "}
+                        El chofer con mayor carga del periodo es{" "}
                         <span className="font-semibold text-white">
                           {executiveSummary.topDriver.driver_nombre}
-                        </span>.
+                        </span>
+                        .
                       </>
                     ) : null}
                     {executiveSummary.topProduct ? (
                       <>
-                        {' '}El producto con mayor movimiento es{' '}
+                        {" "}
+                        El producto con mayor movimiento es{" "}
                         <span className="font-semibold text-white">
                           {executiveSummary.topProduct.nombre}
-                        </span>.
+                        </span>
+                        .
                       </>
                     ) : null}
                   </p>
@@ -1930,36 +2285,87 @@ export default function ReportesPage() {
 
               <div className="max-h-[36vh] overflow-y-auto">
                 {driverSummary.length === 0 ? (
-                  <div className="p-6 text-center text-white/50">Sin datos.</div>
+                  <div className="p-6 text-center text-white/50">
+                    Sin datos.
+                  </div>
                 ) : (
                   <div className="divide-y divide-white/10">
                     {driverSummary.map((d) => (
                       <div key={d.driver_id} className="px-4 py-4 space-y-3">
                         <div className="grid grid-cols-1 gap-3 md:grid-cols-10">
-                          <MiniResume label="Chofer" value={d.driver_nombre} icon={<UserRound className="h-4 w-4" />} />
-                          <MiniResume label="Código inv." value={d.driver_firebase_codigo || '—'} icon={<Link2 className="h-4 w-4" />} />
-                          <MiniResume label="Asignaciones" value={d.assignments_count} icon={<ClipboardList className="h-4 w-4" />} />
-                          <MiniResume label="Entregas" value={d.deliveries_count} icon={<ListOrdered className="h-4 w-4" />} />
-                          <MiniResume label="Clientes" value={d.customers_count} icon={<Users className="h-4 w-4" />} />
-                          <MiniResume label="Piezas esp." value={d.total_pieces} icon={<Boxes className="h-4 w-4" />} />
-                          <MiniResume label="Inv" value={d.inventory_total_pieces} icon={<Warehouse className="h-4 w-4" />} />
-                          <MiniResume label="Piezas reales" value={d.total_pieces_real} icon={<Boxes className="h-4 w-4" />} />
-                          <MiniResume label="Esperado" value={money(d.total_expected)} icon={<DollarSign className="h-4 w-4" />} />
-                          <MiniResume label="Real" value={money(d.total_real)} icon={<CircleDollarSign className="h-4 w-4" />} />
+                          <MiniResume
+                            label="Chofer"
+                            value={d.driver_nombre}
+                            icon={<UserRound className="h-4 w-4" />}
+                          />
+                          <MiniResume
+                            label="Código inv."
+                            value={d.driver_firebase_codigo || "—"}
+                            icon={<Link2 className="h-4 w-4" />}
+                          />
+                          <MiniResume
+                            label="Asignaciones"
+                            value={d.assignments_count}
+                            icon={<ClipboardList className="h-4 w-4" />}
+                          />
+                          <MiniResume
+                            label="Entregas"
+                            value={d.deliveries_count}
+                            icon={<ListOrdered className="h-4 w-4" />}
+                          />
+                          <MiniResume
+                            label="Clientes"
+                            value={d.customers_count}
+                            icon={<Users className="h-4 w-4" />}
+                          />
+                          <MiniResume
+                            label="Piezas esp."
+                            value={d.total_pieces}
+                            icon={<Boxes className="h-4 w-4" />}
+                          />
+                          <MiniResume
+                            label="Inv"
+                            value={d.inventory_total_pieces}
+                            icon={<Warehouse className="h-4 w-4" />}
+                          />
+                          <MiniResume
+                            label="Piezas reales"
+                            value={d.total_pieces_real}
+                            icon={<Boxes className="h-4 w-4" />}
+                          />
+                          <MiniResume
+                            label="Esperado"
+                            value={money(d.total_expected)}
+                            icon={<DollarSign className="h-4 w-4" />}
+                          />
+                          <MiniResume
+                            label="Real"
+                            value={money(d.total_real)}
+                            icon={<CircleDollarSign className="h-4 w-4" />}
+                          />
                         </div>
 
                         <div className="flex flex-wrap gap-2">
-                          <StatusChip label={`Dejó más: ${d.more_count}`} tone="more" />
-                          <StatusChip label={`Exactas: ${d.exact_count}`} tone="exact" />
-                          <StatusChip label={`Dejó menos: ${d.less_count}`} tone="less" />
                           <StatusChip
-                            label={`Inv vs esp: ${fmtSignedQty(d.inventory_vs_expected_diff)}`}
+                            label={`Dejó más: ${d.more_count}`}
+                            tone="more"
+                          />
+                          <StatusChip
+                            label={`Exactas: ${d.exact_count}`}
+                            tone="exact"
+                          />
+                          <StatusChip
+                            label={`Dejó menos: ${d.less_count}`}
+                            tone="less"
+                          />
+                          <StatusChip
+                            label={`Inv vs real: ${fmtSignedQty(d.inventory_vs_expected_diff)}`}
                             tone={
                               d.inventory_vs_expected_diff > 0
-                                ? 'more'
+                                ? "more"
                                 : d.inventory_vs_expected_diff < 0
-                                ? 'less'
-                                : 'exact'
+                                  ? "less"
+                                  : "exact"
                             }
                           />
                         </div>
@@ -1983,20 +2389,28 @@ export default function ReportesPage() {
 
               <div className="max-h-[34vh] overflow-y-auto divide-y divide-white/10">
                 {productSummary.length === 0 ? (
-                  <div className="p-6 text-center text-white/50">Sin datos.</div>
+                  <div className="p-6 text-center text-white/50">
+                    Sin datos.
+                  </div>
                 ) : (
                   productSummary.slice(0, 25).map((p) => {
                     const importeDiff = p.total_importe_real - p.total_importe;
                     const tone = getDiffPresentation(importeDiff);
-                    const invTone = getDiffPresentation(p.inventory_vs_expected_diff);
+                    const invTone = getDiffPresentation(
+                      p.inventory_vs_expected_diff,
+                    );
 
                     return (
                       <div key={p.product_id} className="px-4 py-4">
                         <div className="flex items-start justify-between gap-3">
                           <div className="min-w-0">
-                            <p className="text-white text-sm font-medium">{p.nombre}</p>
+                            <p className="text-white text-sm font-medium">
+                              {p.nombre}
+                            </p>
                             <p className="text-xs text-white/50 mt-1">
-                              Asignaciones: {p.assignments_count} • Entregas: {p.deliveries_count} • Clientes: {p.customers_count}
+                              Asignaciones: {p.assignments_count} • Entregas:{" "}
+                              {p.deliveries_count} • Clientes:{" "}
+                              {p.customers_count}
                             </p>
                             <div className="mt-2 flex flex-wrap gap-2">
                               <span className="text-[11px] px-2 py-1 rounded-full border bg-blue-500/10 border-blue-400/20 text-blue-100">
@@ -2008,18 +2422,33 @@ export default function ReportesPage() {
                               <span className="text-[11px] px-2 py-1 rounded-full border bg-violet-500/10 border-violet-400/20 text-violet-100">
                                 Real: {p.total_qty_real} pzas
                               </span>
-                              <span className={cx('text-[11px] px-2 py-1 rounded-full border', tone.chip)}>
+                              <span
+                                className={cx(
+                                  "text-[11px] px-2 py-1 rounded-full border",
+                                  tone.chip,
+                                )}
+                              >
                                 {tone.label}: {money(importeDiff)}
                               </span>
-                              <span className={cx('text-[11px] px-2 py-1 rounded-full border', invTone.chip)}>
-                                Inv vs esp: {fmtSignedQty(p.inventory_vs_expected_diff)}
+                              <span
+                                className={cx(
+                                  "text-[11px] px-2 py-1 rounded-full border",
+                                  invTone.chip,
+                                )}
+                              >
+                                Inv vs real:{" "}
+                                {fmtSignedQty(p.inventory_vs_expected_diff)}
                               </span>
                             </div>
                           </div>
 
                           <div className="text-right shrink-0">
-                            <p className="text-white font-semibold">{money(p.total_importe)}</p>
-                            <p className="text-xs text-white/50">Real: {money(p.total_importe_real)}</p>
+                            <p className="text-white font-semibold">
+                              {money(p.total_importe)}
+                            </p>
+                            <p className="text-xs text-white/50">
+                              Real: {money(p.total_importe_real)}
+                            </p>
                           </div>
                         </div>
                       </div>
@@ -2032,17 +2461,19 @@ export default function ReportesPage() {
             <div className="rounded-2xl bg-white/5 backdrop-blur-xl border border-white/10 overflow-hidden">
               <div className="border-b border-white/10 p-4 flex items-center justify-between">
                 <div>
-                  <p className="text-white font-semibold">Detalle de asignación</p>
+                  <p className="text-white font-semibold">
+                    Detalle de asignación
+                  </p>
                   <p className="text-xs text-white/50">
                     {selectedAssignment
-                      ? `${selectedAssignment.driver_nombre || 'Chofer'} • ${formatOnlyDate(selectedAssignment.work_date)}`
-                      : 'Selecciona una asignación'}
+                      ? `${selectedAssignment.driver_nombre || "Chofer"} • ${formatOnlyDate(selectedAssignment.work_date)}`
+                      : "Selecciona una asignación"}
                   </p>
                 </div>
 
                 {selectedAssignment && (
                   <span className="text-xs px-2 py-1 rounded-full border bg-white/10 border-white/10 text-white/70">
-                    {selectedAssignment.status || '—'}
+                    {selectedAssignment.status || "—"}
                   </span>
                 )}
               </div>
@@ -2056,12 +2487,12 @@ export default function ReportesPage() {
                   <div className="grid grid-cols-1 md:grid-cols-9 gap-3">
                     <SideKpi
                       title="Chofer"
-                      value={selectedAssignment.driver_nombre || '—'}
+                      value={selectedAssignment.driver_nombre || "—"}
                       icon={<Truck className="h-4 w-4" />}
                     />
                     <SideKpi
                       title="Código inv."
-                      value={selectedAssignment.driver_firebase_codigo || '—'}
+                      value={selectedAssignment.driver_firebase_codigo || "—"}
                       icon={<Link2 className="h-4 w-4" />}
                     />
                     <SideKpi
@@ -2079,8 +2510,8 @@ export default function ReportesPage() {
                       value={money(
                         selectedAssignment.deliveries.reduce(
                           (acc, d) => acc + safeNum(d.total_expected, 0),
-                          0
-                        )
+                          0,
+                        ),
                       )}
                       icon={<DollarSign className="h-4 w-4" />}
                     />
@@ -2089,8 +2520,8 @@ export default function ReportesPage() {
                       value={money(
                         selectedAssignment.deliveries.reduce(
                           (acc, d) => acc + safeNum(d.total_real, 0),
-                          0
-                        )
+                          0,
+                        ),
                       )}
                       icon={<CircleDollarSign className="h-4 w-4" />}
                     />
@@ -2104,19 +2535,29 @@ export default function ReportesPage() {
                       value={money(
                         selectedAssignment.deliveries.reduce(
                           (acc, d) => acc + d.total_diff,
-                          0
-                        )
+                          0,
+                        ),
                       )}
                       icon={<Scale className="h-4 w-4" />}
                     />
                     <SideKpi
                       title="Estado"
-                      value={getDiffPresentation(
-                        selectedAssignment.deliveries.reduce((acc, d) => acc + d.total_diff, 0)
-                      ).label}
-                      icon={getDiffPresentation(
-                        selectedAssignment.deliveries.reduce((acc, d) => acc + d.total_diff, 0)
-                      ).icon}
+                      value={
+                        getDiffPresentation(
+                          selectedAssignment.deliveries.reduce(
+                            (acc, d) => acc + d.total_diff,
+                            0,
+                          ),
+                        ).label
+                      }
+                      icon={
+                        getDiffPresentation(
+                          selectedAssignment.deliveries.reduce(
+                            (acc, d) => acc + d.total_diff,
+                            0,
+                          ),
+                        ).icon
+                      }
                     />
                   </div>
 
@@ -2132,26 +2573,36 @@ export default function ReportesPage() {
                     </div>
 
                     <div className="p-4">
-                      {selectedAssignment.inventory_outputs.products.length === 0 ? (
+                      {selectedAssignment.inventory_outputs.products.length ===
+                      0 ? (
                         <div className="text-center text-white/50 py-6">
-                          Sin salidas de inventario registradas para este chofer en la fecha.
+                          Sin salidas de inventario registradas para este chofer
+                          en la fecha.
                         </div>
                       ) : (
                         <div className="grid grid-cols-1 gap-2 md:grid-cols-2">
-                          {selectedAssignment.inventory_outputs.products.map((p) => (
-                            <div
-                              key={`${selectedAssignment.id}-${p.nombre}`}
-                              className="rounded-xl bg-white/5 border border-white/10 p-3 flex items-center justify-between gap-3"
-                            >
-                              <div className="min-w-0">
-                                <p className="text-sm text-white font-medium">{p.nombre}</p>
-                                <p className="text-xs text-white/45 mt-1">Salida inventario</p>
+                          {selectedAssignment.inventory_outputs.products.map(
+                            (p) => (
+                              <div
+                                key={`${selectedAssignment.id}-${p.nombre}`}
+                                className="rounded-xl bg-white/5 border border-white/10 p-3 flex items-center justify-between gap-3"
+                              >
+                                <div className="min-w-0">
+                                  <p className="text-sm text-white font-medium">
+                                    {p.nombre}
+                                  </p>
+                                  <p className="text-xs text-white/45 mt-1">
+                                    Salida inventario
+                                  </p>
+                                </div>
+                                <div className="text-right shrink-0">
+                                  <p className="text-sm font-semibold text-cyan-100">
+                                    {p.cantidad} pzas
+                                  </p>
+                                </div>
                               </div>
-                              <div className="text-right shrink-0">
-                                <p className="text-sm font-semibold text-cyan-100">{p.cantidad} pzas</p>
-                              </div>
-                            </div>
-                          ))}
+                            ),
+                          )}
                         </div>
                       )}
                     </div>
@@ -2164,7 +2615,9 @@ export default function ReportesPage() {
                   ) : (
                     <div className="rounded-2xl bg-black/10 border border-white/10 overflow-hidden">
                       <div className="border-b border-white/10 px-4 py-3">
-                        <p className="text-white font-medium">Detalle por cliente</p>
+                        <p className="text-white font-medium">
+                          Detalle por cliente
+                        </p>
                         <p className="text-xs text-white/50">
                           Cliente, folio, prioridad, totales y productos.
                         </p>
@@ -2185,16 +2638,19 @@ export default function ReportesPage() {
 
                                     <div className="min-w-0">
                                       <p className="text-white font-medium">
-                                        {idx + 1}. {d.customer_nombre_snapshot || 'Cliente'}
+                                        {idx + 1}.{" "}
+                                        {d.customer_nombre_snapshot ||
+                                          "Cliente"}
                                       </p>
                                       <p className="text-xs text-white/50 mt-1">
-                                        {d.diner_nombre_snapshot || 'Sin comedor'}
+                                        {d.diner_nombre_snapshot ||
+                                          "Sin comedor"}
                                       </p>
 
                                       <div className="mt-2 flex flex-wrap gap-2">
                                         <span className="px-2 py-1 rounded-full text-xs bg-white/10 border border-white/10 text-white/70 inline-flex items-center gap-1">
                                           <Hash className="h-3 w-3" />
-                                          {d.folio || '—'}
+                                          {d.folio || "—"}
                                         </span>
 
                                         <span className="px-2 py-1 rounded-full text-xs bg-white/10 border border-white/10 text-white/70">
@@ -2202,18 +2658,37 @@ export default function ReportesPage() {
                                         </span>
 
                                         <span className="px-2 py-1 rounded-full text-xs bg-white/10 border border-white/10 text-white/70">
-                                          {d.status || '—'}
+                                          {d.status || "—"}
                                         </span>
 
                                         <span className="px-2 py-1 rounded-full text-xs bg-blue-500/10 border border-blue-400/20 text-blue-100">
-                                          {d.items.reduce((acc, i) => acc + safeNum(i.qty_assigned, 0), 0)} pzas esp.
+                                          {d.items.reduce(
+                                            (acc, i) =>
+                                              acc + safeNum(i.qty_assigned, 0),
+                                            0,
+                                          )}{" "}
+                                          pzas esp.
                                         </span>
 
                                         <span className="px-2 py-1 rounded-full text-xs bg-violet-500/10 border border-violet-400/20 text-violet-100">
-                                          {d.items.reduce((acc, i) => acc + safeNum(i.qty_real, safeNum(i.qty_assigned, 0)), 0)} pzas reales
+                                          {d.items.reduce(
+                                            (acc, i) =>
+                                              acc +
+                                              safeNum(
+                                                i.qty_real,
+                                                safeNum(i.qty_assigned, 0),
+                                              ),
+                                            0,
+                                          )}{" "}
+                                          pzas reales
                                         </span>
 
-                                        <span className={cx('px-2 py-1 rounded-full text-xs border', diffTone.chip)}>
+                                        <span
+                                          className={cx(
+                                            "px-2 py-1 rounded-full text-xs border",
+                                            diffTone.chip,
+                                          )}
+                                        >
                                           {diffTone.label}
                                         </span>
                                       </div>
@@ -2223,10 +2698,17 @@ export default function ReportesPage() {
                                   {d.items.length > 0 && (
                                     <div className="mt-3 grid grid-cols-1 gap-2 md:grid-cols-2">
                                       {d.items.map((item) => {
-                                        const qtyAssigned = safeNum(item.qty_assigned, 0);
-                                        const qtyReal = safeNum(item.qty_real, safeNum(item.qty_assigned, 0));
+                                        const qtyAssigned = safeNum(
+                                          item.qty_assigned,
+                                          0,
+                                        );
+                                        const qtyReal = safeNum(
+                                          item.qty_real,
+                                          safeNum(item.qty_assigned, 0),
+                                        );
                                         const qtyDiff = qtyReal - qtyAssigned;
-                                        const itemTone = getDiffPresentation(qtyDiff);
+                                        const itemTone =
+                                          getDiffPresentation(qtyDiff);
 
                                         return (
                                           <div
@@ -2238,7 +2720,8 @@ export default function ReportesPage() {
                                                 {item.product_nombre}
                                               </p>
                                               <p className="text-xs text-white/45 mt-1">
-                                                Precio: {money(item.precio_aplicado)}
+                                                Precio:{" "}
+                                                {money(item.precio_aplicado)}
                                               </p>
                                               <div className="mt-2 flex flex-wrap gap-2">
                                                 <span className="text-[11px] px-2 py-1 rounded-full border bg-blue-500/10 border-blue-400/20 text-blue-100">
@@ -2247,20 +2730,33 @@ export default function ReportesPage() {
                                                 <span className="text-[11px] px-2 py-1 rounded-full border bg-violet-500/10 border-violet-400/20 text-violet-100">
                                                   Real: {qtyReal}
                                                 </span>
-                                                <span className={cx('text-[11px] px-2 py-1 rounded-full border', itemTone.chip)}>
-                                                  {itemTone.label}: {fmtSignedQty(qtyDiff)}
+                                                <span
+                                                  className={cx(
+                                                    "text-[11px] px-2 py-1 rounded-full border",
+                                                    itemTone.chip,
+                                                  )}
+                                                >
+                                                  {itemTone.label}:{" "}
+                                                  {fmtSignedQty(qtyDiff)}
                                                 </span>
                                               </div>
                                             </div>
 
                                             <div className="text-right shrink-0 min-w-[150px]">
                                               <p className="text-sm text-white font-semibold">
-                                                Esp: {money(item.subtotal_estimado)}
+                                                Esp:{" "}
+                                                {money(item.subtotal_estimado)}
                                               </p>
                                               <p className="text-xs text-white/45">
-                                                Real: {money(item.subtotal_real)}
+                                                Real:{" "}
+                                                {money(item.subtotal_real)}
                                               </p>
-                                              <p className={cx('text-xs mt-1 font-medium', itemTone.text)}>
+                                              <p
+                                                className={cx(
+                                                  "text-xs mt-1 font-medium",
+                                                  itemTone.text,
+                                                )}
+                                              >
                                                 {itemTone.label}
                                               </p>
                                             </div>
@@ -2272,23 +2768,39 @@ export default function ReportesPage() {
                                 </div>
 
                                 <div className="text-left xl:text-right shrink-0 min-w-[220px]">
-                                  <p className="text-xs text-white/40">Total esperado</p>
+                                  <p className="text-xs text-white/40">
+                                    Total esperado
+                                  </p>
                                   <p className="text-white font-semibold">
                                     {money(d.total_expected)}
                                   </p>
 
-                                  <p className="text-xs text-white/40 mt-2">Total real</p>
+                                  <p className="text-xs text-white/40 mt-2">
+                                    Total real
+                                  </p>
                                   <p className="text-white font-semibold">
                                     {money(d.total_real)}
                                   </p>
 
-                                  <p className="text-xs text-white/40 mt-2">Diferencia</p>
-                                  <p className={cx('font-semibold', diffTone.text)}>
+                                  <p className="text-xs text-white/40 mt-2">
+                                    Diferencia
+                                  </p>
+                                  <p
+                                    className={cx(
+                                      "font-semibold",
+                                      diffTone.text,
+                                    )}
+                                  >
                                     {money(d.total_diff)}
                                   </p>
 
                                   <div className="mt-2">
-                                    <span className={cx('inline-flex rounded-full border px-2 py-1 text-xs', diffTone.chip)}>
+                                    <span
+                                      className={cx(
+                                        "inline-flex rounded-full border px-2 py-1 text-xs",
+                                        diffTone.chip,
+                                      )}
+                                    >
                                       {diffTone.label}
                                     </span>
                                   </div>
@@ -2305,8 +2817,11 @@ export default function ReportesPage() {
                     <div className="flex items-start gap-3 text-white/70">
                       <Eye className="h-4 w-4 mt-0.5 shrink-0" />
                       <p className="text-sm leading-6">
-                        Este módulo resume la operación logística por fecha, chofer, asignación, cliente y producto,
-                        incorporando comparación entre lo esperado, lo real y las salidas registradas en inventario para facilitar auditoría y control operativo.
+                        Este módulo resume la operación logística por fecha,
+                        chofer, asignación, cliente y producto, incorporando
+                        comparación entre lo esperado, lo real y las salidas
+                        registradas en inventario para facilitar auditoría y
+                        control operativo.
                       </p>
                     </div>
                   </div>
@@ -2349,9 +2864,13 @@ function TopStat({
       <div className="flex items-center justify-between gap-3">
         <div className="min-w-0">
           <p className="text-xs text-white/50">{label}</p>
-          <p className="text-lg font-bold text-white mt-1 break-words">{value}</p>
+          <p className="text-lg font-bold text-white mt-1 break-words">
+            {value}
+          </p>
         </div>
-        <div className="rounded-xl bg-white/10 p-2 text-white/80 shrink-0">{icon}</div>
+        <div className="rounded-xl bg-white/10 p-2 text-white/80 shrink-0">
+          {icon}
+        </div>
       </div>
     </div>
   );
@@ -2371,9 +2890,13 @@ function SideKpi({
       <div className="flex items-center justify-between gap-2">
         <div className="min-w-0">
           <p className="text-xs text-white/50">{title}</p>
-          <p className="text-sm font-semibold text-white mt-1 break-words">{value}</p>
+          <p className="text-sm font-semibold text-white mt-1 break-words">
+            {value}
+          </p>
         </div>
-        <div className="rounded-lg bg-white/10 p-2 text-white/80 shrink-0">{icon}</div>
+        <div className="rounded-lg bg-white/10 p-2 text-white/80 shrink-0">
+          {icon}
+        </div>
       </div>
     </div>
   );
@@ -2394,7 +2917,9 @@ function MiniResume({
         {icon}
         {label}
       </div>
-      <div className="text-white font-semibold mt-1 break-words text-sm">{value}</div>
+      <div className="text-white font-semibold mt-1 break-words text-sm">
+        {value}
+      </div>
     </div>
   );
 }
@@ -2404,16 +2929,20 @@ function StatusChip({
   tone,
 }: {
   label: string;
-  tone: 'more' | 'less' | 'exact';
+  tone: "more" | "less" | "exact";
 }) {
   const cls =
-    tone === 'more'
-      ? 'bg-emerald-500/10 border-emerald-400/20 text-emerald-100'
-      : tone === 'less'
-      ? 'bg-red-500/10 border-red-400/20 text-red-100'
-      : 'bg-white/10 border-white/10 text-white/70';
+    tone === "more"
+      ? "bg-emerald-500/10 border-emerald-400/20 text-emerald-100"
+      : tone === "less"
+        ? "bg-red-500/10 border-red-400/20 text-red-100"
+        : "bg-white/10 border-white/10 text-white/70";
 
-  return <span className={cx('text-[11px] px-2 py-1 rounded-full border', cls)}>{label}</span>;
+  return (
+    <span className={cx("text-[11px] px-2 py-1 rounded-full border", cls)}>
+      {label}
+    </span>
+  );
 }
 
 function Skeleton() {

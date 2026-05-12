@@ -405,20 +405,51 @@ function totalsForMovement(raw: MovementDoc) {
   return { totals, labels };
 }
 
+function docTotalQty(doc: MatchedSalidaDoc) {
+  return Object.values(doc.totals).reduce((acc, qty) => acc + toNumber(qty), 0);
+}
+
+function docKeys(doc: MatchedSalidaDoc) {
+  return Object.keys(doc.totals).filter((key) => toNumber(doc.totals[key]) > 0);
+}
+
+function isCompleteBatchSalida(doc: MatchedSalidaDoc) {
+  const keys = docKeys(doc);
+  const itemsCount = Array.isArray(doc.data.items) ? doc.data.items.length : 0;
+
+  // En la pantalla de inventario, la salida real del día suele ser un batch con
+  // varios items. Los docs sueltos de 1 producto normalmente son snapshots viejos
+  // o movimientos auxiliares que duplican cantidades.
+  return keys.length >= 2 || itemsCount >= 2;
+}
+
+function keysContainedIn(container: MatchedSalidaDoc, candidate: MatchedSalidaDoc) {
+  const containerKeys = new Set(docKeys(container));
+  const candidateKeys = docKeys(candidate);
+
+  if (containerKeys.size === 0 || candidateKeys.length === 0) return false;
+  return candidateKeys.every((key) => containerKeys.has(key));
+}
+
 function isLikelyReplacementSnapshot(newest: MatchedSalidaDoc, older: MatchedSalidaDoc) {
-  const newestKeys = Object.keys(newest.totals);
-  const olderKeys = Object.keys(older.totals);
+  const newestKeys = docKeys(newest);
+  const olderKeys = docKeys(older);
 
   if (newestKeys.length === 0 || olderKeys.length === 0) return false;
 
-  const newestKeySet = new Set(newestKeys);
-  const olderContainedInNewest = olderKeys.every((key) => newestKeySet.has(key));
+  const olderContainedInNewest = keysContainedIn(newest, older);
+  if (!olderContainedInNewest) return false;
 
-  // Si el movimiento anterior sólo tiene productos que también aparecen en el
-  // más nuevo, normalmente es una versión vieja de la misma salida editada en
-  // la página de inventario. Esto evita duplicar cantidades como 15KG rolito o
-  // frappe cuando se guardó/corrigió la misma salida más de una vez.
-  return olderContainedInNewest;
+  const newestTotal = docTotalQty(newest);
+  const olderTotal = docTotalQty(older);
+
+  // Si el movimiento anterior sólo contiene productos que también aparecen en el
+  // más nuevo, normalmente es una versión vieja/snapshot de la misma salida.
+  // Ejemplo real: salida final de 6 items = 298, pero queda un doc viejo de
+  // ROLITO_15 = 10. Sin este filtro el endpoint devuelve ROLITO_15 = 60.
+  if (isCompleteBatchSalida(newest) && newestTotal >= olderTotal) return true;
+
+  return olderContainedInNewest && newestTotal >= olderTotal;
 }
 
 function selectEffectiveSalidaDocs(
@@ -428,9 +459,23 @@ function selectEffectiveSalidaDocs(
 ) {
   if (matched.length <= 1) return matched;
 
+  const sortedAll = [...matched].sort((a, b) => b.sortTime - a.sortTime);
+  const completeDocs = sortedAll.filter(isCompleteBatchSalida);
+
+  // Si existe una salida batch completa para ese chofer/día, descartamos docs
+  // sueltos cuyos productos ya estén dentro del batch. Esto alinea Reportes y
+  // Asignaciones con la tarjeta real de Salidas del inventario.
+  const withoutLooseSnapshots = sortedAll.filter((doc) => {
+    if (isCompleteBatchSalida(doc)) return true;
+
+    return !completeDocs.some(
+      (complete) => complete.id !== doc.id && keysContainedIn(complete, doc),
+    );
+  });
+
   const groups = new Map<string, MatchedSalidaDoc[]>();
 
-  for (const doc of matched) {
+  for (const doc of withoutLooseSnapshots) {
     const key = salidaGroupKey(doc.data, driverCode, driverName);
     const current = groups.get(key) || [];
     current.push(doc);
@@ -679,7 +724,18 @@ export async function GET(req: Request) {
         effectiveSalidaDocs: effectiveDocs.length,
         skippedPossibleSnapshots: Math.max(0, matchedDocs.length - effectiveDocs.length),
         matchedDocIds: matchedDocs.map((doc) => doc.id),
+        matchedDocTotals: matchedDocs.map((doc) => ({
+          id: doc.id,
+          total: docTotalQty(doc),
+          keys: doc.totals,
+          isCompleteBatch: isCompleteBatchSalida(doc),
+        })),
         effectiveDocIds: effectiveDocs.map((doc) => doc.id),
+        effectiveDocTotals: effectiveDocs.map((doc) => ({
+          id: doc.id,
+          total: docTotalQty(doc),
+          keys: doc.totals,
+        })),
         hasAdminConfig,
         hasClientConfig,
       },

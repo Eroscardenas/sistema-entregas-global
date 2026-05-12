@@ -1542,7 +1542,12 @@ export default function AdminAsignacionesPage() {
 
           const qtyAssigned = firstNumeric(item?.qty_assigned, 0);
           const qtyReal = firstNumeric(item?.qty_real, qtyAssigned, 0);
-          const unitPrice = getItemUnitPrice(item, confirmed);
+
+          // Precio por cliente del producto asignado.
+          // Usamos false para priorizar el precio esperado/asignado,
+          // así el PDF muestra el precio pactado por cliente aunque la entrega
+          // ya esté confirmada y exista qty_real/subtotal_real.
+          const unitPrice = getItemUnitPrice(item, false);
 
           const current = rowByProduct.get(productKey)!;
           current.qtyAssigned += qtyAssigned;
@@ -1612,16 +1617,29 @@ export default function AdminAsignacionesPage() {
               unitPrice: 0,
             };
 
-            const qtyDelivered = cancelled
-              ? 0
-              : confirmed
-                ? row.qtyReal
-                : row.qtyAssigned;
-
-            const qtyLabel = qtyDelivered > 0 ? `${qtyDelivered}` : "";
+            // En la hoja operativa queremos ver lo que se ASIGNÓ al cliente
+            // y el PRECIO POR CLIENTE de ese producto.
+            // Las ventas reales siguen calculándose abajo con qty_real para
+            // BOLSAS VENDIDAS, EFECTIVO, CRÉDITO y VENTA TOTAL.
+            const qtyAssignedToShow = cancelled ? 0 : row.qtyAssigned;
+            const qtyLabel =
+              qtyAssignedToShow > 0 ? `${qtyAssignedToShow}` : "";
+            const priceLabel =
+              qtyAssignedToShow > 0 && row.unitPrice > 0
+                ? `$ ${moneyPlain(row.unitPrice)}`
+                : "";
 
             return `
-              <td class="center qty-cell">${qtyLabel}</td>
+              <td class="center qty-cell">
+                ${
+                  qtyLabel
+                    ? `
+                      <div class="cell-qty">${qtyLabel}</div>
+                      <div class="cell-price">${priceLabel}</div>
+                    `
+                    : ""
+                }
+              </td>
             `;
           })
           .join("");
@@ -1842,6 +1860,22 @@ export default function AdminAsignacionesPage() {
 
             .qty-cell {
               font-size: 8px;
+              line-height: 1.05;
+            }
+
+            .cell-qty {
+              font-size: 9px;
+              font-weight: 700;
+              line-height: 1.05;
+            }
+
+            .cell-price {
+              margin-top: 1px;
+              font-size: 6.5px;
+              font-weight: 700;
+              color: #374151;
+              line-height: 1.05;
+              white-space: nowrap;
             }
 
             .price-cell {
