@@ -23,6 +23,8 @@ type MovementDoc = {
   salidaDestino?: string | null;
   destinatario?: string | null;
   clienteNombre?: string | null;
+  motivo?: string | null;
+  observaciones?: string | null;
   fecha?: any;
   createdAt?: any;
   updatedAt?: any;
@@ -335,6 +337,31 @@ function isSalidaTransporte(raw: MovementDoc) {
   return isSalida && isTransporte;
 }
 
+function isDevolucionTransporte(raw: MovementDoc) {
+  const tipo = normalize(raw.tipo);
+  const motivo = normalize(raw.motivo);
+  const observaciones = normalize(raw.observaciones);
+  const destinatario = normalize(raw.destinatario);
+  const clienteNombre = normalize(raw.clienteNombre);
+  const combined = `${tipo} ${motivo} ${observaciones} ${destinatario} ${clienteNombre}`;
+
+  const isDevolucion =
+    tipo.includes("DEVOLUCION") ||
+    tipo.includes("DEVOLUCIÓN") ||
+    motivo.includes("[DEV:TRANSPORTE]") ||
+    motivo.includes("DEV:TRANSPORTE") ||
+    observaciones.includes("[DEV:TRANSPORTE]") ||
+    observaciones.includes("DEV:TRANSPORTE");
+
+  const isTransporte =
+    destinatario.includes("TRANSPORTE") ||
+    clienteNombre.includes("TRANSPORTE") ||
+    combined.includes("TRANSPORTE") ||
+    destinatario.includes("(");
+
+  return isDevolucion && isTransporte;
+}
+
 function getDocTime(raw: MovementDoc) {
   const value = raw.fecha || raw.createdAt || raw.updatedAt;
 
@@ -375,6 +402,8 @@ type MatchedSalidaDoc = {
   labels: Record<string, string>;
   sortTime: number;
 };
+
+type MatchedDevolucionDoc = MatchedSalidaDoc;
 
 function salidaGroupKey(raw: MovementDoc, driverCode?: string | null, driverName?: string | null) {
   const salidaSubtipo = normalize(raw.salidaSubtipo);
@@ -664,11 +693,17 @@ export async function GET(req: Request) {
     const qtyByKey: Record<string, number> = {};
     const labelByKey: Record<string, string> = {};
 
+    const devolucionesByKey: Record<string, number> = {};
+    const devolucionesLabelByKey: Record<string, string> = {};
+
     let scanned = 0;
     let matchedSalida = 0;
-    let matchedDriver = 0;
+    let matchedSalidaDriver = 0;
+    let matchedDevolucion = 0;
+    let matchedDevolucionDriver = 0;
 
     const matchedDocs: MatchedSalidaDoc[] = [];
+    const matchedDevolucionDocs: MatchedDevolucionDoc[] = [];
 
     for (const entry of docs) {
       scanned += 1;
@@ -677,27 +712,58 @@ export async function GET(req: Request) {
       const docDate = getDocTime(raw);
       if (docDate && (docDate < start || docDate >= end)) continue;
 
-      if (!isSalidaTransporte(raw)) continue;
-      matchedSalida += 1;
+      const matchesDriver = driverMatches(raw, driverCode, driverName);
 
-      if (!driverMatches(raw, driverCode, driverName)) continue;
-      matchedDriver += 1;
+      if (isSalidaTransporte(raw)) {
+        matchedSalida += 1;
 
-      const { totals, labels } = totalsForMovement(raw);
-      const hasQty = Object.values(totals).some((qty) => qty > 0);
-      if (!hasQty) continue;
+        if (matchesDriver) {
+          matchedSalidaDriver += 1;
 
-      matchedDocs.push({
-        id: entry.id,
-        data: raw,
-        time: docDate,
-        totals,
-        labels,
-        sortTime: docDate?.getTime() || 0,
-      });
+          const { totals, labels } = totalsForMovement(raw);
+          const hasQty = Object.values(totals).some((qty) => qty > 0);
+
+          if (hasQty) {
+            matchedDocs.push({
+              id: entry.id,
+              data: raw,
+              time: docDate,
+              totals,
+              labels,
+              sortTime: docDate?.getTime() || 0,
+            });
+          }
+        }
+      }
+
+      if (isDevolucionTransporte(raw)) {
+        matchedDevolucion += 1;
+
+        if (matchesDriver) {
+          matchedDevolucionDriver += 1;
+
+          const { totals, labels } = totalsForMovement(raw);
+          const hasQty = Object.values(totals).some((qty) => qty > 0);
+
+          if (hasQty) {
+            matchedDevolucionDocs.push({
+              id: entry.id,
+              data: raw,
+              time: docDate,
+              totals,
+              labels,
+              sortTime: docDate?.getTime() || 0,
+            });
+          }
+        }
+      }
     }
 
-    const effectiveDocs = selectEffectiveSalidaDocs(matchedDocs, driverCode, driverName);
+    const effectiveDocs = selectEffectiveSalidaDocs(
+      matchedDocs,
+      driverCode,
+      driverName,
+    );
 
     for (const doc of effectiveDocs) {
       for (const [key, qty] of Object.entries(doc.totals)) {
@@ -708,20 +774,45 @@ export async function GET(req: Request) {
       }
     }
 
+    for (const doc of matchedDevolucionDocs) {
+      for (const [key, qty] of Object.entries(doc.totals)) {
+        if (qty <= 0) continue;
+
+        devolucionesByKey[key] = (devolucionesByKey[key] || 0) + qty;
+        if (!devolucionesLabelByKey[key]) {
+          devolucionesLabelByKey[key] = doc.labels[key] || labelByKey[key] || key;
+        }
+      }
+    }
+
     return NextResponse.json({
       ok: true,
       date,
       driverCode,
       driverName,
+
+      // Salida original del inventario para el chofer/día.
+      // Esta NO debe mezclarse con devoluciones.
       qtyByKey,
       labelByKey,
+
+      // Devoluciones registradas en inventario para el mismo chofer/día.
+      // El PDF debe mostrarlas en una fila aparte.
+      devolucionesByKey,
+      devolucionesLabelByKey,
+
       totalProducts: Object.keys(qtyByKey).length,
+      totalDevolucionesProducts: Object.keys(devolucionesByKey).length,
       debug: {
         source,
         scanned,
         matchedSalida,
-        matchedDriver,
+        matchedDriver: matchedSalidaDriver,
+        matchedSalidaDriver,
+        matchedDevolucion,
+        matchedDevolucionDriver,
         effectiveSalidaDocs: effectiveDocs.length,
+        devolucionDocs: matchedDevolucionDocs.length,
         skippedPossibleSnapshots: Math.max(0, matchedDocs.length - effectiveDocs.length),
         matchedDocIds: matchedDocs.map((doc) => doc.id),
         matchedDocTotals: matchedDocs.map((doc) => ({
@@ -732,6 +823,12 @@ export async function GET(req: Request) {
         })),
         effectiveDocIds: effectiveDocs.map((doc) => doc.id),
         effectiveDocTotals: effectiveDocs.map((doc) => ({
+          id: doc.id,
+          total: docTotalQty(doc),
+          keys: doc.totals,
+        })),
+        devolucionDocIds: matchedDevolucionDocs.map((doc) => doc.id),
+        devolucionDocTotals: matchedDevolucionDocs.map((doc) => ({
           id: doc.id,
           total: docTotalQty(doc),
           keys: doc.totals,

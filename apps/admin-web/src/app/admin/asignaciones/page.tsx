@@ -528,6 +528,7 @@ type InventoryMovementDoc = {
 
 type InventoryGlobalOutputsPdf = {
   qtyByKey: Map<string, number>;
+  devolucionesByKey: Map<string, number>;
   labelByKey: Map<string, string>;
   keyByAlias: Map<string, string>;
 };
@@ -687,6 +688,24 @@ function getInventoryQtyForPdfKey(
   return 0;
 }
 
+function getInventoryDevolucionesQtyForPdfKey(
+  inventory: InventoryGlobalOutputsPdf,
+  productKey: string,
+) {
+  const key = String(productKey || "")
+    .trim()
+    .toUpperCase();
+  if (!key) return 0;
+
+  const direct = inventory.devolucionesByKey.get(key);
+  if (typeof direct === "number") return direct;
+
+  const alias = inventory.keyByAlias.get(normalizeProductAlias(key));
+  if (alias) return inventory.devolucionesByKey.get(alias) ?? 0;
+
+  return 0;
+}
+
 function buildDriverDestinatarioCandidates(
   driverName?: string | null,
   driverCode?: string | null,
@@ -761,11 +780,12 @@ async function getInventoryGlobalOutputsForDriverPdf(
   driverCode?: string | null,
 ): Promise<InventoryGlobalOutputsPdf> {
   const qtyByKey = new Map<string, number>();
+  const devolucionesByKey = new Map<string, number>();
   const labelByKey = new Map<string, string>();
   const keyByAlias = new Map<string, string>();
 
   if (!workDate || (!driverName && !driverCode && !driverId)) {
-    return { qtyByKey, labelByKey, keyByAlias };
+    return { qtyByKey, devolucionesByKey, labelByKey, keyByAlias };
   }
 
   const attempts: Array<{ driverCode?: string; driverName?: string }> = [];
@@ -785,7 +805,7 @@ async function getInventoryGlobalOutputsForDriverPdf(
   }
 
   if (attempts.length === 0) {
-    return { qtyByKey, labelByKey, keyByAlias };
+    return { qtyByKey, devolucionesByKey, labelByKey, keyByAlias };
   }
 
   for (const attempt of attempts) {
@@ -819,8 +839,12 @@ async function getInventoryGlobalOutputsForDriverPdf(
       }
 
       const rawQtyByKey = json.qtyByKey || {};
+      const rawDevolucionesByKey = json.devolucionesByKey || {};
       const rawLabelByKey = json.labelByKey || {};
+      const rawDevolucionesLabelByKey =
+        json.devolucionesLabelByKey || rawLabelByKey || {};
       let loaded = 0;
+      let devolucionesLoaded = 0;
 
       for (const [keyRaw, qtyRaw] of Object.entries(rawQtyByKey)) {
         const rawKey = String(keyRaw || "")
@@ -855,14 +879,55 @@ async function getInventoryGlobalOutputsForDriverPdf(
         loaded += qty;
       }
 
-      if (loaded > 0) {
-        console.info("[PDF SALIDAS GLOBAL] Salidas cargadas:", {
+      for (const [keyRaw, qtyRaw] of Object.entries(rawDevolucionesByKey)) {
+        const rawKey = String(keyRaw || "")
+          .trim()
+          .toUpperCase();
+
+        const rawLabel = String(
+          rawDevolucionesLabelByKey[keyRaw] ||
+            rawDevolucionesLabelByKey[rawKey] ||
+            rawLabelByKey[keyRaw] ||
+            rawLabelByKey[rawKey] ||
+            labelFromProductKeyForPdf(rawKey),
+        ).trim();
+
+        const key = canonicalInventoryOutputKeyForPdf(rawKey, rawLabel);
+        const qty = Math.abs(firstNumeric(qtyRaw, 0));
+
+        if (!key || qty <= 0) continue;
+
+        const label = labelFromProductKeyForPdf(key, rawLabel);
+
+        devolucionesByKey.set(
+          key,
+          (devolucionesByKey.get(key) ?? 0) + qty,
+        );
+
+        if (!labelByKey.has(key)) labelByKey.set(key, label);
+
+        addInventoryAlias(keyByAlias, key, key);
+        addInventoryAlias(keyByAlias, key, rawKey);
+        addInventoryAlias(keyByAlias, key, rawLabel);
+        addInventoryAlias(keyByAlias, key, label);
+        addInventoryAlias(
+          keyByAlias,
+          key,
+          labelFromProductKeyForPdf(key, label),
+        );
+
+        devolucionesLoaded += qty;
+      }
+
+      if (loaded > 0 || devolucionesLoaded > 0) {
+        console.info("[PDF SALIDAS GLOBAL] Datos cargados:", {
           attempt,
           qtyByKey: Object.fromEntries(qtyByKey),
+          devolucionesByKey: Object.fromEntries(devolucionesByKey),
           debug: json.debug,
         });
 
-        return { qtyByKey, labelByKey, keyByAlias };
+        return { qtyByKey, devolucionesByKey, labelByKey, keyByAlias };
       }
 
       console.warn(
@@ -884,7 +949,7 @@ async function getInventoryGlobalOutputsForDriverPdf(
     }
   }
 
-  return { qtyByKey, labelByKey, keyByAlias };
+  return { qtyByKey, devolucionesByKey, labelByKey, keyByAlias };
 }
 
 export default function AdminAsignacionesPage() {
@@ -1474,6 +1539,30 @@ export default function AdminAsignacionesPage() {
       }
     }
 
+    for (const [productKey, qty] of inventoryGlobal.qtyByKey.entries()) {
+      if (!productKey || qty <= 0) continue;
+
+      const label =
+        inventoryGlobal.labelByKey.get(productKey) ||
+        labelFromProductKeyForPdf(productKey);
+
+      if (!productKeyLabelMap.has(productKey)) {
+        productKeyLabelMap.set(productKey, label);
+      }
+    }
+
+    for (const [productKey, qty] of inventoryGlobal.devolucionesByKey.entries()) {
+      if (!productKey || qty <= 0) continue;
+
+      const label =
+        inventoryGlobal.labelByKey.get(productKey) ||
+        labelFromProductKeyForPdf(productKey);
+
+      if (!productKeyLabelMap.has(productKey)) {
+        productKeyLabelMap.set(productKey, label);
+      }
+    }
+
     const productKeys = Array.from(productKeyLabelMap.keys()).sort((a, b) => {
       const wa = productSortWeightForPdf(a);
       const wb = productSortWeightForPdf(b);
@@ -1501,9 +1590,18 @@ export default function AdminAsignacionesPage() {
         const productLabel = productKeyLabelMap.get(productKey) || productKey;
 
         return `
-          <th rowspan="2" class="center product-group">${escapeHtml(productLabel)}</th>
+          <th colspan="2" class="center product-group">${escapeHtml(productLabel)}</th>
         `;
       })
+      .join("");
+
+    const headerSubHtml = productKeys
+      .map(
+        () => `
+          <th class="center mini-col qty-subcol">CANT.</th>
+          <th class="center mini-col price-subcol">PRECIO</th>
+        `,
+      )
       .join("");
 
     const rowsHtml = deliveries
@@ -1617,28 +1715,30 @@ export default function AdminAsignacionesPage() {
               unitPrice: 0,
             };
 
-            // En la hoja operativa queremos ver lo que se ASIGNÓ al cliente
-            // y el PRECIO POR CLIENTE de ese producto.
-            // Las ventas reales siguen calculándose abajo con qty_real para
-            // BOLSAS VENDIDAS, EFECTIVO, CRÉDITO y VENTA TOTAL.
-            const qtyAssignedToShow = cancelled ? 0 : row.qtyAssigned;
+            // En la hoja operativa queremos ver lo REALMENTE ENTREGADO
+            // desde la app Flutter, no lo asignado originalmente.
+            //
+            // Reglas:
+            // - Confirmada + no cancelada: muestra qty_real.
+            // - Pendiente: vacío, porque todavía no se entregó.
+            // - Cancelada: vacío, porque no cuenta.
+            //
+            // BOLSAS VENDIDAS, EFECTIVO, CRÉDITO, VENTA TOTAL y DIFERENCIA
+            // también se calculan con qty_real de entregas confirmadas.
+            const qtyDeliveredToShow = confirmed && !cancelled ? row.qtyReal : 0;
             const qtyLabel =
-              qtyAssignedToShow > 0 ? `${qtyAssignedToShow}` : "";
+              qtyDeliveredToShow > 0 ? `${qtyDeliveredToShow}` : "";
             const priceLabel =
-              qtyAssignedToShow > 0 && row.unitPrice > 0
+              qtyDeliveredToShow > 0 && row.unitPrice > 0
                 ? `$ ${moneyPlain(row.unitPrice)}`
                 : "";
 
             return `
-              <td class="center qty-cell">
-                ${
-                  qtyLabel
-                    ? `
-                      <div class="cell-qty">${qtyLabel}</div>
-                      <div class="cell-price">${priceLabel}</div>
-                    `
-                    : ""
-                }
+              <td class="center qty-cell qty-subcol">
+                ${qtyLabel ? `<div class="cell-qty">${qtyLabel}</div>` : ""}
+              </td>
+              <td class="center price-cell price-subcol">
+                ${priceLabel ? `<div class="cell-price">${priceLabel}</div>` : ""}
               </td>
             `;
           })
@@ -1680,7 +1780,7 @@ export default function AdminAsignacionesPage() {
 
     const minRows = 22;
     const blankRowsCount = Math.max(0, minRows - deliveries.length);
-    const blankProductCells = productKeys.map(() => `<td></td>`).join("");
+    const blankProductCells = productKeys.map(() => `<td></td><td></td>`).join("");
 
     const blankRowsHtml = Array.from({ length: blankRowsCount })
       .map(
@@ -1704,7 +1804,7 @@ export default function AdminAsignacionesPage() {
         const qty = soldByProduct.get(productKey) ?? 0;
 
         return `
-          <td class="center summary-qty summary-cell-summary summary-merge-cell">${qty}</td>
+          <td colspan="2" class="center summary-qty summary-cell-summary summary-merge-cell">${qty}</td>
         `;
       })
       .join("");
@@ -1713,7 +1813,23 @@ export default function AdminAsignacionesPage() {
       .map((productKey) => {
         const qty = getInventoryQtyForPdfKey(inventoryGlobal, productKey);
         return `
-          <td class="center summary-qty summary-cell-summary summary-merge-cell">${qty}</td>
+          <td colspan="2" class="center summary-qty summary-cell-summary summary-merge-cell">${qty}</td>
+        `;
+      })
+      .join("");
+
+    const devolucionesRowProducts = productKeys
+      .map((productKey) => {
+        // DEVOLUCIONES = producto que regresó el chofer al inventario.
+        // Viene separado desde /api/inventory/global-outputs para no contaminar
+        // la salida original.
+        const qty = getInventoryDevolucionesQtyForPdfKey(
+          inventoryGlobal,
+          productKey,
+        );
+
+        return `
+          <td colspan="2" class="center summary-qty summary-cell-summary summary-merge-cell">${qty}</td>
         `;
       })
       .join("");
@@ -1723,23 +1839,28 @@ export default function AdminAsignacionesPage() {
         // DIFERENCIA correcta:
         // - SALIDAS GLOBAL = lo que salió de Salidas Page para el chofer/producto.
         // - ENTREGADO REAL = suma de lo que realmente dejó a clientes en la app.
+        // - DEVOLUCIONES = producto que regresó el chofer al inventario.
         //
-        // Si faltó entregar producto:  salidas > entregado  => positivo.
-        // Si entregó de más/sobró contra la salida: entregado > salidas => negativo.
+        // Si faltó producto por justificar: salidas > entregado + devoluciones => positivo.
+        // Si entregó/devolvió de más contra la salida: entregado + devoluciones > salidas => negativo.
         // Si concuerda: 0.
         const salidasGlobal = getInventoryQtyForPdfKey(
           inventoryGlobal,
           productKey,
         );
         const entregadoReal = soldByProduct.get(productKey) ?? 0;
-        const diffRaw = salidasGlobal - entregadoReal;
+        const devoluciones = getInventoryDevolucionesQtyForPdfKey(
+          inventoryGlobal,
+          productKey,
+        );
+        const diffRaw = salidasGlobal - entregadoReal - devoluciones;
         const diff = Math.abs(diffRaw) < 0.0001 ? 0 : diffRaw;
 
         const cls =
           diff > 0 ? "diff-positive" : diff < 0 ? "diff-negative" : "diff-zero";
 
         return `
-          <td class="center summary-qty summary-cell-summary summary-merge-cell ${cls}">${signedQty(diff)}</td>
+          <td colspan="2" class="center summary-qty summary-cell-summary summary-merge-cell ${cls}">${signedQty(diff)}</td>
         `;
       })
       .join("");
@@ -1754,6 +1875,12 @@ export default function AdminAsignacionesPage() {
       <tr class="summary-row summary-row-dark">
         <th colspan="3" class="summary-label summary-dark">SALIDAS GLOBAL:</th>
         ${salidasGlobalRowProducts}
+        <td class="summary-dark"></td>
+        <td class="summary-dark"></td>
+      </tr>
+      <tr class="summary-row summary-row-dark">
+        <th colspan="3" class="summary-label summary-dark">DEVOLUCIONES:</th>
+        ${devolucionesRowProducts}
         <td class="summary-dark"></td>
         <td class="summary-dark"></td>
       </tr>
@@ -1858,6 +1985,14 @@ export default function AdminAsignacionesPage() {
               background: #fff;
             }
 
+            .qty-subcol {
+              width: 28px;
+            }
+
+            .price-subcol {
+              width: 48px;
+            }
+
             .qty-cell {
               font-size: 8px;
               line-height: 1.05;
@@ -1870,7 +2005,6 @@ export default function AdminAsignacionesPage() {
             }
 
             .cell-price {
-              margin-top: 1px;
               font-size: 6.5px;
               font-weight: 700;
               color: #374151;
@@ -2019,6 +2153,9 @@ KM RECORRIDOS: ${escapeHtml(
                   ${headerTopHtml}
                   <th rowspan="2" style="width:86px;">EFECTIVO</th>
                   <th rowspan="2" style="width:86px;">CRÉDITO</th>
+                </tr>
+                <tr>
+                  ${headerSubHtml}
                 </tr>
 
               </thead>
