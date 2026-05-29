@@ -1769,7 +1769,7 @@ export default function AdminAsignacionesPage() {
           <tr>
             <td class="center">${idx + 1}</td>
             <td>${escapeHtml(String(delivery.folio || "—"))}</td>
-            <td>${escapeHtml(clientName)}</td>
+            <td class="client-name">${escapeHtml(clientName)}</td>
             ${productCells}
             <td class="money">${efectivo > 0 ? `$ ${moneyPlain(efectivo)}` : cancelled ? "$ -" : ""}</td>
             <td class="money">${credito > 0 ? `$ ${moneyPlain(credito)}` : cancelled ? "$ -" : ""}</td>
@@ -1965,14 +1965,23 @@ export default function AdminAsignacionesPage() {
               font-size: 8px;
             }
 
+            .client-name {
+              font-size: 13px;
+              font-weight: 700;
+              line-height: 1.15;
+              letter-spacing: .2px;
+            }
+
             .center {
               text-align: center;
             }
 
-            .money {
-              text-align: right;
-              white-space: nowrap;
-            }
+.money {
+  text-align: right;
+  white-space: nowrap;
+  font-size: 10px;
+  font-weight: 700;
+}
 
             .product-group {
               font-size: 8px;
@@ -2005,7 +2014,7 @@ export default function AdminAsignacionesPage() {
             }
 
             .cell-price {
-              font-size: 6.5px;
+              font-size: 9px;
               font-weight: 700;
               color: #374151;
               line-height: 1.05;
@@ -2013,12 +2022,12 @@ export default function AdminAsignacionesPage() {
             }
 
             .price-cell {
-              font-size: 8px;
+              font-size: 10px;
             }
 
             .summary-row th,
             .summary-row td {
-              font-size: 8px;
+              font-size: 10px;
               padding: 3px 4px;
             }
 
@@ -2041,7 +2050,7 @@ export default function AdminAsignacionesPage() {
             .summary-qty {
               text-align: center;
               font-weight: 700;
-              font-size: 9px;
+              font-size: 11px;
               letter-spacing: 0.5px;
             }
 
@@ -2082,7 +2091,7 @@ export default function AdminAsignacionesPage() {
             .totals-mini td {
               border: 1px solid #4b5563;
               padding: 4px;
-              font-size: 9px;
+              font-size: 11px;
             }
 
             .venta-total-box {
@@ -2092,7 +2101,7 @@ export default function AdminAsignacionesPage() {
             }
 
             .venta-total-label {
-              font-size: 10px;
+              font-size: 12px;
               font-weight: 700;
               margin-bottom: 4px;
             }

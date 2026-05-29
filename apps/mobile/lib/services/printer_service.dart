@@ -315,35 +315,27 @@ class PrinterService {
     bytes.addAll(generator.hr(ch: '-'));
 
     bytes.addAll(generator.text(
-      'DEBO Y PAGARE LA ORDEN DE GLOBAL ICE MEXICO S.A. DE C.V.',
+      'DEBO Y PAGARE A GLOBAL ICE MEXICO S.A. DE C.V.',
       styles: const PosStyles(align: PosAlign.left),
     ));
     bytes.addAll(generator.text(
-      'EN ESTA CIUDAD DE GUADALAJARA, JAL. EL DIA $day DE $month DEL $year',
+      'EN GUADALAJARA, JAL. EL DIA $day DE $month DEL $year.',
       styles: const PosStyles(align: PosAlign.left),
     ));
     bytes.addAll(generator.text(
-      'LA CANTIDAD EXPRESADA EN ESTA REMISION DE VALOR DE LAS',
+      'EL IMPORTE DE ESTA REMISION POR LA MERCANCIA',
       styles: const PosStyles(align: PosAlign.left),
     ));
     bytes.addAll(generator.text(
-      'MERCANCIAS ARRIBA DESCRITAS, QUE HE RECIBIDO A MI ENTERA',
+      'RECIBIDA A MI ENTERA SATISFACCION.',
       styles: const PosStyles(align: PosAlign.left),
     ));
     bytes.addAll(generator.text(
-      'SATISFACCION, ESTE PAGARE MERCANTIL Y ESTA REGIDO POR LA LEY',
+      'PAGARE REGIDO POR LA LGTOC ART. 173 Y',
       styles: const PosStyles(align: PosAlign.left),
     ));
     bytes.addAll(generator.text(
-      'GENERAL DE TITULOS Y OPERACIONES DE CREDITO EN SU ARTICULO 173',
-      styles: const PosStyles(align: PosAlign.left),
-    ));
-    bytes.addAll(generator.text(
-      'PARTE FINAL Y ARTICULOS CORRELATIVOS POR NO SER PAGARE',
-      styles: const PosStyles(align: PosAlign.left),
-    ));
-    bytes.addAll(generator.text(
-      'DOMICILIADO.',
+      'ARTICULOS CORRELATIVOS. NO DOMICILIADO.',
       styles: const PosStyles(align: PosAlign.left),
     ));
 
