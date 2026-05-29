@@ -1,0 +1,9 @@
+apps/mobile/build
+apps/mobile/.dart_tool
+apps/mobile/android/.gradle
+apps/mobile/.gradle
+**/build
+**/.dart_tool
+**/.gradle
+node_modules
+.git
