@@ -248,7 +248,7 @@ class PrinterService {
 
   String _yearText(String? iso) => _parseDate(iso).year.toString();
 
-  String _normalizeText(String value, {int max = 24}) {
+  String _normalizeText(String value, {int max = 32}) {
     final clean = value
         .trim()
         .replaceAll('\n', ' ')
@@ -257,29 +257,6 @@ class PrinterService {
 
     if (clean.length <= max) return clean;
     return clean.substring(0, max);
-  }
-
-  String _shortProductName(String value) {
-    var text = value
-        .trim()
-        .replaceAll('\n', ' ')
-        .replaceAll(RegExp(r'\s+'), ' ')
-        .toUpperCase();
-
-    text = text.replaceAll('BOLSA LLENA', '');
-    text = text.replaceAll('BOLSA VACIA', '');
-    text = text.replaceAll('BOLSA VACÍA', '');
-    text = text.replaceAll('BOLSA', '');
-    text = text.replaceAll('HIELO', '');
-    text = text.replaceAll('KILOGRAMOS', 'KG');
-    text = text.replaceAll('KILOS', 'KG');
-    text = text.replaceAll('KG.', 'KG');
-
-    text = text.replaceAll(RegExp(r'\s+'), ' ').trim();
-
-    if (text.isEmpty) return _normalizeText(value, max: 18);
-    if (text.length <= 18) return text;
-    return text.substring(0, 18);
   }
 
   String _normalizePaymentMethod(String? value) {
@@ -292,7 +269,7 @@ class PrinterService {
     final method = _normalizePaymentMethod(paymentMethod);
 
     if (method == 'CREDITO') {
-      return 'PAGO A CREDITO';
+      return 'PAGO A CREDITO - SUJETO A FACTURACION';
     }
 
     return 'PAGADO EN EFECTIVO';
@@ -336,24 +313,37 @@ class PrinterService {
     final year = _yearText(deliveredAt);
 
     bytes.addAll(generator.hr(ch: '-'));
+
     bytes.addAll(generator.text(
-      'PAGARE GLOBAL ICE MEXICO S.A. DE C.V.',
+      'DEBO Y PAGARE LA ORDEN DE GLOBAL ICE MEXICO S.A. DE C.V.',
       styles: const PosStyles(align: PosAlign.left),
     ));
     bytes.addAll(generator.text(
-      'GUADALAJARA, JAL. $day DE $month DEL $year.',
+      'EN ESTA CIUDAD DE GUADALAJARA, JAL. EL DIA $day DE $month DEL $year',
       styles: const PosStyles(align: PosAlign.left),
     ));
     bytes.addAll(generator.text(
-      'RECIBI MERCANCIA A MI ENTERA SATISFACCION.',
+      'LA CANTIDAD EXPRESADA EN ESTA REMISION DE VALOR DE LAS',
       styles: const PosStyles(align: PosAlign.left),
     ));
     bytes.addAll(generator.text(
-      'PAGARE MERCANTIL ART. 173 LGTOC.',
+      'MERCANCIAS ARRIBA DESCRITAS, QUE HE RECIBIDO A MI ENTERA',
       styles: const PosStyles(align: PosAlign.left),
     ));
     bytes.addAll(generator.text(
-      'NO DOMICILIADO.',
+      'SATISFACCION, ESTE PAGARE MERCANTIL Y ESTA REGIDO POR LA LEY',
+      styles: const PosStyles(align: PosAlign.left),
+    ));
+    bytes.addAll(generator.text(
+      'GENERAL DE TITULOS Y OPERACIONES DE CREDITO EN SU ARTICULO 173',
+      styles: const PosStyles(align: PosAlign.left),
+    ));
+    bytes.addAll(generator.text(
+      'PARTE FINAL Y ARTICULOS CORRELATIVOS POR NO SER PAGARE',
+      styles: const PosStyles(align: PosAlign.left),
+    ));
+    bytes.addAll(generator.text(
+      'DOMICILIADO.',
       styles: const PosStyles(align: PosAlign.left),
     ));
 
@@ -467,7 +457,7 @@ class PrinterService {
     ));
 
     bytes.addAll(generator.text(
-      'PAGO: $normalizedPaymentMethod - $paymentLegend',
+      'PAGO: $normalizedPaymentMethod',
       styles: const PosStyles(
         align: PosAlign.left,
         bold: true,
@@ -478,13 +468,13 @@ class PrinterService {
 
     bytes.addAll(generator.row([
       PosColumn(
-        text: 'C',
-        width: 1,
+        text: 'CANT',
+        width: 2,
         styles: const PosStyles(bold: true, align: PosAlign.center),
       ),
       PosColumn(
-        text: 'PRODUCTO',
-        width: 6,
+        text: 'DESCRIPCION',
+        width: 5,
         styles: const PosStyles(bold: true, align: PosAlign.left),
       ),
       PosColumn(
@@ -493,7 +483,7 @@ class PrinterService {
         styles: const PosStyles(bold: true, align: PosAlign.right),
       ),
       PosColumn(
-        text: 'TOTAL',
+        text: 'IMPORTE',
         width: 3,
         styles: const PosStyles(bold: true, align: PosAlign.right),
       ),
@@ -511,12 +501,12 @@ class PrinterService {
         bytes.addAll(generator.row([
           PosColumn(
             text: '${item.qtyReal}',
-            width: 1,
+            width: 2,
             styles: const PosStyles(align: PosAlign.center),
           ),
           PosColumn(
-            text: _shortProductName(item.description),
-            width: 6,
+            text: _normalizeText(item.description, max: 30),
+            width: 5,
             styles: const PosStyles(align: PosAlign.left),
           ),
           PosColumn(
@@ -552,6 +542,14 @@ class PrinterService {
         ),
       ),
     ]));
+
+    bytes.addAll(generator.text(
+      paymentLegend,
+      styles: const PosStyles(
+        align: PosAlign.center,
+        bold: true,
+      ),
+    ));
 
     bytes.addAll(_buildLegalBlock(
       generator: generator,
