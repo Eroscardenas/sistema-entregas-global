@@ -1210,9 +1210,7 @@ class _DriverRoutePageState extends State<DriverRoutePage> {
                                         color: Colors.transparent,
                                         child: InkWell(
                                           borderRadius: BorderRadius.circular(20),
-                                          onTap: cancelled || _routeFinished
-                                              ? null
-                                              : () => _openDelivery(d),
+                                          onTap: cancelled ? null : () => _openDelivery(d),
                                           child: _GlassCard(
                                             child: Column(
                                               crossAxisAlignment: CrossAxisAlignment.start,
