@@ -486,46 +486,15 @@ function selectEffectiveSalidaDocs(
   driverCode?: string | null,
   driverName?: string | null,
 ) {
-  if (matched.length <= 1) return matched;
+  // FIX: no descartar salidas válidas del mismo chofer/día.
+  // Antes esta función intentaba detectar "snapshots" y terminaba dejando
+  // solo una salida global cuando al chofer se le hacían varias salidas.
+  // Aquí regresamos TODOS los movimientos encontrados para que más abajo
+  // se sumen en qtyByKey.
+  void driverCode;
+  void driverName;
 
-  const sortedAll = [...matched].sort((a, b) => b.sortTime - a.sortTime);
-  const completeDocs = sortedAll.filter(isCompleteBatchSalida);
-
-  // Si existe una salida batch completa para ese chofer/día, descartamos docs
-  // sueltos cuyos productos ya estén dentro del batch. Esto alinea Reportes y
-  // Asignaciones con la tarjeta real de Salidas del inventario.
-  const withoutLooseSnapshots = sortedAll.filter((doc) => {
-    if (isCompleteBatchSalida(doc)) return true;
-
-    return !completeDocs.some(
-      (complete) => complete.id !== doc.id && keysContainedIn(complete, doc),
-    );
-  });
-
-  const groups = new Map<string, MatchedSalidaDoc[]>();
-
-  for (const doc of withoutLooseSnapshots) {
-    const key = salidaGroupKey(doc.data, driverCode, driverName);
-    const current = groups.get(key) || [];
-    current.push(doc);
-    groups.set(key, current);
-  }
-
-  const selected: MatchedSalidaDoc[] = [];
-
-  for (const group of groups.values()) {
-    const sorted = [...group].sort((a, b) => b.sortTime - a.sortTime);
-    const kept: MatchedSalidaDoc[] = [];
-
-    for (const doc of sorted) {
-      const isReplacement = kept.some((newer) => isLikelyReplacementSnapshot(newer, doc));
-      if (!isReplacement) kept.push(doc);
-    }
-
-    selected.push(...kept);
-  }
-
-  return selected.sort((a, b) => a.sortTime - b.sortTime);
+  return [...matched].sort((a, b) => a.sortTime - b.sortTime);
 }
 
 async function readMovementsWithAdmin(start: Date, end: Date): Promise<PlainDoc[]> {

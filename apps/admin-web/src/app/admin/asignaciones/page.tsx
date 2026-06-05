@@ -40,6 +40,8 @@ import {
   Clock3,
   Flag,
   Ban,
+  Pencil,
+  Save,
 } from "lucide-react";
 
 import { PATHS } from "@/lib/constants/paths";
@@ -533,6 +535,20 @@ type InventoryGlobalOutputsPdf = {
   keyByAlias: Map<string, string>;
 };
 
+
+type EditingDeliveryDraft = {
+  deliveryId: string;
+  currentStatus?: string | null;
+  driverId: string;
+  customerId: string;
+  priority: number;
+  paymentMethod: string;
+  items: Array<{
+    product_id: string;
+    qty: number;
+  }>;
+};
+
 function hasRealDriverId(value: unknown) {
   return String(value ?? "").trim().length > 0;
 }
@@ -964,6 +980,10 @@ export default function AdminAsignacionesPage() {
   const [cancellingDeliveryId, setCancellingDeliveryId] = useState<
     string | null
   >(null);
+
+  const [editingDelivery, setEditingDelivery] =
+    useState<EditingDeliveryDraft | null>(null);
+  const [savingEditedDelivery, setSavingEditedDelivery] = useState(false);
 
   const assignableDrivers = useMemo(() => {
     return (api.drivers as AssignmentDriverOption[])
@@ -1422,6 +1442,298 @@ export default function AdminAsignacionesPage() {
     [api, cancelDelivery],
   );
 
+
+  const editableProductsForCustomer = useMemo(() => {
+    if (!editingDelivery?.customerId) return [];
+    return api.productsForCustomer(editingDelivery.customerId);
+  }, [api, editingDelivery?.customerId]);
+
+  const editingDeliverySubtotal = useMemo(() => {
+    if (!editingDelivery) return 0;
+
+    const productMap = new Map(
+      editableProductsForCustomer.map((p) => [p.id, p]),
+    );
+
+    return editingDelivery.items.reduce((acc, item) => {
+      const product = productMap.get(item.product_id);
+      if (!product) return acc;
+      return acc + safeNum(item.qty, 0) * safeNum(product.precio_cliente_final, 0);
+    }, 0);
+  }, [editingDelivery, editableProductsForCustomer]);
+
+  const openEditDelivery = useCallback(
+    (delivery: any) => {
+      const assignmentDriverId =
+        String(api.selectedAssignment?.driver_id || "").trim() ||
+        String(driverId || "").trim();
+
+      const currentCustomerId = String(delivery?.customer_id || "").trim();
+
+      setEditingDelivery({
+        deliveryId: String(delivery.id),
+        currentStatus: delivery.status || null,
+        driverId: assignmentDriverId,
+        customerId: currentCustomerId,
+        priority: clamp(safeNum(delivery.priority, 50), 1, 100),
+        paymentMethod: String(delivery.payment_method || "EFECTIVO").toUpperCase(),
+        items: (delivery.items || [])
+          .map((item: any) => ({
+            product_id: String(item?.product_id || "").trim(),
+            qty: Math.max(1, Math.floor(firstNumeric(item?.qty_assigned, 1))),
+          }))
+          .filter((item: { product_id: string }) => item.product_id),
+      });
+    },
+    [api.selectedAssignment?.driver_id, driverId],
+  );
+
+  function closeEditDelivery() {
+    if (savingEditedDelivery) return;
+    setEditingDelivery(null);
+  }
+
+  function setEditingCustomer(customerId: string) {
+    const products = api.productsForCustomer(customerId);
+
+    setEditingDelivery((prev) => {
+      if (!prev) return prev;
+
+      const allowedIds = new Set(products.map((p) => p.id));
+      const keptItems = prev.items.filter((item) => allowedIds.has(item.product_id));
+
+      return {
+        ...prev,
+        customerId,
+        items: keptItems,
+      };
+    });
+  }
+
+  function setEditingDriver(nextDriverId: string) {
+    setEditingDelivery((prev) =>
+      prev ? { ...prev, driverId: nextDriverId } : prev,
+    );
+  }
+
+  function setEditingPriority(value: number) {
+    setEditingDelivery((prev) =>
+      prev
+        ? { ...prev, priority: clamp(Math.floor(safeNum(value, 50)), 1, 100) }
+        : prev,
+    );
+  }
+
+  function setEditingPaymentMethod(value: string) {
+    setEditingDelivery((prev) =>
+      prev ? { ...prev, paymentMethod: value } : prev,
+    );
+  }
+
+  function addEditingItem(productId: string) {
+    const product = editableProductsForCustomer.find((p) => p.id === productId);
+    if (!product) return;
+
+    setEditingDelivery((prev) => {
+      if (!prev) return prev;
+      if (prev.items.some((item) => item.product_id === productId)) return prev;
+
+      return {
+        ...prev,
+        items: [
+          ...prev.items,
+          {
+            product_id: productId,
+            qty: Math.max(1, Math.floor(safeNum(product.suggested_qty, 1))),
+          },
+        ],
+      };
+    });
+  }
+
+  function removeEditingItem(productId: string) {
+    setEditingDelivery((prev) =>
+      prev
+        ? {
+            ...prev,
+            items: prev.items.filter((item) => item.product_id !== productId),
+          }
+        : prev,
+    );
+  }
+
+  function setEditingItemQty(productId: string, qty: number) {
+    const nextQty = Math.max(1, Math.floor(safeNum(qty, 1)));
+
+    setEditingDelivery((prev) =>
+      prev
+        ? {
+            ...prev,
+            items: prev.items.map((item) =>
+              item.product_id === productId ? { ...item, qty: nextQty } : item,
+            ),
+          }
+        : prev,
+    );
+  }
+
+  function fillEditingSuggested() {
+    setEditingDelivery((prev) => {
+      if (!prev) return prev;
+
+      const current = new Map(prev.items.map((item) => [item.product_id, item]));
+      const nextItems = [...prev.items];
+
+      for (const product of editableProductsForCustomer) {
+        const suggested = Math.max(1, Math.floor(safeNum(product.suggested_qty, 1)));
+        const existing = current.get(product.id);
+
+        if (existing) {
+          existing.qty = suggested;
+        } else {
+          nextItems.push({
+            product_id: product.id,
+            qty: suggested,
+          });
+        }
+      }
+
+      return { ...prev, items: [...nextItems] };
+    });
+  }
+
+  const saveEditedDelivery = useCallback(async () => {
+    if (!editingDelivery) return;
+
+    if (!editingDelivery.driverId) {
+      alert("Selecciona un chofer válido.");
+      return;
+    }
+
+    if (!editingDelivery.customerId) {
+      alert("Selecciona un cliente válido.");
+      return;
+    }
+
+    if (editingDelivery.items.length === 0) {
+      alert("La entrega debe tener mínimo un producto.");
+      return;
+    }
+
+    const selectedDriver = assignableDrivers.find(
+      (driver) => driver.id === editingDelivery.driverId,
+    );
+
+    if (!selectedDriver) {
+      alert("El chofer seleccionado no está activo o no tiene acceso completo.");
+      return;
+    }
+
+    const selectedCustomer = api.customers.find(
+      (customer) => customer.id === editingDelivery.customerId,
+    );
+
+    if (!selectedCustomer) {
+      alert("El cliente seleccionado ya no existe o no está disponible.");
+      return;
+    }
+
+    const productMap = new Map(
+      editableProductsForCustomer.map((product) => [product.id, product]),
+    );
+
+    const rows = editingDelivery.items
+      .map((item) => {
+        const product = productMap.get(item.product_id);
+        if (!product) return null;
+
+        const qty = Math.max(1, Math.floor(safeNum(item.qty, 1)));
+        const unitPrice = safeNum(product.precio_cliente_final, 0);
+
+        return {
+          delivery_id: editingDelivery.deliveryId,
+          product_id: product.id,
+          qty_assigned: qty,
+          unit_price_expected: unitPrice,
+          price: unitPrice,
+          subtotal_expected: qty * unitPrice,
+        };
+      })
+      .filter(Boolean) as Array<Record<string, unknown>>;
+
+    if (rows.length === 0) {
+      alert("Los productos seleccionados no pertenecen al cliente.");
+      return;
+    }
+
+    const totalExpected = rows.reduce(
+      (acc, row) => acc + safeNum(row.subtotal_expected, 0),
+      0,
+    );
+
+    try {
+      setSavingEditedDelivery(true);
+
+      const nextAssignmentId = await api.getOrCreateAssignment(
+        selectedDriver.id,
+        api.workDate,
+      );
+
+      if (!nextAssignmentId) {
+        throw new Error("No se pudo obtener o crear la asignación del chofer.");
+      }
+
+      const db = supabaseBrowser as never as any;
+
+      const { error: deliveryError } = await db
+        .from("deliveries")
+        .update({
+          assignment_id: nextAssignmentId,
+          customer_id: selectedCustomer.id,
+          customer_nombre_snapshot: selectedCustomer.nombre,
+          diner_nombre_snapshot: selectedCustomer.diner_nombre || null,
+          priority: editingDelivery.priority,
+          payment_method: editingDelivery.paymentMethod,
+          total_expected: totalExpected,
+        })
+        .eq("id", editingDelivery.deliveryId);
+
+      if (deliveryError) throw deliveryError;
+
+      const { error: deleteItemsError } = await db
+        .from("delivery_items")
+        .delete()
+        .eq("delivery_id", editingDelivery.deliveryId);
+
+      if (deleteItemsError) throw deleteItemsError;
+
+      const { error: insertItemsError } = await db
+        .from("delivery_items")
+        .insert(rows);
+
+      if (insertItemsError) throw insertItemsError;
+
+      setEditingDelivery(null);
+      api.setSelectedAssignmentId(nextAssignmentId);
+      await api.refreshDay(api.workDate);
+    } catch (error: unknown) {
+      console.error(error);
+      const message =
+        error instanceof Error
+          ? error.message
+          : "No se pudo editar la entrega. Revisa la tabla delivery_items y permisos de Supabase.";
+      alert(message);
+    } finally {
+      setSavingEditedDelivery(false);
+    }
+  }, [
+    editingDelivery,
+    assignableDrivers,
+    api,
+    editableProductsForCustomer,
+  ]);
+
+
   const exportSelectedAssignmentPdf = useCallback(async () => {
     if (!api.selectedAssignmentId || !api.selectedAssignment) return;
 
@@ -1455,11 +1767,13 @@ export default function AdminAsignacionesPage() {
         ? route.km_end - route.km_start
         : null;
 
-    const deliveries = [...selectedAssignmentDeliveriesAll].sort((a, b) => {
-      const af = String(a.folio || "");
-      const bf = String(b.folio || "");
-      return af.localeCompare(bf, "es", { numeric: true });
-    });
+    const deliveries = selectedAssignmentDeliveriesAll
+      .filter((d) => !isCancelledDeliveryStatus(d.status))
+      .sort((a, b) => {
+        const af = String(a.folio || "");
+        const bf = String(b.folio || "");
+        return af.localeCompare(bf, "es", { numeric: true });
+      });
 
     const deliveryProductIds = Array.from(
       new Set(
@@ -2853,7 +3167,17 @@ FECHA: ${escapeHtml(formatOnlyDate(api.workDate))}
                                     </>
                                   )}
 
-                                  <div className="mt-3 flex justify-start md:justify-end">
+                                  <div className="mt-3 flex flex-wrap justify-start gap-2 md:justify-end">
+                                    {!confirmed && (
+                                      <button
+                                        onClick={() => openEditDelivery(d)}
+                                        className="inline-flex items-center gap-2 rounded-xl bg-blue-500/20 px-3 py-2 text-xs font-medium text-blue-100 transition hover:bg-blue-500/30"
+                                      >
+                                        <Pencil className="h-3.5 w-3.5" />
+                                        Editar
+                                      </button>
+                                    )}
+
                                     {canCancel && (
                                       <button
                                         onClick={() =>
@@ -2888,10 +3212,6 @@ FECHA: ${escapeHtml(formatOnlyDate(api.workDate))}
                       <div className="border-b border-red-500/20 px-4 py-3">
                         <p className="font-medium text-red-100">
                           Entregas canceladas
-                        </p>
-                        <p className="text-xs text-red-200/70">
-                          Se conservan en historial, pero ya no cuentan en los
-                          KPIs operativos.
                         </p>
                       </div>
 
@@ -2951,6 +3271,324 @@ FECHA: ${escapeHtml(formatOnlyDate(api.workDate))}
           </div>
         </div>
       </div>
+
+      <AnimatePresence>
+        {editingDelivery && (
+          <ModalShell
+            title="Editar entrega"
+            onClose={closeEditDelivery}
+            wide
+          >
+            <div className="space-y-5">
+              <div className="grid grid-cols-1 gap-3 md:grid-cols-4">
+                <TopStat
+                  label="Chofer"
+                  value={
+                    assignableDrivers.find((d) => d.id === editingDelivery.driverId)
+                      ?.nombre || "—"
+                  }
+                  icon={<Truck className="h-4 w-4" />}
+                />
+                <TopStat
+                  label="Cliente"
+                  value={
+                    api.customers.find((c) => c.id === editingDelivery.customerId)
+                      ?.nombre || "—"
+                  }
+                  icon={<Users className="h-4 w-4" />}
+                />
+                <TopStat
+                  label="Productos"
+                  value={editingDelivery.items.length}
+                  icon={<Package className="h-4 w-4" />}
+                />
+                <TopStat
+                  label="Total esperado"
+                  value={money(editingDeliverySubtotal)}
+                  icon={<DollarSign className="h-4 w-4" />}
+                />
+              </div>
+
+              <div className="grid grid-cols-1 gap-4 lg:grid-cols-4">
+                <div>
+                  <label className="mb-2 block text-sm text-white/70">
+                    Chofer
+                  </label>
+                  <select
+                    value={editingDelivery.driverId}
+                    onChange={(e) => setEditingDriver(e.target.value)}
+                    disabled={savingEditedDelivery}
+                    className="w-full rounded-xl border border-white/10 bg-white/5 px-4 py-3 text-white focus:outline-none focus:ring-2 focus:ring-[#1E4A7A] disabled:opacity-50"
+                  >
+                    <option value="">Selecciona chofer</option>
+                    {assignableDrivers.map((driver) => (
+                      <option key={driver.id} value={driver.id}>
+                        {driver.nombre}
+                        {driver.firebase_codigo ? ` • ${driver.firebase_codigo}` : ""}
+                      </option>
+                    ))}
+                  </select>
+                  <p className="mt-1 text-xs text-white/40">
+                    Si cambias el chofer, la entrega se moverá a la asignación
+                    de ese chofer en la misma fecha.
+                  </p>
+                </div>
+
+                <div>
+                  <label className="mb-2 block text-sm text-white/70">
+                    Cliente
+                  </label>
+                  <select
+                    value={editingDelivery.customerId}
+                    onChange={(e) => setEditingCustomer(e.target.value)}
+                    disabled={savingEditedDelivery}
+                    className="w-full rounded-xl border border-white/10 bg-white/5 px-4 py-3 text-white focus:outline-none focus:ring-2 focus:ring-[#1E4A7A] disabled:opacity-50"
+                  >
+                    <option value="">Selecciona cliente</option>
+                    {api.customers
+                      .filter((customer) => customer.activo)
+                      .sort((a, b) => a.nombre.localeCompare(b.nombre, "es"))
+                      .map((customer) => (
+                        <option key={customer.id} value={customer.id}>
+                          {customer.nombre}
+                          {customer.diner_nombre ? ` • ${customer.diner_nombre}` : ""}
+                        </option>
+                      ))}
+                  </select>
+                  <p className="mt-1 text-xs text-white/40">
+                    Al cambiar cliente, se conservan solo productos permitidos
+                    para el nuevo cliente.
+                  </p>
+                </div>
+
+                <div>
+                  <label className="mb-2 block text-sm text-white/70">
+                    Prioridad
+                  </label>
+                  <input
+                    type="number"
+                    min={1}
+                    max={100}
+                    value={editingDelivery.priority}
+                    onChange={(e) => setEditingPriority(Number(e.target.value))}
+                    disabled={savingEditedDelivery}
+                    className="w-full rounded-xl border border-white/10 bg-white/5 px-4 py-3 text-white focus:outline-none focus:ring-2 focus:ring-[#1E4A7A] disabled:opacity-50"
+                  />
+                  <p className="mt-1 text-xs text-white/40">
+                    1 = más urgente, 100 = menos urgente.
+                  </p>
+                </div>
+
+                <div>
+                  <label className="mb-2 block text-sm text-white/70">
+                    Método de pago
+                  </label>
+                  <select
+                    value={editingDelivery.paymentMethod}
+                    onChange={(e) => setEditingPaymentMethod(e.target.value)}
+                    disabled={savingEditedDelivery}
+                    className="w-full rounded-xl border border-white/10 bg-white/5 px-4 py-3 text-white focus:outline-none focus:ring-2 focus:ring-[#1E4A7A] disabled:opacity-50"
+                  >
+                    <option value="EFECTIVO">EFECTIVO</option>
+                    <option value="CREDITO">CRÉDITO</option>
+                  </select>
+                </div>
+              </div>
+
+              <div className="rounded-2xl border border-white/10 bg-white/5 p-4">
+                <div className="mb-4 flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
+                  <div>
+                    <p className="flex items-center gap-2 font-semibold text-white">
+                      <Package className="h-4 w-4" />
+                      Productos de la entrega
+                    </p>
+                    <p className="text-xs text-white/50">
+                      Puedes cambiar productos y cantidades antes de que el chofer
+                      confirme la entrega.
+                    </p>
+                  </div>
+
+                  <button
+                    type="button"
+                    onClick={fillEditingSuggested}
+                    disabled={
+                      savingEditedDelivery || editableProductsForCustomer.length === 0
+                    }
+                    className="inline-flex items-center gap-2 rounded-xl bg-[#1E4A7A] px-3 py-2 text-sm text-white hover:bg-[#2E6B9E] disabled:cursor-not-allowed disabled:opacity-50"
+                  >
+                    <Sparkles className="h-4 w-4" />
+                    Usar sugeridos
+                  </button>
+                </div>
+
+                {editableProductsForCustomer.length === 0 ? (
+                  <div className="rounded-xl border border-yellow-500/20 bg-yellow-500/10 p-4 text-sm text-yellow-100">
+                    Este cliente no tiene productos activos configurados.
+                  </div>
+                ) : (
+                  <div className="grid grid-cols-1 gap-3 lg:grid-cols-2">
+                    {editableProductsForCustomer.map((product) => {
+                      const chosen = editingDelivery.items.find(
+                        (item) => item.product_id === product.id,
+                      );
+
+                      const subtotal = chosen
+                        ? safeNum(chosen.qty, 0) *
+                          safeNum(product.precio_cliente_final, 0)
+                        : 0;
+
+                      return (
+                        <div
+                          key={product.id}
+                          className={cx(
+                            "rounded-xl border p-3 transition",
+                            chosen
+                              ? "border-blue-500/30 bg-blue-500/10"
+                              : "border-white/10 bg-white/5",
+                          )}
+                        >
+                          <div className="flex items-start justify-between gap-3">
+                            <div>
+                              <p className="font-medium text-white">
+                                {product.nombre}
+                              </p>
+                              <p className="mt-1 text-xs text-white/45">
+                                {product.kind?.toUpperCase() || "PRODUCTO"} •{" "}
+                                {product.ice_type || "N/A"} •{" "}
+                                {product.kg_por_unidad}kg
+                              </p>
+
+                              <div className="mt-2 flex flex-wrap gap-2">
+                                <span className="rounded-full border border-white/10 bg-white/10 px-2 py-1 text-[11px] text-white/70">
+                                  Precio: {money(product.precio_cliente_final)}
+                                </span>
+                                <span className="rounded-full border border-white/10 bg-white/10 px-2 py-1 text-[11px] text-white/70">
+                                  Stock: {product.stock_actual}
+                                </span>
+                                <span className="rounded-full border border-blue-500/20 bg-blue-500/10 px-2 py-1 text-[11px] text-blue-100">
+                                  Sugerido: {product.suggested_qty}
+                                </span>
+                              </div>
+                            </div>
+
+                            {!chosen ? (
+                              <button
+                                type="button"
+                                onClick={() => addEditingItem(product.id)}
+                                disabled={savingEditedDelivery}
+                                className="inline-flex items-center gap-2 rounded-xl bg-white/10 px-3 py-2 text-sm text-white hover:bg-white/20 disabled:opacity-50"
+                              >
+                                <PlusCircle className="h-4 w-4" />
+                                Agregar
+                              </button>
+                            ) : (
+                              <button
+                                type="button"
+                                onClick={() => removeEditingItem(product.id)}
+                                disabled={savingEditedDelivery}
+                                className="inline-flex items-center gap-2 rounded-xl bg-red-500/20 px-3 py-2 text-sm text-red-200 hover:bg-red-500/30 disabled:opacity-50"
+                              >
+                                <X className="h-4 w-4" />
+                                Quitar
+                              </button>
+                            )}
+                          </div>
+
+                          {chosen && (
+                            <div className="mt-3 rounded-xl border border-white/10 bg-black/10 p-3">
+                              <div className="flex flex-wrap items-center gap-2">
+                                <button
+                                  type="button"
+                                  onClick={() =>
+                                    setEditingItemQty(product.id, chosen.qty - 1)
+                                  }
+                                  disabled={savingEditedDelivery || chosen.qty <= 1}
+                                  className="rounded-lg bg-white/10 p-2 text-white/70 hover:bg-white/20 disabled:opacity-40"
+                                >
+                                  <Minus className="h-4 w-4" />
+                                </button>
+
+                                <input
+                                  type="number"
+                                  min={1}
+                                  value={chosen.qty}
+                                  onChange={(e) =>
+                                    setEditingItemQty(
+                                      product.id,
+                                      Number(e.target.value),
+                                    )
+                                  }
+                                  disabled={savingEditedDelivery}
+                                  className="w-24 rounded-xl border border-white/10 bg-white/5 px-3 py-2 text-white focus:outline-none focus:ring-2 focus:ring-[#1E4A7A] disabled:opacity-50"
+                                />
+
+                                <button
+                                  type="button"
+                                  onClick={() =>
+                                    setEditingItemQty(product.id, chosen.qty + 1)
+                                  }
+                                  disabled={savingEditedDelivery}
+                                  className="rounded-lg bg-white/10 p-2 text-white/70 hover:bg-white/20 disabled:opacity-40"
+                                >
+                                  <PlusCircle className="h-4 w-4" />
+                                </button>
+
+                                <button
+                                  type="button"
+                                  onClick={() =>
+                                    setEditingItemQty(
+                                      product.id,
+                                      safeNum(product.suggested_qty, 1),
+                                    )
+                                  }
+                                  disabled={savingEditedDelivery}
+                                  className="rounded-lg bg-[#1E4A7A] px-3 py-2 text-xs text-white hover:bg-[#2E6B9E] disabled:opacity-50"
+                                >
+                                  Usar sugerido
+                                </button>
+
+                                <div className="ml-auto text-sm font-semibold text-white">
+                                  {money(subtotal)}
+                                </div>
+                              </div>
+                            </div>
+                          )}
+                        </div>
+                      );
+                    })}
+                  </div>
+                )}
+              </div>
+
+              <div className="flex flex-col gap-3 md:flex-row">
+                <button
+                  type="button"
+                  onClick={closeEditDelivery}
+                  disabled={savingEditedDelivery}
+                  className="flex-1 rounded-xl border border-white/10 bg-white/5 px-4 py-3 text-white/70 hover:bg-white/10 disabled:opacity-50"
+                >
+                  Cancelar
+                </button>
+
+                <button
+                  type="button"
+                  onClick={saveEditedDelivery}
+                  disabled={
+                    savingEditedDelivery ||
+                    !editingDelivery.driverId ||
+                    !editingDelivery.customerId ||
+                    editingDelivery.items.length === 0
+                  }
+                  className="inline-flex flex-1 items-center justify-center gap-2 rounded-xl bg-gradient-to-r from-[#1E4A7A] to-[#2E6B9E] px-4 py-3 font-medium text-white hover:from-[#2E6B9E] hover:to-[#1E4A7A] disabled:cursor-not-allowed disabled:opacity-50"
+                >
+                  <Save className="h-4 w-4" />
+                  {savingEditedDelivery ? "Guardando..." : "Guardar cambios"}
+                </button>
+              </div>
+            </div>
+          </ModalShell>
+        )}
+      </AnimatePresence>
 
       <AnimatePresence>
         {openBuilder && (
