@@ -70,7 +70,7 @@ class _DriverPrinterPageState extends State<DriverPrinterPage> {
 
 
   String _shortError(Object? error) {
-    final raw = String(error ?? '').trim();
+    final raw = (error ?? '').toString().trim();
     if (raw.isEmpty) return 'No se pudo completar la operación Bluetooth.';
 
     final lower = raw.toLowerCase();
