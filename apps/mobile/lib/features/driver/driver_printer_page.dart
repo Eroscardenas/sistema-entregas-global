@@ -370,6 +370,71 @@ class _DriverPrinterPageState extends State<DriverPrinterPage> {
     );
   }
 
+  Future<void> _forgetSavedPrinter() async {
+    if (_busy) return;
+
+    setState(() {
+      _busy = true;
+      _errorText = null;
+      _statusText = 'Olvidando impresora guardada...';
+      _autoReconnectTried = true;
+    });
+
+    await _clearSavedDevice();
+
+    if (!mounted) return;
+
+    setState(() {
+      _busy = false;
+      _savedAddress = null;
+      _savedName = null;
+
+      if (!_connected) {
+        _selected = null;
+      }
+
+      _statusText = _connected
+          ? 'Impresora guardada olvidada. La conexión actual sigue activa.'
+          : 'Impresora guardada olvidada.';
+    });
+
+    _show('Impresora guardada olvidada.');
+  }
+
+  Future<void> _changePrinter() async {
+    if (_busy) return;
+
+    setState(() {
+      _busy = true;
+      _errorText = null;
+      _statusText = 'Cambiando impresora...';
+      _autoReconnectTried = true;
+    });
+
+    final connectedNow = await _printer.isConnected;
+
+    if (connectedNow) {
+      await _printer.disconnect();
+      await Future.delayed(const Duration(milliseconds: 400));
+    }
+
+    await _clearSavedDevice();
+
+    if (!mounted) return;
+
+    setState(() {
+      _busy = false;
+      _connected = false;
+      _selected = null;
+      _savedAddress = null;
+      _savedName = null;
+      _devices = <thermal.BluetoothDevice>[];
+      _statusText = 'Selecciona una nueva impresora.';
+    });
+
+    await _startScan();
+  }
+
   Future<void> _testPrint() async {
     if (_busy) return;
 
@@ -744,6 +809,45 @@ class _DriverPrinterPageState extends State<DriverPrinterPage> {
                 ),
               ),
             ),
+          ),
+          const SizedBox(height: 10),
+          Row(
+            children: [
+              Expanded(
+                child: ElevatedButton.icon(
+                  onPressed: _busy ? null : _changePrinter,
+                  icon: const Icon(Icons.swap_horiz),
+                  label: const Text('Cambiar impresora'),
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: _warning,
+                    foregroundColor: Colors.white,
+                    padding: const EdgeInsets.symmetric(vertical: 13),
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(14),
+                    ),
+                  ),
+                ),
+              ),
+              const SizedBox(width: 10),
+              Expanded(
+                child: OutlinedButton.icon(
+                  onPressed: (_busy ||
+                          (_savedAddress == null || _savedAddress!.isEmpty))
+                      ? null
+                      : _forgetSavedPrinter,
+                  icon: const Icon(Icons.delete_outline),
+                  label: const Text('Olvidar guardada'),
+                  style: OutlinedButton.styleFrom(
+                    foregroundColor: Colors.white,
+                    side: BorderSide(color: _danger.withOpacity(0.45)),
+                    padding: const EdgeInsets.symmetric(vertical: 13),
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(14),
+                    ),
+                  ),
+                ),
+              ),
+            ],
           ),
         ],
       ),

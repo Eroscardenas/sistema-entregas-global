@@ -1877,6 +1877,30 @@ export default function AdminAsignacionesPage() {
       }
     }
 
+    // Agrega TODOS los productos activos/configurados al PDF, aunque ese día
+    // no se hayan asignado o no se hayan entregado. Si no tienen movimiento,
+    // abajo se mostrará "-" en sus celdas.
+    for (const product of api.products || []) {
+      const productKey = buildProductKeyForPdf({
+        name: product.nombre || null,
+        iceType: product.ice_type || null,
+        kg: product.kg_por_unidad || null,
+        kind: product.kind || null,
+        productId: product.id || null,
+      });
+
+      if (!productKey || productKey === "PRODUCTO") continue;
+
+      const label = labelFromProductKeyForPdf(
+        productKey,
+        product.nombre || productKey,
+      );
+
+      if (!productKeyLabelMap.has(productKey)) {
+        productKeyLabelMap.set(productKey, label);
+      }
+    }
+
     const productKeys = Array.from(productKeyLabelMap.keys()).sort((a, b) => {
       const wa = productSortWeightForPdf(a);
       const wb = productSortWeightForPdf(b);
@@ -2041,18 +2065,18 @@ export default function AdminAsignacionesPage() {
             // también se calculan con qty_real de entregas confirmadas.
             const qtyDeliveredToShow = confirmed && !cancelled ? row.qtyReal : 0;
             const qtyLabel =
-              qtyDeliveredToShow > 0 ? `${qtyDeliveredToShow}` : "";
+              qtyDeliveredToShow > 0 ? `${qtyDeliveredToShow}` : "-";
             const priceLabel =
               qtyDeliveredToShow > 0 && row.unitPrice > 0
                 ? `$ ${moneyPlain(row.unitPrice)}`
-                : "";
+                : "-";
 
             return `
               <td class="center qty-cell qty-subcol">
-                ${qtyLabel ? `<div class="cell-qty">${qtyLabel}</div>` : ""}
+                <div class="cell-qty ${qtyLabel === "-" ? "dash-cell" : ""}">${qtyLabel}</div>
               </td>
               <td class="center price-cell price-subcol">
-                ${priceLabel ? `<div class="cell-price">${priceLabel}</div>` : ""}
+                <div class="cell-price ${priceLabel === "-" ? "dash-cell" : ""}">${priceLabel}</div>
               </td>
             `;
           })
@@ -2111,6 +2135,10 @@ export default function AdminAsignacionesPage() {
       )
       .join("");
 
+    const summaryQtyLabel = (qty: number) => (qty > 0 ? String(qty) : "-");
+    const summaryDiffLabel = (qty: number) =>
+      Math.abs(qty) > 0.0001 ? signedQty(qty) : "-";
+
     const bolsasVendidasRowProducts = productKeys
       .map((productKey) => {
         // BOLSAS VENDIDAS = lo realmente entregado al cliente.
@@ -2118,7 +2146,7 @@ export default function AdminAsignacionesPage() {
         const qty = soldByProduct.get(productKey) ?? 0;
 
         return `
-          <td colspan="2" class="center summary-qty summary-cell-summary summary-merge-cell">${qty}</td>
+          <td colspan="2" class="center summary-qty summary-cell-summary summary-merge-cell ${qty <= 0 ? "dash-cell" : ""}">${summaryQtyLabel(qty)}</td>
         `;
       })
       .join("");
@@ -2127,7 +2155,7 @@ export default function AdminAsignacionesPage() {
       .map((productKey) => {
         const qty = getInventoryQtyForPdfKey(inventoryGlobal, productKey);
         return `
-          <td colspan="2" class="center summary-qty summary-cell-summary summary-merge-cell">${qty}</td>
+          <td colspan="2" class="center summary-qty summary-cell-summary summary-merge-cell ${qty <= 0 ? "dash-cell" : ""}">${summaryQtyLabel(qty)}</td>
         `;
       })
       .join("");
@@ -2143,7 +2171,7 @@ export default function AdminAsignacionesPage() {
         );
 
         return `
-          <td colspan="2" class="center summary-qty summary-cell-summary summary-merge-cell">${qty}</td>
+          <td colspan="2" class="center summary-qty summary-cell-summary summary-merge-cell ${qty <= 0 ? "dash-cell" : ""}">${summaryQtyLabel(qty)}</td>
         `;
       })
       .join("");
@@ -2174,35 +2202,43 @@ export default function AdminAsignacionesPage() {
           diff > 0 ? "diff-positive" : diff < 0 ? "diff-negative" : "diff-zero";
 
         return `
-          <td colspan="2" class="center summary-qty summary-cell-summary summary-merge-cell ${cls}">${signedQty(diff)}</td>
+          <td colspan="2" class="center summary-qty summary-cell-summary summary-merge-cell ${cls} ${diff === 0 ? "dash-cell" : ""}">${summaryDiffLabel(diff)}</td>
         `;
       })
       .join("");
 
+    const summarySpacerCells = productKeys.map(() => `<td colspan="2"></td>`).join("");
+
     const summaryRowsHtml = `
+      <tr class="summary-spacer-row">
+        <td colspan="3"></td>
+        ${summarySpacerCells}
+        <td></td>
+        <td></td>
+      </tr>
       <tr class="summary-row summary-row-dark">
-        <th colspan="3" class="summary-label summary-dark">BOLSAS VENDIDAS:</th>
+        <th colspan="3" class="summary-label summary-label-dark">BOLSAS VENDIDAS:</th>
         ${bolsasVendidasRowProducts}
-        <td class="summary-dark"></td>
-        <td class="summary-dark"></td>
+        <td class="summary-end-dark"></td>
+        <td class="summary-end-dark"></td>
       </tr>
-      <tr class="summary-row summary-row-dark">
-        <th colspan="3" class="summary-label summary-dark">SALIDAS GLOBAL:</th>
+      <tr class="summary-row summary-row-light">
+        <th colspan="3" class="summary-label summary-label-light">SALIDAS GLOBAL:</th>
         ${salidasGlobalRowProducts}
-        <td class="summary-dark"></td>
-        <td class="summary-dark"></td>
+        <td class="summary-end-light"></td>
+        <td class="summary-end-light"></td>
       </tr>
       <tr class="summary-row summary-row-dark">
-        <th colspan="3" class="summary-label summary-dark">DEVOLUCIONES:</th>
+        <th colspan="3" class="summary-label summary-label-dark">DEVOLUCIONES:</th>
         ${devolucionesRowProducts}
-        <td class="summary-dark"></td>
-        <td class="summary-dark"></td>
+        <td class="summary-end-dark"></td>
+        <td class="summary-end-dark"></td>
       </tr>
-      <tr class="summary-row summary-row-dark">
-        <th colspan="3" class="summary-label summary-dark">DIFERENCIA:</th>
+      <tr class="summary-row summary-row-light">
+        <th colspan="3" class="summary-label summary-label-light">DIFERENCIA:</th>
         ${diffRowProducts}
-        <td class="summary-dark"></td>
-        <td class="summary-dark"></td>
+        <td class="summary-end-light"></td>
+        <td class="summary-end-light"></td>
       </tr>
     `;
 
@@ -2339,26 +2375,52 @@ export default function AdminAsignacionesPage() {
               font-size: 10px;
             }
 
+            .summary-spacer-row td {
+              height: 18px;
+              padding: 0;
+              border-left: 0 !important;
+              border-right: 0 !important;
+              border-top: 3px solid #111827 !important;
+              border-bottom: 3px solid #111827 !important;
+              background: #ffffff !important;
+            }
+
             .summary-row th,
             .summary-row td {
               font-size: 10px;
               padding: 3px 4px;
+              border-color: #374151 !important;
             }
 
             .summary-row-dark th,
-            .summary-row-dark td {
-              background: #d1d5db !important;
+            .summary-row-dark td,
+            .summary-row-dark .summary-cell-summary {
+              background: #8f99a8 !important;
               color: #111827 !important;
             }
 
-            .summary-dark {
-              background: #cbd5e1 !important;
+            .summary-row-light th,
+            .summary-row-light td,
+            .summary-row-light .summary-cell-summary {
+              background: #d1d5db !important;
               color: #111827 !important;
             }
 
             .summary-label {
               text-align: left;
               font-weight: 700;
+            }
+
+            .summary-label-dark,
+            .summary-end-dark {
+              background: #6b7280 !important;
+              color: #ffffff !important;
+            }
+
+            .summary-label-light,
+            .summary-end-light {
+              background: #cbd5e1 !important;
+              color: #111827 !important;
             }
 
             .summary-qty {
@@ -2369,8 +2431,8 @@ export default function AdminAsignacionesPage() {
             }
 
             .summary-cell-summary {
-              background: #e5e7eb !important;
               color: #111827 !important;
+              border-color: #374151 !important;
             }
 
             .summary-price {
@@ -2437,6 +2499,11 @@ export default function AdminAsignacionesPage() {
 
             .diff-zero {
               color: #111827 !important;
+              font-weight: 700;
+            }
+
+            .dash-cell {
+              color: #374151 !important;
               font-weight: 700;
             }
           </style>

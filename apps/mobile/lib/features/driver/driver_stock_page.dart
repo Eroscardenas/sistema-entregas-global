@@ -359,7 +359,20 @@ class _DriverStockPageState extends State<DriverStockPage> {
         }
       }
 
-      final allKeys = assignedTodayByKey.keys.toList();
+      // IMPORTANTE:
+      // Antes solo se mostraban productos que venían desde asignaciones admin.
+      // Eso ocultaba salidas globales hechas desde inventario cuando el producto
+      // no existía en delivery_items.
+      //
+      // Ahora se muestran:
+      // - productos con salida global de inventario,
+      // - productos asignados desde admin,
+      // - productos entregados/confirmados.
+      final allKeys = <String>{
+        ...outputsByKey.keys,
+        ...assignedTodayByKey.keys,
+        ...deliveredByKey.keys,
+      }.toList();
 
       final mapped = allKeys.map((key) {
         final outputQty = outputsByKey[key] ?? 0;
