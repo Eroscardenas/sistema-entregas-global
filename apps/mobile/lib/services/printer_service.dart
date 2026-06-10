@@ -37,8 +37,32 @@ class PrinterService {
 
   String? lastError;
 
+  String _friendlyError(Object e) {
+    final raw = e.toString().trim();
+    final lower = raw.toLowerCase();
+
+    if (lower.contains('read failed') ||
+        lower.contains('socket might closed') ||
+        lower.contains('connect_error') ||
+        lower.contains('timeout')) {
+      return 'No se pudo conectar la impresora. Apaga/prende la impresora, verifica que no esté conectada a otro celular y vuelve a intentar.';
+    }
+
+    if (lower.contains('permission') || lower.contains('permiso')) {
+      return 'Faltan permisos de Bluetooth. Activa Dispositivos cercanos y Ubicación en permisos de la app.';
+    }
+
+    if (lower.contains('bluetooth') && lower.contains('off')) {
+      return 'Bluetooth está apagado. Actívalo e intenta de nuevo.';
+    }
+
+    final firstLine = raw.split('\n').first.trim();
+    if (firstLine.length > 180) return '${firstLine.substring(0, 180)}...';
+    return firstLine.isEmpty ? 'Error Bluetooth desconocido.' : firstLine;
+  }
+
   void _setError(Object e) {
-    lastError = e.toString();
+    lastError = _friendlyError(e);
     debugPrint('PrinterService error: $lastError');
   }
 
@@ -101,7 +125,7 @@ class PrinterService {
       return true;
     } catch (e) {
       _isScanningController.add(false);
-      _setError('No se pudieron obtener impresoras Bluetooth vinculadas: $e');
+      _setError(e);
       return false;
     }
   }
@@ -123,14 +147,27 @@ class PrinterService {
       final hasPermissions = await ensureBluetoothPermissions();
       if (!hasPermissions) return false;
 
-      final connectedNow = await isConnected;
-      if (connectedNow) {
-        await disconnect();
-        await Future.delayed(const Duration(milliseconds: 300));
+      // Limpieza preventiva: algunas impresoras MTP/M860 dejan el socket
+      // abierto aunque isConnected reporte false. Intentar desconectar antes
+      // evita CONNECT_ERROR / socket might closed / read failed.
+      try {
+        await _bluetooth.disconnect();
+      } catch (_) {
+        // Ignorar: solo estamos limpiando socket anterior.
       }
 
-      await _bluetooth.connect(device);
-      await Future.delayed(const Duration(milliseconds: 500));
+      await Future.delayed(const Duration(milliseconds: 800));
+
+      _connectStateController.add('CONNECTING');
+
+      await _bluetooth.connect(device).timeout(
+        const Duration(seconds: 12),
+        onTimeout: () {
+          throw TimeoutException('Tiempo de conexión agotado.');
+        },
+      );
+
+      await Future.delayed(const Duration(milliseconds: 1000));
 
       final connected = await isConnected;
       _connectStateController.add(connected ? 'CONNECTED' : 'CONNECT_FAIL');
@@ -143,14 +180,29 @@ class PrinterService {
       return true;
     } catch (e) {
       _connectStateController.add('CONNECT_ERROR');
-      _setError('No se pudo conectar la impresora: $e');
+      _setError(e);
+
+      try {
+        await _bluetooth.disconnect();
+      } catch (_) {
+        // Ignorar limpieza después de error.
+      }
+
       return false;
     }
   }
 
   Future<bool> disconnect() async {
     try {
-      await _bluetooth.disconnect();
+      lastError = null;
+
+      try {
+        await _bluetooth.disconnect();
+      } catch (_) {
+        // Si ya estaba desconectada, lo tratamos como éxito.
+      }
+
+      await Future.delayed(const Duration(milliseconds: 300));
       _connectStateController.add('DISCONNECTED');
       return true;
     } catch (e) {
@@ -643,9 +695,10 @@ class PrinterService {
       );
 
       await _bluetooth.writeBytes(Uint8List.fromList(bytes));
+      await Future.delayed(const Duration(milliseconds: 250));
       return true;
     } catch (e) {
-      _setError('No se pudo imprimir el ticket: $e');
+      _setError(e);
       return false;
     }
   }

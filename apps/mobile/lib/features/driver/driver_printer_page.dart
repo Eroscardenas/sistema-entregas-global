@@ -68,6 +68,36 @@ class _DriverPrinterPageState extends State<DriverPrinterPage> {
     await _syncInitialState();
   }
 
+
+  String _shortError(Object? error) {
+    final raw = String(error ?? '').trim();
+    if (raw.isEmpty) return 'No se pudo completar la operación Bluetooth.';
+
+    final lower = raw.toLowerCase();
+
+    if (lower.contains('read failed') ||
+        lower.contains('socket might closed') ||
+        lower.contains('connect_error') ||
+        lower.contains('timeout')) {
+      return 'No se pudo conectar. Apaga y prende la impresora, revisa que esté vinculada en Ajustes Bluetooth y vuelve a presionar Cambiar impresora / Buscar.';
+    }
+
+    if (lower.contains('permission') || lower.contains('permiso')) {
+      return 'Faltan permisos de Bluetooth. Revisa permisos de la app y Bluetooth del teléfono.';
+    }
+
+    if (lower.contains('bluetooth') && lower.contains('off')) {
+      return 'Bluetooth está apagado. Actívalo e intenta de nuevo.';
+    }
+
+    final firstLine = raw.split('\n').first.trim();
+    if (firstLine.length > 180) {
+      return '${firstLine.substring(0, 180)}...';
+    }
+
+    return firstLine;
+  }
+
   void _initStreams() {
     _scanSub = _printer.scanResults.listen(
       (List<thermal.BluetoothDevice> event) async {
@@ -84,7 +114,7 @@ class _DriverPrinterPageState extends State<DriverPrinterPage> {
       onError: (Object e) {
         if (!mounted) return;
         setState(() {
-          _errorText = 'Error leyendo dispositivos: $e';
+          _errorText = _shortError(e);
           _statusText = 'No se pudieron leer dispositivos Bluetooth.';
         });
       },
@@ -114,7 +144,7 @@ class _DriverPrinterPageState extends State<DriverPrinterPage> {
         if (!mounted) return;
         setState(() {
           _scanning = false;
-          _errorText = 'Error de escaneo Bluetooth: $e';
+          _errorText = _shortError(e);
           _statusText = 'Error al buscar dispositivos.';
         });
       },
@@ -131,7 +161,7 @@ class _DriverPrinterPageState extends State<DriverPrinterPage> {
 
         setState(() {
           _connected = isConnected;
-          _statusText = 'Estado de conexión: $event';
+          _statusText = isConnected ? 'Estado de conexión: conectado' : 'Estado de conexión: sin conexión';
 
           if (!isConnected &&
               (stateText.contains('DISCONNECT') ||
@@ -146,7 +176,7 @@ class _DriverPrinterPageState extends State<DriverPrinterPage> {
         setState(() {
           _connected = false;
           _selected = null;
-          _errorText = 'Error de conexión Bluetooth: $e';
+          _errorText = _shortError(e);
           _statusText = 'Error de conexión.';
         });
       },
@@ -212,25 +242,11 @@ class _DriverPrinterPageState extends State<DriverPrinterPage> {
   }
 
   Future<void> _tryAutoReconnectIfPossible() async {
-    if (_autoReconnectTried) return;
-    if (_busy) return;
-    if (_connected) return;
-    if (_savedAddress == null || _savedAddress!.isEmpty) return;
-    if (_devices.isEmpty) return;
-
-    thermal.BluetoothDevice? matched;
-
-    for (final d in _devices) {
-      if ((d.address ?? '') == _savedAddress) {
-        matched = d;
-        break;
-      }
-    }
-
-    if (matched == null) return;
-
-    _autoReconnectTried = true;
-    await _connect(matched, silent: true, autoReconnect: true);
+    // No reconectar automáticamente.
+    // Antes intentaba conectarse sola a la última impresora guardada y eso
+    // provocaba CONNECT_ERROR cuando esa impresora estaba apagada, lejos o
+    // conectada a otro celular. Ahora el chofer decide presionando "Conectar".
+    return;
   }
 
   Future<void> _startScan() async {
@@ -253,13 +269,13 @@ class _DriverPrinterPageState extends State<DriverPrinterPage> {
 
       if (!ok) {
         _errorText =
-            _printer.lastError ?? 'No se pudo iniciar la búsqueda Bluetooth.';
+            _shortError(_printer.lastError ?? 'No se pudo iniciar la búsqueda Bluetooth.');
         _statusText = 'Error al buscar dispositivos.';
       }
     });
 
     if (!ok) {
-      _show(_printer.lastError ?? 'No se pudo buscar dispositivos Bluetooth.');
+      _show(_shortError(_printer.lastError ?? 'No se pudo buscar dispositivos Bluetooth.'));
     }
   }
 
@@ -281,12 +297,12 @@ class _DriverPrinterPageState extends State<DriverPrinterPage> {
           ok ? 'Búsqueda detenida.' : 'No se pudo detener la búsqueda.';
 
       if (!ok) {
-        _errorText = _printer.lastError ?? 'No se pudo detener el escaneo.';
+        _errorText = _shortError(_printer.lastError ?? 'No se pudo detener el escaneo.');
       }
     });
 
     if (!ok) {
-      _show(_printer.lastError ?? 'No se pudo detener el escaneo.');
+      _show(_shortError(_printer.lastError ?? 'No se pudo detener el escaneo.'));
     }
   }
 
@@ -300,10 +316,26 @@ class _DriverPrinterPageState extends State<DriverPrinterPage> {
     setState(() {
       _busy = true;
       _errorText = null;
+      _autoReconnectTried = true;
       _statusText = autoReconnect
           ? 'Reconectando a ${device.name ?? 'dispositivo Bluetooth'}...'
           : 'Conectando a ${device.name ?? 'dispositivo Bluetooth'}...';
     });
+
+    if (_scanning) {
+      await _printer.stopScan();
+      if (mounted) {
+        setState(() {
+          _scanning = false;
+        });
+      }
+    }
+
+    final alreadyConnected = await _printer.isConnected;
+    if (alreadyConnected) {
+      await _printer.disconnect();
+      await Future.delayed(const Duration(milliseconds: 500));
+    }
 
     final ok = await _printer.connect(device);
     final connected = ok ? await _printer.isConnected : false;
@@ -319,7 +351,7 @@ class _DriverPrinterPageState extends State<DriverPrinterPage> {
           : 'No se pudo conectar.';
 
       if (!connected) {
-        _errorText = _printer.lastError ?? 'No se pudo conectar la impresora.';
+        _errorText = _shortError(_printer.lastError ?? 'No se pudo conectar la impresora.');
       }
     });
 
@@ -329,7 +361,7 @@ class _DriverPrinterPageState extends State<DriverPrinterPage> {
         _show('Dispositivo Bluetooth conectado correctamente.');
       }
     } else if (!silent) {
-      _show(_printer.lastError ?? 'No se pudo conectar la impresora.');
+      _show(_shortError(_printer.lastError ?? 'No se pudo conectar la impresora.'));
     }
   }
 
@@ -358,7 +390,7 @@ class _DriverPrinterPageState extends State<DriverPrinterPage> {
         _connected = false;
         _statusText = 'Dispositivo desconectado.';
       } else {
-        _errorText = _printer.lastError ?? 'No se pudo desconectar.';
+        _errorText = _shortError(_printer.lastError ?? 'No se pudo desconectar.');
         _statusText = 'No se pudo desconectar.';
       }
     });
@@ -366,7 +398,7 @@ class _DriverPrinterPageState extends State<DriverPrinterPage> {
     _show(
       ok
           ? 'Dispositivo desconectado.'
-          : (_printer.lastError ?? 'No se pudo desconectar.'),
+          : (_shortError(_printer.lastError ?? 'No se pudo desconectar.')),
     );
   }
 
@@ -471,8 +503,8 @@ class _DriverPrinterPageState extends State<DriverPrinterPage> {
       if (ok) {
         _statusText = 'Impresión de prueba enviada correctamente.';
       } else {
-        _errorText = _printer.lastError ??
-            'No se pudo imprimir. Este dispositivo puede no ser compatible.';
+        _errorText = _shortError(_printer.lastError ??
+            'No se pudo imprimir. Este dispositivo puede no ser compatible.');
         _statusText = 'No se pudo imprimir.';
       }
     });
@@ -480,7 +512,7 @@ class _DriverPrinterPageState extends State<DriverPrinterPage> {
     _show(
       ok
           ? 'Prueba de impresión enviada.'
-          : (_printer.lastError ?? 'No se pudo imprimir.'),
+          : (_shortError(_printer.lastError ?? 'No se pudo imprimir.')),
     );
   }
 
@@ -872,16 +904,20 @@ class _DriverPrinterPageState extends State<DriverPrinterPage> {
       );
     }
 
-    return ListView.separated(
-      itemCount: _devices.length,
-      separatorBuilder: (_, __) => const SizedBox(height: 10),
-      itemBuilder: (_, i) {
-        final thermal.BluetoothDevice d = _devices[i];
-        final bool isSelected = (_selected?.address ?? '') == (d.address ?? '');
-        final bool isSaved = (_savedAddress ?? '').isNotEmpty &&
-            (_savedAddress ?? '') == (d.address ?? '');
+    final cards = <Widget>[];
 
-        return _GlassCard(
+    for (int i = 0; i < _devices.length; i++) {
+      final thermal.BluetoothDevice d = _devices[i];
+      final bool isSelected = (_selected?.address ?? '') == (d.address ?? '');
+      final bool isSaved = (_savedAddress ?? '').isNotEmpty &&
+          (_savedAddress ?? '') == (d.address ?? '');
+
+      if (i > 0) {
+        cards.add(const SizedBox(height: 10));
+      }
+
+      cards.add(
+        _GlassCard(
           child: Row(
             children: [
               Container(
@@ -940,18 +976,23 @@ class _DriverPrinterPageState extends State<DriverPrinterPage> {
               ElevatedButton(
                 onPressed: _busy ? null : () => _connect(d),
                 style: ElevatedButton.styleFrom(
-                  backgroundColor: isSelected ? _success : _accent,
+                  backgroundColor: isSelected && _connected ? _success : _accent,
                   foregroundColor: Colors.white,
                   shape: RoundedRectangleBorder(
                     borderRadius: BorderRadius.circular(12),
                   ),
                 ),
-                child: Text(isSelected ? 'Conectado' : 'Conectar'),
+                child: Text(isSelected && _connected ? 'Conectado' : 'Conectar'),
               ),
             ],
           ),
-        );
-      },
+        ),
+      );
+    }
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: cards,
     );
   }
 
@@ -981,13 +1022,16 @@ class _DriverPrinterPageState extends State<DriverPrinterPage> {
           ),
         ),
         child: SafeArea(
-          child: Padding(
+          child: SingleChildScrollView(
             padding: const EdgeInsets.all(16),
+            physics: const BouncingScrollPhysics(),
             child: Column(
+              crossAxisAlignment: CrossAxisAlignment.stretch,
               children: [
                 _buildTopPanel(),
                 const SizedBox(height: 14),
-                Expanded(child: _buildDeviceList()),
+                _buildDeviceList(),
+                const SizedBox(height: 24),
               ],
             ),
           ),
