@@ -9,6 +9,7 @@ import 'package:printing/printing.dart';
 import 'package:timezone/timezone.dart' as tz;
 
 import 'package:mobile/features/driver/driver_delivery_detail_page.dart';
+import 'package:mobile/features/driver/driver_sale_page.dart';
 
 class DriverRoutePage extends StatefulWidget {
   final String driverId;
@@ -33,6 +34,7 @@ class _DriverRoutePageState extends State<DriverRoutePage> {
   static const _royal = Color(0xFF1E4A7A);
   static const _accent = Color(0xFF4DADFF);
   static const _burgundy = Color(0xFF852838);
+  static const _green = Color(0xFF10B981);
 
   final _sb = Supabase.instance.client;
 
@@ -59,9 +61,7 @@ class _DriverRoutePageState extends State<DriverRoutePage> {
     return '$y-$m-$day';
   }
 
-  tz.TZDateTime _nowMx() {
-    return tz.TZDateTime.now(_mxLocation);
-  }
+  tz.TZDateTime _nowMx() => tz.TZDateTime.now(_mxLocation);
 
   void _restartPoller() {
     _poller?.cancel();
@@ -98,21 +98,24 @@ class _DriverRoutePageState extends State<DriverRoutePage> {
     return '$dd/$mm/$yy $hh:$min';
   }
 
-  String _normalizeStatus(String? s) {
-    return (s ?? '').trim().toUpperCase();
-  }
+  String _normalizeStatus(String? s) => (s ?? '').trim().toUpperCase();
 
   bool _isDeliveredStatus(String? s) {
     final status = _normalizeStatus(s);
     return status == 'ENTREGADA' ||
         status == 'CONFIRMADA' ||
         status == 'FINALIZADA' ||
-        status == 'COMPLETADA';
+        status == 'COMPLETADA' ||
+        status == 'DELIVERED';
   }
 
   bool _isCancelledStatus(String? s) {
-    final status = _normalizeStatus(s);
-    return status == 'CANCELADA';
+    return _normalizeStatus(s) == 'CANCELADA';
+  }
+
+  bool _affectsProgress(_DeliveryRow d) {
+    if (d.deliveryType == 'driver_sale') return false;
+    return d.affectsProgress;
   }
 
   bool get _routeStarted {
@@ -123,20 +126,24 @@ class _DriverRoutePageState extends State<DriverRoutePage> {
 
   bool get _routeFinished {
     if (_assignment == null) return false;
-    final s = _normalizeStatus(_assignment!.routeStatus);
-    return s == 'FINALIZADA';
+    return _normalizeStatus(_assignment!.routeStatus) == 'FINALIZADA';
   }
 
   int get _deliveredCountReal {
-    return _deliveries.where((e) => _isDeliveredStatus(e.status)).length;
+    return _deliveries
+        .where((e) => _affectsProgress(e) && _isDeliveredStatus(e.status))
+        .length;
   }
 
   int get _activeCountReal {
-    return _deliveries.where((e) => !_isCancelledStatus(e.status)).length;
+    return _deliveries
+        .where((e) => _affectsProgress(e) && !_isCancelledStatus(e.status))
+        .length;
   }
 
   int get _pendingActiveCountReal {
     return _deliveries.where((e) {
+      if (!_affectsProgress(e)) return false;
       final cancelled = _isCancelledStatus(e.status);
       final delivered = _isDeliveredStatus(e.status);
       return !cancelled && !delivered;
@@ -177,9 +184,7 @@ class _DriverRoutePageState extends State<DriverRoutePage> {
 
   String _fmtKm(double? value) {
     if (value == null) return '—';
-    if (value == value.roundToDouble()) {
-      return value.toInt().toString();
-    }
+    if (value == value.roundToDouble()) return value.toInt().toString();
     return value.toStringAsFixed(1);
   }
 
@@ -196,6 +201,7 @@ class _DriverRoutePageState extends State<DriverRoutePage> {
     if (routeStatus != 'FINALIZADA') return;
 
     final hasActivePending = mappedDeliveries.any((d) {
+      if (!_affectsProgress(d)) return false;
       return !_isCancelledStatus(d.status) && !_isDeliveredStatus(d.status);
     });
 
@@ -244,9 +250,10 @@ class _DriverRoutePageState extends State<DriverRoutePage> {
       final deliveries = await _sb
           .from('deliveries')
           .select(
-            'id, folio, customer_nombre_snapshot, diner_nombre_snapshot, status, delivered_at, total_expected, total_real, priority, payment_method',
+            'id, folio, customer_nombre_snapshot, diner_nombre_snapshot, status, delivered_at, total_expected, total_real, priority, payment_method, delivery_type, affects_progress, affects_stock, created_by_driver',
           )
           .eq('assignment_id', assignmentId)
+          .order('created_by_driver', ascending: true)
           .order('priority', ascending: true)
           .order('folio', ascending: true);
 
@@ -255,8 +262,8 @@ class _DriverRoutePageState extends State<DriverRoutePage> {
             (d) => _DeliveryRow(
               id: (d['id'] ?? '').toString(),
               folio: (d['folio'] ?? '').toString(),
-              customerName: (d['customer_nombre_snapshot'] ?? 'Cliente')
-                  .toString(),
+              customerName:
+                  (d['customer_nombre_snapshot'] ?? 'Cliente').toString(),
               dinerName: (d['diner_nombre_snapshot'] ?? '').toString(),
               status: (d['status'] ?? 'PENDIENTE').toString(),
               deliveredAt: d['delivered_at']?.toString(),
@@ -266,6 +273,11 @@ class _DriverRoutePageState extends State<DriverRoutePage> {
                   ? null
                   : ((d['priority'] ?? 0) as num).toInt(),
               paymentMethod: (d['payment_method'] ?? '').toString(),
+              deliveryType:
+                  (d['delivery_type'] ?? 'assigned_delivery').toString(),
+              affectsProgress: d['affects_progress'] != false,
+              affectsStock: d['affects_stock'] != false,
+              createdByDriver: d['created_by_driver'] == true,
             ),
           )
           .toList();
@@ -283,10 +295,15 @@ class _DriverRoutePageState extends State<DriverRoutePage> {
           .eq('assignment_id', assignmentId)
           .maybeSingle();
 
+      final progressDeliveries =
+          mappedDeliveries.where((e) => _affectsProgress(e)).toList();
+
       final deliveredCount =
-          mappedDeliveries.where((e) => _isDeliveredStatus(e.status)).length;
+          progressDeliveries.where((e) => _isDeliveredStatus(e.status)).length;
+
       final activeCount =
-          mappedDeliveries.where((e) => !_isCancelledStatus(e.status)).length;
+          progressDeliveries.where((e) => !_isCancelledStatus(e.status)).length;
+
       final progress = activeCount == 0 ? 0.0 : deliveredCount / activeCount;
 
       final totalExpected = mappedDeliveries
@@ -297,7 +314,9 @@ class _DriverRoutePageState extends State<DriverRoutePage> {
           .where((e) => !_isCancelledStatus(e.status))
           .fold<double>(
             0,
-            (acc, e) => acc + (_isDeliveredStatus(e.status) ? e.totalReal : e.totalExpected),
+            (acc, e) =>
+                acc +
+                (_isDeliveredStatus(e.status) ? e.totalReal : e.totalExpected),
           );
 
       final effectiveAssignmentStatus = route == null
@@ -315,8 +334,9 @@ class _DriverRoutePageState extends State<DriverRoutePage> {
           id: assignmentId,
           status: effectiveAssignmentStatus,
           routeId: route == null ? null : (route['id'] ?? '').toString(),
-          routeStatus:
-              route == null ? 'NO_INICIADA' : (route['status'] ?? 'NO_INICIADA').toString(),
+          routeStatus: route == null
+              ? 'NO_INICIADA'
+              : (route['status'] ?? 'NO_INICIADA').toString(),
           startedAt: route == null ? null : route['started_at']?.toString(),
           endedAt: route == null ? null : route['ended_at']?.toString(),
           kmStart: route == null ? null : _toDoubleOrNull(route['km_start']),
@@ -324,7 +344,7 @@ class _DriverRoutePageState extends State<DriverRoutePage> {
           totalExpected: totalExpected,
           totalReal: totalReal,
           progress: progress,
-          totalDeliveries: mappedDeliveries.length,
+          totalDeliveries: progressDeliveries.length,
           deliveredCount: deliveredCount,
           activeCount: activeCount,
         );
@@ -354,6 +374,27 @@ class _DriverRoutePageState extends State<DriverRoutePage> {
     }
 
     await _load();
+  }
+
+  Future<void> _openDriverSale() async {
+    if (_assignment == null || _busy) return;
+
+    final result = await Navigator.of(context).push<bool>(
+      MaterialPageRoute(
+        builder: (_) => DriverSalePage(
+          driverId: widget.driverId,
+          driverName: widget.driverName,
+          assignmentId: _assignment!.id,
+          routeId: _assignment!.routeId,
+        ),
+      ),
+    );
+
+    if (!mounted) return;
+
+    if (result == true) {
+      await _load();
+    }
   }
 
   Future<double?> _askForKm({
@@ -413,7 +454,9 @@ class _DriverRoutePageState extends State<DriverRoutePage> {
 
       final existingRoute = await _sb
           .from('routes')
-          .select('id, assignment_id, status, started_at, ended_at, km_start, km_end')
+          .select(
+            'id, assignment_id, status, started_at, ended_at, km_start, km_end',
+          )
           .eq('assignment_id', assignmentId)
           .maybeSingle();
 
@@ -435,16 +478,13 @@ class _DriverRoutePageState extends State<DriverRoutePage> {
           throw Exception('La ruta existente no tiene id válido.');
         }
 
-        await _sb
-            .from('routes')
-            .update({
-              'status': 'EN_RUTA',
-              'started_at': existingStartedAt ?? nowMx.toIso8601String(),
-              'ended_at': null,
-              'km_start': existingKmStart ?? kmStart,
-              'km_end': null,
-            })
-            .eq('id', routeId);
+        await _sb.from('routes').update({
+          'status': 'EN_RUTA',
+          'started_at': existingStartedAt ?? nowMx.toIso8601String(),
+          'ended_at': null,
+          'km_start': existingKmStart ?? kmStart,
+          'km_end': null,
+        }).eq('id', routeId);
       }
 
       await _load();
@@ -474,16 +514,13 @@ class _DriverRoutePageState extends State<DriverRoutePage> {
             final existingKmStart = _toDoubleOrNull(existingRoute['km_start']);
             final nowMx = _nowMx();
 
-            await _sb
-                .from('routes')
-                .update({
-                  'status': 'EN_RUTA',
-                  'started_at': existingStartedAt ?? nowMx.toIso8601String(),
-                  'ended_at': null,
-                  'km_start': existingKmStart ?? kmStart,
-                  'km_end': null,
-                })
-                .eq('id', routeId);
+            await _sb.from('routes').update({
+              'status': 'EN_RUTA',
+              'started_at': existingStartedAt ?? nowMx.toIso8601String(),
+              'ended_at': null,
+              'km_start': existingKmStart ?? kmStart,
+              'km_end': null,
+            }).eq('id', routeId);
 
             await _load();
 
@@ -508,15 +545,18 @@ class _DriverRoutePageState extends State<DriverRoutePage> {
         SnackBar(content: Text(e.toString().replaceFirst('Exception: ', ''))),
       );
     } finally {
-      if (mounted) {
-        setState(() => _busy = false);
-      }
+      if (mounted) setState(() => _busy = false);
       _restartPoller();
     }
   }
 
   Future<void> _finishRoute() async {
-    if (!_canFinishRoute || _assignment == null || _assignment!.routeId == null || _busy) return;
+    if (!_canFinishRoute ||
+        _assignment == null ||
+        _assignment!.routeId == null ||
+        _busy) {
+      return;
+    }
 
     _poller?.cancel();
 
@@ -542,14 +582,11 @@ class _DriverRoutePageState extends State<DriverRoutePage> {
     try {
       final nowMx = _nowMx();
 
-      await _sb
-          .from('routes')
-          .update({
-            'status': 'FINALIZADA',
-            'ended_at': nowMx.toIso8601String(),
-            'km_end': kmEnd,
-          })
-          .eq('id', _assignment!.routeId!);
+      await _sb.from('routes').update({
+        'status': 'FINALIZADA',
+        'ended_at': nowMx.toIso8601String(),
+        'km_end': kmEnd,
+      }).eq('id', _assignment!.routeId!);
 
       await _load();
 
@@ -567,14 +604,14 @@ class _DriverRoutePageState extends State<DriverRoutePage> {
         SnackBar(content: Text(e.toString().replaceFirst('Exception: ', ''))),
       );
     } finally {
-      if (mounted) {
-        setState(() => _busy = false);
-      }
+      if (mounted) setState(() => _busy = false);
       _restartPoller();
     }
   }
 
   Future<void> _openDelivery(_DeliveryRow d) async {
+    if (d.isDriverSale) return;
+
     await Navigator.of(context).push<bool>(
       MaterialPageRoute(
         builder: (_) => DriverDeliveryDetailPage(
@@ -589,7 +626,9 @@ class _DriverRoutePageState extends State<DriverRoutePage> {
     await _load();
   }
 
-  Future<List<_DeliveryPdfItem>> _loadDeliveryItemsForPdf(String deliveryId) async {
+  Future<List<_DeliveryPdfItem>> _loadDeliveryItemsForPdf(
+    String deliveryId,
+  ) async {
     final rows = await _sb
         .from('delivery_items')
         .select('product_id, qty_assigned, qty_real, precio_aplicado')
@@ -623,7 +662,8 @@ class _DriverRoutePageState extends State<DriverRoutePage> {
       final p = productsById[pid] ?? {};
       final qtyAssigned = ((raw['qty_assigned'] ?? 0) as num).toInt();
       final qtyRealRaw = raw['qty_real'];
-      final qtyReal = qtyRealRaw == null ? qtyAssigned : (qtyRealRaw as num).toInt();
+      final qtyReal =
+          qtyRealRaw == null ? qtyAssigned : (qtyRealRaw as num).toInt();
       final precio = ((raw['precio_aplicado'] ?? 0) as num).toDouble();
 
       return _DeliveryPdfItem(
@@ -643,7 +683,8 @@ class _DriverRoutePageState extends State<DriverRoutePage> {
     final items = await _loadDeliveryItemsForPdf(delivery.id);
 
     final totalQtyReal = items.fold<int>(0, (acc, e) => acc + e.qtyReal);
-    final totalQtyAssigned = items.fold<int>(0, (acc, e) => acc + e.qtyAssigned);
+    final totalQtyAssigned =
+        items.fold<int>(0, (acc, e) => acc + e.qtyAssigned);
 
     doc.addPage(
       pw.MultiPage(
@@ -692,8 +733,10 @@ class _DriverRoutePageState extends State<DriverRoutePage> {
                       ),
                       pw.SizedBox(height: 4),
                       pw.Text(
-                        'Comprobante de entrega',
-                        style: pw.TextStyle(
+                        delivery.isDriverSale
+                            ? 'Comprobante de venta en ruta'
+                            : 'Comprobante de entrega',
+                        style: const pw.TextStyle(
                           color: PdfColors.white,
                           fontSize: 10,
                         ),
@@ -713,7 +756,11 @@ class _DriverRoutePageState extends State<DriverRoutePage> {
             ),
             child: pw.Column(
               children: [
-                _pdfInfoRow('Folio', delivery.folio),
+                _pdfInfoRow(
+                  'Tipo',
+                  delivery.isDriverSale ? 'VENTA EN RUTA' : 'ENTREGA',
+                ),
+                _pdfInfoRow('Folio', delivery.folio.isEmpty ? '—' : delivery.folio),
                 _pdfInfoRow('Chofer', widget.driverName),
                 _pdfInfoRow('Cliente', delivery.customerName),
                 _pdfInfoRow(
@@ -721,7 +768,10 @@ class _DriverRoutePageState extends State<DriverRoutePage> {
                   delivery.dinerName.isEmpty ? 'Sin comedor' : delivery.dinerName,
                 ),
                 _pdfInfoRow('Estado', delivery.status),
-                _pdfInfoRow('Fecha/Hora confirmación', _fmtDateTimeMx(delivery.deliveredAt)),
+                _pdfInfoRow(
+                  'Fecha/Hora confirmación',
+                  _fmtDateTimeMx(delivery.deliveredAt),
+                ),
                 _pdfInfoRow(
                   'Pago',
                   delivery.paymentMethod.trim().isEmpty
@@ -733,7 +783,9 @@ class _DriverRoutePageState extends State<DriverRoutePage> {
           ),
           pw.SizedBox(height: 18),
           pw.Text(
-            'Detalle de productos entregados',
+            delivery.isDriverSale
+                ? 'Detalle de productos vendidos'
+                : 'Detalle de productos entregados',
             style: pw.TextStyle(
               fontSize: 13,
               fontWeight: pw.FontWeight.bold,
@@ -812,8 +864,9 @@ class _DriverRoutePageState extends State<DriverRoutePage> {
               borderRadius: pw.BorderRadius.circular(8),
             ),
             child: pw.Text(
-              'Documento generado desde la app móvil de chofer. '
-              'El total real refleja las cantidades efectivamente entregadas y confirmadas.',
+              delivery.isDriverSale
+                  ? 'Documento generado desde la app móvil de chofer. Esta venta consume stock del chofer, pero no afecta el progreso de entregas.'
+                  : 'Documento generado desde la app móvil de chofer. El total real refleja las cantidades efectivamente entregadas y confirmadas.',
               style: const pw.TextStyle(
                 fontSize: 9,
                 color: PdfColors.grey800,
@@ -835,7 +888,9 @@ class _DriverRoutePageState extends State<DriverRoutePage> {
 
       await Printing.layoutPdf(
         onLayout: (_) async => pdfBytes,
-        name: 'entrega_${delivery.folio}.pdf',
+        name: delivery.isDriverSale
+            ? 'venta_ruta_${delivery.id}.pdf'
+            : 'entrega_${delivery.folio}.pdf',
       );
     } catch (e) {
       if (!mounted) return;
@@ -857,6 +912,7 @@ class _DriverRoutePageState extends State<DriverRoutePage> {
       case 'CONFIRMADA':
       case 'FINALIZADA':
       case 'COMPLETADA':
+      case 'DELIVERED':
         return 'Entregada';
       case 'PENDIENTE':
         return 'Pendiente';
@@ -875,7 +931,8 @@ class _DriverRoutePageState extends State<DriverRoutePage> {
       case 'CONFIRMADA':
       case 'FINALIZADA':
       case 'COMPLETADA':
-        return const Color(0xFF10B981);
+      case 'DELIVERED':
+        return _green;
       case 'PENDIENTE':
         return const Color(0xFFF59E0B);
       case 'CANCELADA':
@@ -958,14 +1015,17 @@ class _DriverRoutePageState extends State<DriverRoutePage> {
                             slivers: [
                               SliverToBoxAdapter(
                                 child: Padding(
-                                  padding: const EdgeInsets.fromLTRB(16, 16, 16, 14),
+                                  padding:
+                                      const EdgeInsets.fromLTRB(16, 16, 16, 14),
                                   child: _GlassCard(
                                     child: Column(
-                                      crossAxisAlignment: CrossAxisAlignment.start,
+                                      crossAxisAlignment:
+                                          CrossAxisAlignment.start,
                                       children: [
                                         Row(
                                           children: [
-                                            const Icon(Icons.route, color: Colors.white),
+                                            const Icon(Icons.route,
+                                                color: Colors.white),
                                             const SizedBox(width: 10),
                                             Expanded(
                                               child: Text(
@@ -984,7 +1044,8 @@ class _DriverRoutePageState extends State<DriverRoutePage> {
                                         Text(
                                           'Fecha operativa: $_workDate',
                                           style: TextStyle(
-                                            color: Colors.white.withOpacity(0.75),
+                                            color:
+                                                Colors.white.withOpacity(0.75),
                                             fontWeight: FontWeight.w700,
                                           ),
                                         ),
@@ -992,7 +1053,8 @@ class _DriverRoutePageState extends State<DriverRoutePage> {
                                         Text(
                                           'Hora Guadalajara: ${_fmtNowMx(nowMx)}',
                                           style: TextStyle(
-                                            color: Colors.white.withOpacity(0.62),
+                                            color:
+                                                Colors.white.withOpacity(0.62),
                                             fontWeight: FontWeight.w600,
                                             fontSize: 12.5,
                                           ),
@@ -1003,21 +1065,24 @@ class _DriverRoutePageState extends State<DriverRoutePage> {
                                             Expanded(
                                               child: _StatChip(
                                                 label: 'Entregas',
-                                                value: '${_assignment!.totalDeliveries}',
+                                                value:
+                                                    '${_assignment!.totalDeliveries}',
                                               ),
                                             ),
                                             const SizedBox(width: 10),
                                             Expanded(
                                               child: _StatChip(
                                                 label: 'Entregadas',
-                                                value: '${_assignment!.deliveredCount}',
+                                                value:
+                                                    '${_assignment!.deliveredCount}',
                                               ),
                                             ),
                                             const SizedBox(width: 10),
                                             Expanded(
                                               child: _StatChip(
                                                 label: 'Activas',
-                                                value: '${_assignment!.activeCount}',
+                                                value:
+                                                    '${_assignment!.activeCount}',
                                               ),
                                             ),
                                           ],
@@ -1026,19 +1091,23 @@ class _DriverRoutePageState extends State<DriverRoutePage> {
                                         Text(
                                           'Progreso $_progressPercent%',
                                           style: TextStyle(
-                                            color: Colors.white.withOpacity(0.85),
+                                            color:
+                                                Colors.white.withOpacity(0.85),
                                             fontWeight: FontWeight.w800,
                                           ),
                                         ),
                                         const SizedBox(height: 6),
                                         ClipRRect(
-                                          borderRadius: BorderRadius.circular(999),
+                                          borderRadius:
+                                              BorderRadius.circular(999),
                                           child: LinearProgressIndicator(
                                             value: _progressReal,
                                             minHeight: 10,
-                                            backgroundColor: Colors.white.withOpacity(0.10),
+                                            backgroundColor:
+                                                Colors.white.withOpacity(0.10),
                                             valueColor:
-                                                const AlwaysStoppedAnimation<Color>(_accent),
+                                                const AlwaysStoppedAnimation<
+                                                    Color>(_accent),
                                           ),
                                         ),
                                         const SizedBox(height: 12),
@@ -1047,14 +1116,18 @@ class _DriverRoutePageState extends State<DriverRoutePage> {
                                             Expanded(
                                               child: _StatChip(
                                                 label: 'Esperado',
-                                                value: _money(_assignment!.totalExpected),
+                                                value: _money(
+                                                  _assignment!.totalExpected,
+                                                ),
                                               ),
                                             ),
                                             const SizedBox(width: 10),
                                             Expanded(
                                               child: _StatChip(
                                                 label: 'Real',
-                                                value: _money(_assignment!.totalReal),
+                                                value: _money(
+                                                  _assignment!.totalReal,
+                                                ),
                                               ),
                                             ),
                                           ],
@@ -1065,7 +1138,8 @@ class _DriverRoutePageState extends State<DriverRoutePage> {
                                           runSpacing: 8,
                                           children: [
                                             _MiniPill(
-                                              icon: Icons.play_circle_outline,
+                                              icon:
+                                                  Icons.play_circle_outline,
                                               text:
                                                   'Inicio ${_fmtDateTimeMx(_assignment!.startedAt)}',
                                             ),
@@ -1076,15 +1150,19 @@ class _DriverRoutePageState extends State<DriverRoutePage> {
                                             ),
                                             _MiniPill(
                                               icon: Icons.speed_outlined,
-                                              text: 'KM inicio ${_fmtKm(_assignment!.kmStart)}',
+                                              text:
+                                                  'KM inicio ${_fmtKm(_assignment!.kmStart)}',
                                             ),
                                             _MiniPill(
                                               icon: Icons.pin_outlined,
-                                              text: 'KM final ${_fmtKm(_assignment!.kmEnd)}',
+                                              text:
+                                                  'KM final ${_fmtKm(_assignment!.kmEnd)}',
                                             ),
                                             const _MiniPill(
-                                              icon: Icons.event_note_outlined,
-                                              text: 'Fecha controlada por sistema',
+                                              icon:
+                                                  Icons.event_note_outlined,
+                                              text:
+                                                  'Fecha controlada por sistema',
                                             ),
                                           ],
                                         ),
@@ -1093,21 +1171,34 @@ class _DriverRoutePageState extends State<DriverRoutePage> {
                                           children: [
                                             Expanded(
                                               child: ElevatedButton.icon(
-                                                onPressed: _canStartRoute ? _startRoute : null,
-                                                icon: const Icon(Icons.play_arrow),
+                                                onPressed: _canStartRoute
+                                                    ? _startRoute
+                                                    : null,
+                                                icon:
+                                                    const Icon(Icons.play_arrow),
                                                 label: Text(
-                                                  _routeStarted ? 'Ruta iniciada' : 'Iniciar ruta',
+                                                  _routeStarted
+                                                      ? 'Ruta iniciada'
+                                                      : 'Iniciar ruta',
                                                 ),
-                                                style: ElevatedButton.styleFrom(
+                                                style:
+                                                    ElevatedButton.styleFrom(
                                                   backgroundColor: _accent,
-                                                  foregroundColor: Colors.white,
+                                                  foregroundColor:
+                                                      Colors.white,
                                                   disabledBackgroundColor:
-                                                      Colors.white.withOpacity(0.10),
+                                                      Colors.white.withOpacity(
+                                                          0.10),
                                                   disabledForegroundColor:
-                                                      Colors.white.withOpacity(0.40),
-                                                  padding: const EdgeInsets.symmetric(vertical: 14),
-                                                  shape: RoundedRectangleBorder(
-                                                    borderRadius: BorderRadius.circular(16),
+                                                      Colors.white.withOpacity(
+                                                          0.40),
+                                                  padding: const EdgeInsets
+                                                      .symmetric(vertical: 14),
+                                                  shape:
+                                                      RoundedRectangleBorder(
+                                                    borderRadius:
+                                                        BorderRadius.circular(
+                                                            16),
                                                   ),
                                                 ),
                                               ),
@@ -1115,23 +1206,33 @@ class _DriverRoutePageState extends State<DriverRoutePage> {
                                             const SizedBox(width: 10),
                                             Expanded(
                                               child: ElevatedButton.icon(
-                                                onPressed: _canFinishRoute ? _finishRoute : null,
+                                                onPressed: _canFinishRoute
+                                                    ? _finishRoute
+                                                    : null,
                                                 icon: const Icon(Icons.flag),
                                                 label: Text(
                                                   _routeFinished
                                                       ? 'Ruta finalizada'
                                                       : 'Finalizar ruta',
                                                 ),
-                                                style: ElevatedButton.styleFrom(
+                                                style:
+                                                    ElevatedButton.styleFrom(
                                                   backgroundColor: _burgundy,
-                                                  foregroundColor: Colors.white,
+                                                  foregroundColor:
+                                                      Colors.white,
                                                   disabledBackgroundColor:
-                                                      Colors.white.withOpacity(0.10),
+                                                      Colors.white.withOpacity(
+                                                          0.10),
                                                   disabledForegroundColor:
-                                                      Colors.white.withOpacity(0.40),
-                                                  padding: const EdgeInsets.symmetric(vertical: 14),
-                                                  shape: RoundedRectangleBorder(
-                                                    borderRadius: BorderRadius.circular(16),
+                                                      Colors.white.withOpacity(
+                                                          0.40),
+                                                  padding: const EdgeInsets
+                                                      .symmetric(vertical: 14),
+                                                  shape:
+                                                      RoundedRectangleBorder(
+                                                    borderRadius:
+                                                        BorderRadius.circular(
+                                                            16),
                                                   ),
                                                 ),
                                               ),
@@ -1139,43 +1240,82 @@ class _DriverRoutePageState extends State<DriverRoutePage> {
                                           ],
                                         ),
                                         const SizedBox(height: 10),
-                                        if (_routeFinished && _pendingActiveCountReal > 0)
+                                        SizedBox(
+                                          width: double.infinity,
+                                          child: ElevatedButton.icon(
+                                            onPressed:
+                                                (_busy || _assignment == null)
+                                                    ? null
+                                                    : _openDriverSale,
+                                            icon:
+                                                const Icon(Icons.point_of_sale),
+                                            label: const Text('Hacer venta'),
+                                            style: ElevatedButton.styleFrom(
+                                              backgroundColor: _green,
+                                              foregroundColor: Colors.white,
+                                              disabledBackgroundColor:
+                                                  Colors.white.withOpacity(0.10),
+                                              disabledForegroundColor:
+                                                  Colors.white.withOpacity(0.40),
+                                              padding:
+                                                  const EdgeInsets.symmetric(
+                                                vertical: 14,
+                                              ),
+                                              shape: RoundedRectangleBorder(
+                                                borderRadius:
+                                                    BorderRadius.circular(16),
+                                              ),
+                                            ),
+                                          ),
+                                        ),
+                                        const SizedBox(height: 10),
+                                        if (_routeFinished &&
+                                            _pendingActiveCountReal > 0)
                                           Container(
                                             width: double.infinity,
                                             padding: const EdgeInsets.all(12),
                                             decoration: BoxDecoration(
-                                              borderRadius: BorderRadius.circular(14),
-                                              color: Colors.orange.withOpacity(0.12),
+                                              borderRadius:
+                                                  BorderRadius.circular(14),
+                                              color:
+                                                  Colors.orange.withOpacity(0.12),
                                               border: Border.all(
-                                                color: Colors.orange.withOpacity(0.22),
+                                                color: Colors.orange
+                                                    .withOpacity(0.22),
                                               ),
                                             ),
                                             child: Text(
                                               'Se detectaron nuevas entregas activas después de cerrar la ruta. La app reabrirá la ruta automáticamente.',
                                               style: TextStyle(
-                                                color: Colors.white.withOpacity(0.88),
+                                                color: Colors.white
+                                                    .withOpacity(0.88),
                                                 fontWeight: FontWeight.w700,
                                                 fontSize: 12.5,
                                               ),
                                             ),
                                           )
-                                        else if (!_canFinishRoute && !_routeFinished)
+                                        else if (!_canFinishRoute &&
+                                            !_routeFinished)
                                           Container(
                                             width: double.infinity,
                                             padding: const EdgeInsets.all(12),
                                             decoration: BoxDecoration(
-                                              borderRadius: BorderRadius.circular(14),
-                                              color: Colors.white.withOpacity(0.06),
+                                              borderRadius:
+                                                  BorderRadius.circular(14),
+                                              color: Colors.white
+                                                  .withOpacity(0.06),
                                               border: Border.all(
-                                                color: Colors.white.withOpacity(0.10),
+                                                color: Colors.white
+                                                    .withOpacity(0.10),
                                               ),
                                             ),
                                             child: Text(
                                               _routeStarted
-                                                  ? 'Para finalizar, necesitas completar el 100% de las entregas activas.'
+                                                  ? 'Para finalizar, necesitas completar el 100% de las entregas activas. Las ventas en ruta no afectan este progreso.'
                                                   : 'Primero inicia la ruta para poder finalizarla después.',
                                               style: TextStyle(
-                                                color: Colors.white.withOpacity(0.75),
+                                                color: Colors.white
+                                                    .withOpacity(0.75),
                                                 fontWeight: FontWeight.w700,
                                                 fontSize: 12.5,
                                               ),
@@ -1191,52 +1331,74 @@ class _DriverRoutePageState extends State<DriverRoutePage> {
                                   hasScrollBody: false,
                                   child: _EmptyBox(
                                     title: 'Sin entregas',
-                                    subtitle: 'La asignación existe, pero aún no tiene entregas.',
+                                    subtitle:
+                                        'La asignación existe, pero aún no tiene entregas.',
                                   ),
                                 )
                               else
                                 SliverPadding(
-                                  padding: const EdgeInsets.fromLTRB(16, 0, 16, 20),
+                                  padding:
+                                      const EdgeInsets.fromLTRB(16, 0, 16, 20),
                                   sliver: SliverList.separated(
                                     itemCount: _deliveries.length,
-                                    separatorBuilder: (_, __) => const SizedBox(height: 10),
+                                    separatorBuilder: (_, __) =>
+                                        const SizedBox(height: 10),
                                     itemBuilder: (_, i) {
                                       final d = _deliveries[i];
-                                      final statusColor = _statusColor(d.status);
-                                      final delivered = _isDeliveredStatus(d.status);
-                                      final cancelled = _isCancelledStatus(d.status);
+                                      final statusColor = d.isDriverSale
+                                          ? _green
+                                          : _statusColor(d.status);
+                                      final delivered =
+                                          _isDeliveredStatus(d.status);
+                                      final cancelled =
+                                          _isCancelledStatus(d.status);
 
                                       return Material(
                                         color: Colors.transparent,
                                         child: InkWell(
-                                          borderRadius: BorderRadius.circular(20),
-                                          onTap: cancelled ? null : () => _openDelivery(d),
+                                          borderRadius:
+                                              BorderRadius.circular(20),
+                                          onTap: cancelled || d.isDriverSale
+                                              ? null
+                                              : () => _openDelivery(d),
                                           child: _GlassCard(
                                             child: Column(
-                                              crossAxisAlignment: CrossAxisAlignment.start,
+                                              crossAxisAlignment:
+                                                  CrossAxisAlignment.start,
                                               children: [
                                                 Row(
                                                   children: [
                                                     Expanded(
                                                       child: Text(
-                                                        '${i + 1}. ${d.customerName}',
-                                                        style: const TextStyle(
+                                                        d.isDriverSale
+                                                            ? '${i + 1}. [VENTA EN RUTA] ${d.customerName}'
+                                                            : '${i + 1}. ${d.customerName}',
+                                                        style:
+                                                            const TextStyle(
                                                           color: Colors.white,
-                                                          fontWeight: FontWeight.w900,
+                                                          fontWeight:
+                                                              FontWeight.w900,
                                                         ),
                                                       ),
                                                     ),
                                                     _Badge(
-                                                      text: _statusLabel(d.status),
+                                                      text: d.isDriverSale
+                                                          ? 'Venta en ruta'
+                                                          : _statusLabel(
+                                                              d.status,
+                                                            ),
                                                       color: statusColor,
                                                     ),
                                                   ],
                                                 ),
                                                 const SizedBox(height: 4),
                                                 Text(
-                                                  d.dinerName.isEmpty ? 'Sin comedor' : d.dinerName,
+                                                  d.dinerName.isEmpty
+                                                      ? 'Sin comedor'
+                                                      : d.dinerName,
                                                   style: TextStyle(
-                                                    color: Colors.white.withOpacity(0.65),
+                                                    color: Colors.white
+                                                        .withOpacity(0.65),
                                                     fontSize: 12,
                                                   ),
                                                 ),
@@ -1246,56 +1408,100 @@ class _DriverRoutePageState extends State<DriverRoutePage> {
                                                   runSpacing: 8,
                                                   children: [
                                                     _MiniPill(
-                                                      icon: Icons.confirmation_number_outlined,
-                                                      text: d.folio,
+                                                      icon: d.isDriverSale
+                                                          ? Icons.point_of_sale
+                                                          : Icons
+                                                              .confirmation_number_outlined,
+                                                      text: d.isDriverSale
+                                                          ? 'Venta extra'
+                                                          : d.folio,
+                                                    ),
+                                                    if (!d.isDriverSale)
+                                                      _MiniPill(
+                                                        icon: Icons.flag_outlined,
+                                                        text: d.priority == null
+                                                            ? 'Sin prioridad'
+                                                            : 'Prio ${d.priority} • ${_priorityLabel(d.priority)}',
+                                                      ),
+                                                    _MiniPill(
+                                                      icon:
+                                                          Icons.attach_money,
+                                                      text:
+                                                          'Esperado ${_money(d.totalExpected)}',
                                                     ),
                                                     _MiniPill(
-                                                      icon: Icons.flag_outlined,
-                                                      text: d.priority == null
-                                                          ? 'Sin prioridad'
-                                                          : 'Prio ${d.priority} • ${_priorityLabel(d.priority)}',
-                                                    ),
-                                                    _MiniPill(
-                                                      icon: Icons.attach_money,
-                                                      text: 'Esperado ${_money(d.totalExpected)}',
-                                                    ),
-                                                    _MiniPill(
-                                                      icon: Icons.payments_outlined,
+                                                      icon: Icons
+                                                          .payments_outlined,
                                                       text:
                                                           'Real ${_money(delivered ? d.totalReal : d.totalExpected)}',
                                                     ),
                                                     _MiniPill(
-                                                      icon: Icons.credit_card_outlined,
-                                                      text: d.paymentMethod.trim().isEmpty
+                                                      icon: Icons
+                                                          .credit_card_outlined,
+                                                      text: d.paymentMethod
+                                                              .trim()
+                                                              .isEmpty
                                                           ? 'EFECTIVO'
-                                                          : d.paymentMethod.toUpperCase(),
+                                                          : d.paymentMethod
+                                                              .toUpperCase(),
                                                     ),
+                                                    if (d.isDriverSale)
+                                                      const _MiniPill(
+                                                        icon: Icons
+                                                            .trending_down,
+                                                        text:
+                                                            'Consume stock',
+                                                      ),
+                                                    if (d.isDriverSale)
+                                                      const _MiniPill(
+                                                        icon: Icons
+                                                            .speed_outlined,
+                                                        text:
+                                                            'No afecta progreso',
+                                                      ),
                                                   ],
                                                 ),
                                                 const SizedBox(height: 8),
                                                 Text(
-                                                  'Hora entrega: ${_fmtDateTimeMx(d.deliveredAt)}',
+                                                  d.isDriverSale
+                                                      ? 'Hora venta: ${_fmtDateTimeMx(d.deliveredAt)}'
+                                                      : 'Hora entrega: ${_fmtDateTimeMx(d.deliveredAt)}',
                                                   style: TextStyle(
-                                                    color: Colors.white.withOpacity(0.60),
+                                                    color: Colors.white
+                                                        .withOpacity(0.60),
                                                     fontSize: 12,
-                                                    fontWeight: FontWeight.w700,
+                                                    fontWeight:
+                                                        FontWeight.w700,
                                                   ),
                                                 ),
-                                                if (d.deliveredAt != null) ...[
+                                                if (d.deliveredAt != null ||
+                                                    d.isDriverSale) ...[
                                                   const SizedBox(height: 10),
                                                   Align(
-                                                    alignment: Alignment.centerRight,
+                                                    alignment:
+                                                        Alignment.centerRight,
                                                     child: ElevatedButton.icon(
                                                       onPressed: _busy
                                                           ? null
-                                                          : () => _openDeliveryPdf(d),
-                                                      icon: const Icon(Icons.picture_as_pdf),
-                                                      label: const Text('PDF'),
-                                                      style: ElevatedButton.styleFrom(
-                                                        backgroundColor: _burgundy,
-                                                        foregroundColor: Colors.white,
-                                                        shape: RoundedRectangleBorder(
-                                                          borderRadius: BorderRadius.circular(12),
+                                                          : () =>
+                                                              _openDeliveryPdf(
+                                                                  d),
+                                                      icon: const Icon(Icons
+                                                          .picture_as_pdf),
+                                                      label:
+                                                          const Text('PDF'),
+                                                      style: ElevatedButton
+                                                          .styleFrom(
+                                                        backgroundColor:
+                                                            _burgundy,
+                                                        foregroundColor:
+                                                            Colors.white,
+                                                        shape:
+                                                            RoundedRectangleBorder(
+                                                          borderRadius:
+                                                              BorderRadius
+                                                                  .circular(
+                                                                      12),
                                                         ),
                                                       ),
                                                     ),
@@ -1306,7 +1512,8 @@ class _DriverRoutePageState extends State<DriverRoutePage> {
                                                     children: [
                                                       Icon(
                                                         _routeFinished
-                                                            ? Icons.lock_outline
+                                                            ? Icons
+                                                                .lock_outline
                                                             : Icons.edit_note,
                                                         color: Colors.white70,
                                                         size: 16,
@@ -1317,9 +1524,12 @@ class _DriverRoutePageState extends State<DriverRoutePage> {
                                                             ? 'Ruta cerrada'
                                                             : 'Toca para ajustar cantidades y confirmar',
                                                         style: TextStyle(
-                                                          color: Colors.white.withOpacity(0.70),
+                                                          color: Colors.white
+                                                              .withOpacity(
+                                                                  0.70),
                                                           fontSize: 12,
-                                                          fontWeight: FontWeight.w700,
+                                                          fontWeight:
+                                                              FontWeight.w700,
                                                         ),
                                                       ),
                                                     ],
@@ -1372,7 +1582,8 @@ class _KmCaptureDialogState extends State<_KmCaptureDialog> {
   void initState() {
     super.initState();
     _controller = TextEditingController(
-      text: widget.initialValue == null ? '' : widget.formatKm(widget.initialValue),
+      text:
+          widget.initialValue == null ? '' : widget.formatKm(widget.initialValue),
     );
   }
 
@@ -1450,7 +1661,8 @@ class _KmCaptureDialogState extends State<_KmCaptureDialog> {
             const SizedBox(height: 14),
             TextField(
               controller: _controller,
-              keyboardType: const TextInputType.numberWithOptions(decimal: true),
+              keyboardType:
+                  const TextInputType.numberWithOptions(decimal: true),
               autofocus: true,
               style: const TextStyle(color: Colors.white),
               decoration: InputDecoration(
@@ -1463,7 +1675,8 @@ class _KmCaptureDialogState extends State<_KmCaptureDialog> {
                 fillColor: Colors.white.withOpacity(0.08),
                 enabledBorder: OutlineInputBorder(
                   borderRadius: BorderRadius.circular(14),
-                  borderSide: BorderSide(color: Colors.white.withOpacity(0.14)),
+                  borderSide:
+                      BorderSide(color: Colors.white.withOpacity(0.14)),
                 ),
                 focusedBorder: OutlineInputBorder(
                   borderRadius: BorderRadius.circular(14),
@@ -1654,6 +1867,12 @@ class _DeliveryRow {
   final double totalReal;
   final int? priority;
   final String paymentMethod;
+  final String deliveryType;
+  final bool affectsProgress;
+  final bool affectsStock;
+  final bool createdByDriver;
+
+  bool get isDriverSale => deliveryType == 'driver_sale';
 
   _DeliveryRow({
     required this.id,
@@ -1666,6 +1885,10 @@ class _DeliveryRow {
     required this.totalReal,
     required this.priority,
     required this.paymentMethod,
+    required this.deliveryType,
+    required this.affectsProgress,
+    required this.affectsStock,
+    required this.createdByDriver,
   });
 }
 
@@ -1704,11 +1927,20 @@ class _StatChip extends StatelessWidget {
       ),
       child: Column(
         children: [
-          Text(label, style: TextStyle(color: Colors.white.withOpacity(0.60), fontSize: 11)),
+          Text(
+            label,
+            style: TextStyle(
+              color: Colors.white.withOpacity(0.60),
+              fontSize: 11,
+            ),
+          ),
           const SizedBox(height: 4),
           Text(
             value,
-            style: const TextStyle(color: Colors.white, fontWeight: FontWeight.w900),
+            style: const TextStyle(
+              color: Colors.white,
+              fontWeight: FontWeight.w900,
+            ),
           ),
         ],
       ),
@@ -1796,7 +2028,13 @@ class _EmptyBox extends StatelessWidget {
           children: [
             const Icon(Icons.route, color: Colors.white70, size: 36),
             const SizedBox(height: 10),
-            Text(title, style: const TextStyle(color: Colors.white, fontWeight: FontWeight.w900)),
+            Text(
+              title,
+              style: const TextStyle(
+                color: Colors.white,
+                fontWeight: FontWeight.w900,
+              ),
+            ),
             const SizedBox(height: 4),
             Text(
               subtitle,
