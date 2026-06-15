@@ -28,7 +28,7 @@ class _DriverSalePageState extends State<DriverSalePage> {
   static const _burgundy = Color(0xFF852838);
 
   static const String _apiBase =
-      'https://sistema-entregas-global.vercel.app';
+      'https://sistema-entregas-global-75c106max-eroscardenas-projects.vercel.app';
 
   final _searchCtrl = TextEditingController();
 
@@ -44,6 +44,11 @@ class _DriverSalePageState extends State<DriverSalePage> {
 
   final Map<String, int> _qtyByProduct = {};
   String _paymentMethod = 'EFECTIVO';
+
+  String _locationLabel(Map<String, dynamic> row) {
+    final url = (row['maps_url'] ?? '').toString().trim();
+    return url.isEmpty ? 'Sin ubicación' : 'Ubicación disponible';
+  }
 
   double get _total {
     double acc = 0;
@@ -240,7 +245,7 @@ class _DriverSalePageState extends State<DriverSalePage> {
         backgroundColor: _navy,
         foregroundColor: Colors.white,
         elevation: 0,
-        title: const Text('Hacer venta'),
+        title: const Text('Venta en ruta'),
       ),
       body: Container(
         decoration: const BoxDecoration(
@@ -268,9 +273,45 @@ class _DriverSalePageState extends State<DriverSalePage> {
                     ),
                     const SizedBox(height: 6),
                     Text(
-                      'Busca un cliente, selecciona producto y registra la venta.',
+                      'Registra una venta extra durante tu ruta.',
                       style: TextStyle(
                         color: Colors.white.withOpacity(0.72),
+                        fontWeight: FontWeight.w600,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              const SizedBox(height: 14),
+              _GlassCard(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    const Row(
+                      children: [
+                        Icon(Icons.info_outline, color: _accent),
+                        SizedBox(width: 8),
+                        Text(
+                          '¿Cómo funciona?',
+                          style: TextStyle(
+                            color: Colors.white,
+                            fontWeight: FontWeight.w900,
+                            fontSize: 16,
+                          ),
+                        ),
+                      ],
+                    ),
+                    const SizedBox(height: 10),
+                    Text(
+                      '1. Busca y selecciona un cliente.\n'
+                      '2. Elige los productos que desea comprar.\n'
+                      '3. Indica la cantidad según tu stock disponible.\n'
+                      '4. Selecciona el método de pago.\n'
+                      '5. Presiona "Registrar venta".\n\n'
+                      'La venta se agregará automáticamente a tu ruta, descontará producto de tu inventario y no afectará el progreso de entregas.',
+                      style: TextStyle(
+                        color: Colors.white.withOpacity(0.72),
+                        height: 1.4,
                         fontWeight: FontWeight.w600,
                       ),
                     ),
@@ -295,21 +336,26 @@ class _DriverSalePageState extends State<DriverSalePage> {
                       style: const TextStyle(color: Colors.white),
                       decoration: InputDecoration(
                         hintText: 'Buscar cliente...',
-                        hintStyle:
-                            TextStyle(color: Colors.white.withOpacity(0.45)),
-                        prefixIcon:
-                            const Icon(Icons.search, color: Colors.white70),
+                        hintStyle: TextStyle(
+                          color: Colors.white.withOpacity(0.45),
+                        ),
+                        prefixIcon: const Icon(
+                          Icons.search,
+                          color: Colors.white70,
+                        ),
                         filled: true,
                         fillColor: Colors.white.withOpacity(0.08),
                         border: OutlineInputBorder(
                           borderRadius: BorderRadius.circular(14),
-                          borderSide:
-                              BorderSide(color: Colors.white.withOpacity(0.16)),
+                          borderSide: BorderSide(
+                            color: Colors.white.withOpacity(0.16),
+                          ),
                         ),
                         enabledBorder: OutlineInputBorder(
                           borderRadius: BorderRadius.circular(14),
-                          borderSide:
-                              BorderSide(color: Colors.white.withOpacity(0.16)),
+                          borderSide: BorderSide(
+                            color: Colors.white.withOpacity(0.16),
+                          ),
                         ),
                         focusedBorder: OutlineInputBorder(
                           borderRadius: BorderRadius.circular(14),
@@ -327,8 +373,7 @@ class _DriverSalePageState extends State<DriverSalePage> {
                             ? const SizedBox(
                                 width: 16,
                                 height: 16,
-                                child:
-                                    CircularProgressIndicator(strokeWidth: 2),
+                                child: CircularProgressIndicator(strokeWidth: 2),
                               )
                             : const Icon(Icons.search),
                         label: const Text('Buscar'),
@@ -347,8 +392,7 @@ class _DriverSalePageState extends State<DriverSalePage> {
                       _SelectedBox(
                         title: (_selectedCustomer!['nombre'] ?? 'Cliente')
                             .toString(),
-                        subtitle:
-                            (_selectedCustomer!['telefono'] ?? '').toString(),
+                        subtitle: _locationLabel(_selectedCustomer!),
                       ),
                     ],
                     if (_customers.isNotEmpty) ...[
@@ -356,6 +400,12 @@ class _DriverSalePageState extends State<DriverSalePage> {
                       ..._customers.map(
                         (c) => ListTile(
                           contentPadding: EdgeInsets.zero,
+                          leading: Icon(
+                            (c['maps_url'] ?? '').toString().trim().isEmpty
+                                ? Icons.location_off_outlined
+                                : Icons.location_on_outlined,
+                            color: Colors.white70,
+                          ),
                           title: Text(
                             (c['nombre'] ?? 'Cliente').toString(),
                             style: const TextStyle(
@@ -364,7 +414,7 @@ class _DriverSalePageState extends State<DriverSalePage> {
                             ),
                           ),
                           subtitle: Text(
-                            (c['telefono'] ?? '').toString(),
+                            _locationLabel(c),
                             style: TextStyle(
                               color: Colors.white.withOpacity(0.65),
                             ),
@@ -412,8 +462,7 @@ class _DriverSalePageState extends State<DriverSalePage> {
                       ),
                       const SizedBox(height: 8),
                       ..._products.map((p) {
-                        final productId =
-                            (p['product_id'] ?? '').toString();
+                        final productId = (p['product_id'] ?? '').toString();
                         final qty = _qtyByProduct[productId] ?? 0;
                         final available =
                             NumberParser.toInt(p['available_qty']);
@@ -557,8 +606,7 @@ class _DriverSalePageState extends State<DriverSalePage> {
                               ? const SizedBox(
                                   width: 16,
                                   height: 16,
-                                  child:
-                                      CircularProgressIndicator(strokeWidth: 2),
+                                  child: CircularProgressIndicator(strokeWidth: 2),
                                 )
                               : const Icon(Icons.check_circle),
                           label: const Text('Registrar venta'),
@@ -620,6 +668,8 @@ class _SelectedBox extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final hasLocation = subtitle == 'Ubicación disponible';
+
     return Container(
       width: double.infinity,
       padding: const EdgeInsets.all(12),
@@ -628,23 +678,36 @@ class _SelectedBox extends StatelessWidget {
         borderRadius: BorderRadius.circular(14),
         border: Border.all(color: Colors.green.withOpacity(0.24)),
       ),
-      child: Column(
+      child: Row(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Text(
-            title,
-            style: const TextStyle(
-              color: Colors.white,
-              fontWeight: FontWeight.w900,
+          Icon(
+            hasLocation ? Icons.location_on_outlined : Icons.location_off_outlined,
+            color: Colors.white70,
+            size: 20,
+          ),
+          const SizedBox(width: 8),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  title,
+                  style: const TextStyle(
+                    color: Colors.white,
+                    fontWeight: FontWeight.w900,
+                  ),
+                ),
+                if (subtitle.trim().isNotEmpty) ...[
+                  const SizedBox(height: 3),
+                  Text(
+                    subtitle,
+                    style: TextStyle(color: Colors.white.withOpacity(0.70)),
+                  ),
+                ],
+              ],
             ),
           ),
-          if (subtitle.trim().isNotEmpty) ...[
-            const SizedBox(height: 3),
-            Text(
-              subtitle,
-              style: TextStyle(color: Colors.white.withOpacity(0.70)),
-            ),
-          ],
         ],
       ),
     );

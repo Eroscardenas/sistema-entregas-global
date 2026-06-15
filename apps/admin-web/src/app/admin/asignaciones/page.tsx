@@ -1654,9 +1654,8 @@ export default function AdminAsignacionesPage() {
           delivery_id: editingDelivery.deliveryId,
           product_id: product.id,
           qty_assigned: qty,
-          unit_price_expected: unitPrice,
-          price: unitPrice,
-          subtotal_expected: qty * unitPrice,
+          qty_real: qty,
+          precio_aplicado: unitPrice,
         };
       })
       .filter(Boolean) as Array<Record<string, unknown>>;
@@ -1667,7 +1666,8 @@ export default function AdminAsignacionesPage() {
     }
 
     const totalExpected = rows.reduce(
-      (acc, row) => acc + safeNum(row.subtotal_expected, 0),
+      (acc, row) =>
+        acc + safeNum(row.qty_assigned, 0) * safeNum(row.precio_aplicado, 0),
       0,
     );
 
