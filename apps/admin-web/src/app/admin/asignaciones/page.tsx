@@ -2153,7 +2153,21 @@ export default function AdminAsignacionesPage() {
 
     const salidasGlobalRowProducts = productKeys
       .map((productKey) => {
-        const qty = getInventoryQtyForPdfKey(inventoryGlobal, productKey);
+        // SALIDAS GLOBAL = salida original del inventario menos devoluciones.
+        // Ejemplo: si el chofer salió con 100 y devolvió 2, aquí se muestra 98.
+        const salidasOriginales = getInventoryQtyForPdfKey(
+          inventoryGlobal,
+          productKey,
+        );
+
+        const devoluciones = getInventoryDevolucionesQtyForPdfKey(
+          inventoryGlobal,
+          productKey,
+        );
+
+        const qtyRaw = salidasOriginales - devoluciones;
+        const qty = Math.abs(qtyRaw) < 0.0001 ? 0 : qtyRaw;
+
         return `
           <td colspan="2" class="center summary-qty summary-cell-summary summary-merge-cell ${qty <= 0 ? "dash-cell" : ""}">${summaryQtyLabel(qty)}</td>
         `;
@@ -2163,30 +2177,32 @@ export default function AdminAsignacionesPage() {
     const devolucionesRowProducts = productKeys
       .map((productKey) => {
         // DEVOLUCIONES = producto que regresó el chofer al inventario.
-        // Viene separado desde /api/inventory/global-outputs para no contaminar
-        // la salida original.
+        // Para administración se muestran como número NEGATIVO.
+        // Ejemplo: si regresó 14, en el PDF aparece -14.
         const qty = getInventoryDevolucionesQtyForPdfKey(
           inventoryGlobal,
           productKey,
         );
 
+        const displayQty = qty > 0 ? signedQty(-qty) : "-";
+
         return `
-          <td colspan="2" class="center summary-qty summary-cell-summary summary-merge-cell ${qty <= 0 ? "dash-cell" : ""}">${summaryQtyLabel(qty)}</td>
+          <td colspan="2" class="center summary-qty summary-cell-summary summary-merge-cell ${qty <= 0 ? "dash-cell" : "diff-negative"}">${displayQty}</td>
         `;
       })
       .join("");
 
     const diffRowProducts = productKeys
       .map((productKey) => {
-        // DIFERENCIA correcta:
-        // - SALIDAS GLOBAL = lo que salió de Salidas Page para el chofer/producto.
-        // - ENTREGADO REAL = suma de lo que realmente dejó a clientes en la app.
-        // - DEVOLUCIONES = producto que regresó el chofer al inventario.
+        // DIFERENCIA según administración:
+        // - SALIDAS GLOBAL del PDF ya viene descontada con devoluciones.
+        // - Si sobran bolsas debe salir positivo.
+        // - Si faltan bolsas debe salir negativo.
         //
-        // Si faltó producto por justificar: salidas > entregado + devoluciones => positivo.
-        // Si entregó/devolvió de más contra la salida: entregado + devoluciones > salidas => negativo.
-        // Si concuerda: 0.
-        const salidasGlobal = getInventoryQtyForPdfKey(
+        // Fórmulas:
+        // SALIDAS GLOBAL = salidas originales - devoluciones.
+        // DIFERENCIA = bolsas vendidas - SALIDAS GLOBAL.
+        const salidasOriginales = getInventoryQtyForPdfKey(
           inventoryGlobal,
           productKey,
         );
@@ -2195,7 +2211,8 @@ export default function AdminAsignacionesPage() {
           inventoryGlobal,
           productKey,
         );
-        const diffRaw = salidasGlobal - entregadoReal - devoluciones;
+        const salidasGlobal = salidasOriginales - devoluciones;
+        const diffRaw = entregadoReal - salidasGlobal;
         const diff = Math.abs(diffRaw) < 0.0001 ? 0 : diffRaw;
 
         const cls =
@@ -2257,7 +2274,7 @@ export default function AdminAsignacionesPage() {
               font-family: Arial, Helvetica, sans-serif;
               color: #111827;
               margin: 0;
-              font-size: 10px;
+              font-size: 11px;
             }
 
             .sheet {
@@ -2312,7 +2329,7 @@ export default function AdminAsignacionesPage() {
             }
 
             td {
-              font-size: 8px;
+              font-size: 9px;
             }
 
             .client-name {
@@ -2329,8 +2346,8 @@ export default function AdminAsignacionesPage() {
 .money {
   text-align: right;
   white-space: nowrap;
-  font-size: 10px;
-  font-weight: 700;
+  font-size: 12px;
+  font-weight: 800;
 }
 
             .product-group {
@@ -2358,14 +2375,14 @@ export default function AdminAsignacionesPage() {
             }
 
             .cell-qty {
-              font-size: 9px;
-              font-weight: 700;
+              font-size: 12px;
+              font-weight: 800;
               line-height: 1.05;
             }
 
             .cell-price {
-              font-size: 9px;
-              font-weight: 700;
+              font-size: 11px;
+              font-weight: 800;
               color: #374151;
               line-height: 1.05;
               white-space: nowrap;
@@ -2387,8 +2404,8 @@ export default function AdminAsignacionesPage() {
 
             .summary-row th,
             .summary-row td {
-              font-size: 10px;
-              padding: 3px 4px;
+              font-size: 12px;
+              padding: 4px 5px;
               border-color: #374151 !important;
             }
 
@@ -2425,8 +2442,8 @@ export default function AdminAsignacionesPage() {
 
             .summary-qty {
               text-align: center;
-              font-weight: 700;
-              font-size: 11px;
+              font-weight: 800;
+              font-size: 15px;
               letter-spacing: 0.5px;
             }
 
@@ -2466,8 +2483,8 @@ export default function AdminAsignacionesPage() {
             .totals-mini th,
             .totals-mini td {
               border: 1px solid #4b5563;
-              padding: 4px;
-              font-size: 11px;
+              padding: 5px;
+              font-size: 13px;
             }
 
             .venta-total-box {
@@ -2483,8 +2500,8 @@ export default function AdminAsignacionesPage() {
             }
 
             .venta-total-value {
-              font-size: 22px;
-              font-weight: 700;
+              font-size: 26px;
+              font-weight: 800;
             }
 
             .diff-positive {
