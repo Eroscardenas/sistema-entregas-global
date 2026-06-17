@@ -167,6 +167,13 @@ function canCancelDelivery(status?: string | null) {
   return !isConfirmedDeliveryStatus(s) && !isCancelledDeliveryStatus(s);
 }
 
+function isDriverSale(delivery: any) {
+  return (
+    String(delivery?.delivery_type || "").trim().toUpperCase() === "SALE" ||
+    delivery?.created_by_driver === true
+  );
+}
+
 function signedQty(n: number) {
   if (n > 0) return `+${n}`;
   if (n < 0) return `${n}`;
@@ -1946,6 +1953,8 @@ export default function AdminAsignacionesPage() {
       .map((delivery, idx) => {
         const confirmed = isConfirmedDeliveryStatus(delivery.status);
         const cancelled = isCancelledDeliveryStatus(delivery.status);
+        const driverSale = isDriverSale(delivery);
+        const countsAsRealSale = (confirmed || driverSale) && !cancelled;
 
         const rowByProduct = new Map<
           string,
@@ -1998,7 +2007,7 @@ export default function AdminAsignacionesPage() {
             (assignedByProduct.get(productKey) ?? 0) + qtyAssigned,
           );
 
-          if (confirmed && !cancelled) {
+          if (countsAsRealSale) {
             soldByProduct.set(
               productKey,
               (soldByProduct.get(productKey) ?? 0) + qtyReal,
@@ -2008,8 +2017,8 @@ export default function AdminAsignacionesPage() {
 
         let rowRealTotal = 0;
 
-        if (confirmed && !cancelled) {
-          rowRealTotal = firstNumeric(delivery.total_real, 0);
+        if (countsAsRealSale) {
+          rowRealTotal = firstNumeric(delivery.total_real, delivery.total_expected, 0);
 
           if (rowRealTotal <= 0) {
             rowRealTotal = (delivery.items || []).reduce(
@@ -2058,12 +2067,14 @@ export default function AdminAsignacionesPage() {
             //
             // Reglas:
             // - Confirmada + no cancelada: muestra qty_real.
-            // - Pendiente: vacío, porque todavía no se entregó.
+            // - Venta en ruta hecha por chofer: muestra qty_real aunque quede PENDIENTE,
+            //   porque ya fue registrada desde la app.
+            // - Pendiente normal: vacío, porque todavía no se entregó.
             // - Cancelada: vacío, porque no cuenta.
             //
             // BOLSAS VENDIDAS, EFECTIVO, CRÉDITO, VENTA TOTAL y DIFERENCIA
-            // también se calculan con qty_real de entregas confirmadas.
-            const qtyDeliveredToShow = confirmed && !cancelled ? row.qtyReal : 0;
+            // también se calculan con qty_real de entregas confirmadas o ventas en ruta.
+            const qtyDeliveredToShow = countsAsRealSale ? row.qtyReal : 0;
             const qtyLabel =
               qtyDeliveredToShow > 0 ? `${qtyDeliveredToShow}` : "-";
             const priceLabel =
@@ -2082,26 +2093,26 @@ export default function AdminAsignacionesPage() {
           })
           .join("");
 
+        const baseClientName = formatClientPdfName(
+          delivery.customer_nombre_snapshot,
+          delivery.diner_nombre_snapshot,
+        );
+
         const clientName = cancelled
           ? "CANCELADO"
-          : formatClientPdfName(
-              delivery.customer_nombre_snapshot,
-              delivery.diner_nombre_snapshot,
-            );
+          : driverSale
+            ? `VENTA EN RUTA - ${baseClientName}`
+            : baseClientName;
 
         const paymentMethod = normalizeTextPdf(
           delivery.payment_method || "EFECTIVO",
         );
 
         const efectivo =
-          confirmed && !cancelled && paymentMethod !== "CREDITO"
-            ? rowRealTotal
-            : 0;
+          countsAsRealSale && paymentMethod !== "CREDITO" ? rowRealTotal : 0;
 
         const credito =
-          confirmed && !cancelled && paymentMethod === "CREDITO"
-            ? rowRealTotal
-            : 0;
+          countsAsRealSale && paymentMethod === "CREDITO" ? rowRealTotal : 0;
 
         return `
           <tr>
@@ -3168,6 +3179,7 @@ FECHA: ${escapeHtml(formatOnlyDate(api.workDate))}
                       <div className="max-h-[52vh] divide-y divide-white/10 overflow-y-auto">
                         {selectedAssignmentDeliveriesSorted.map((d, idx) => {
                           const confirmed = isConfirmedDeliveryStatus(d.status);
+                          const driverSale = isDriverSale(d);
                           const canCancel = canCancelDelivery(d.status);
                           const isCancelling = cancellingDeliveryId === d.id;
 
@@ -3195,6 +3207,12 @@ FECHA: ${escapeHtml(formatOnlyDate(api.workDate))}
                                         <Hash className="h-3 w-3" />
                                         {d.folio}
                                       </span>
+
+                                      {driverSale && (
+                                        <span className="rounded-full border border-emerald-500/30 bg-emerald-500/20 px-2 py-1 text-xs font-semibold text-emerald-100">
+                                          VENTA EN RUTA
+                                        </span>
+                                      )}
 
                                       <span
                                         className={cx(
@@ -3234,7 +3252,7 @@ FECHA: ${escapeHtml(formatOnlyDate(api.workDate))}
 
                                 <div className="text-left md:text-right">
                                   <p className="text-xs text-white/40">
-                                    Total esperado
+                                    {driverSale ? "Total venta" : "Total esperado"}
                                   </p>
                                   <p className="font-semibold text-white">
                                     {money(d.total_expected)}

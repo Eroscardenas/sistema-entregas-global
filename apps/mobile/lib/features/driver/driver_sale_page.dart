@@ -27,8 +27,8 @@ class _DriverSalePageState extends State<DriverSalePage> {
   static const _accent = Color(0xFF4DADFF);
   static const _burgundy = Color(0xFF852838);
 
-  static const String _apiBase =
-      'https://sistema-entregas-global-75c106max-eroscardenas-projects.vercel.app';
+static const String _apiBase =
+  'https://sistema-entregas-global.vercel.app';
 
   final _searchCtrl = TextEditingController();
 
@@ -732,3 +732,4 @@ class _GlassCard extends StatelessWidget {
     );
   }
 }
+

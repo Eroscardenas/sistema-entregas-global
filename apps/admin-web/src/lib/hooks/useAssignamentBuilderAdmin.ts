@@ -116,6 +116,12 @@ export type DeliveryUI = {
   status: string;
   payment_method: string | null;
   delivered_at: string | null;
+
+  // Ventas en ruta hechas desde la app del chofer.
+  delivery_type: string | null;
+  created_by_driver: boolean;
+  affects_progress: boolean;
+  affects_stock: boolean;
 };
 
 export type DeliveryItemUI = {
@@ -586,7 +592,25 @@ export function useAssignmentsBuilderAdmin() {
       const { data, error } = await sb
         .from(T_DELIVERIES)
         .select(
-          'id,assignment_id,customer_id,customer_nombre_snapshot,diner_nombre_snapshot,folio,priority,total_expected,total_real,status,payment_method,delivered_at,created_at'
+          `
+          id,
+          assignment_id,
+          customer_id,
+          customer_nombre_snapshot,
+          diner_nombre_snapshot,
+          folio,
+          priority,
+          total_expected,
+          total_real,
+          status,
+          payment_method,
+          delivered_at,
+          created_at,
+          delivery_type,
+          created_by_driver,
+          affects_progress,
+          affects_stock
+          `
         )
         .eq('assignment_id', assignmentId)
         .order('created_at', { ascending: true });
@@ -615,6 +639,11 @@ export function useAssignmentsBuilderAdmin() {
         status: String(r.status ?? 'PENDIENTE'),
         payment_method: normalizePaymentMethod(r.payment_method),
         delivered_at: r.delivered_at ? String(r.delivered_at) : null,
+
+        delivery_type: r.delivery_type ? String(r.delivery_type) : null,
+        created_by_driver: Boolean(r.created_by_driver ?? false),
+        affects_progress: Boolean(r.affects_progress ?? true),
+        affects_stock: Boolean(r.affects_stock ?? true),
       }));
 
       mapped.sort((a, b) => (a.priority ?? 100) - (b.priority ?? 100));
@@ -950,6 +979,12 @@ export function useAssignmentsBuilderAdmin() {
           total_real: totalExpected,
           priority: Number(b.priority ?? 50),
           payment_method: 'EFECTIVO',
+
+          // Entrega normal creada por admin.
+          delivery_type: 'assigned_delivery',
+          created_by_driver: false,
+          affects_progress: true,
+          affects_stock: true,
         };
 
         const { data: deliveryCreated, error: delErr } = await sb
