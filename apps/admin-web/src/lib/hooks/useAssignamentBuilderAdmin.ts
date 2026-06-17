@@ -905,6 +905,20 @@ export function useAssignmentsBuilderAdmin() {
     setErr('');
 
     try {
+      const { data: assignmentForStock, error: assignmentStockErr } = await sb
+        .from(T_ASSIGNMENTS)
+        .select('driver_id')
+        .eq('id', assignmentId)
+        .single();
+
+      if (assignmentStockErr) throw assignmentStockErr;
+
+      const stockDriverId = String(assignmentForStock?.driver_id || '').trim();
+
+      if (!stockDriverId) {
+        throw new Error('La asignación no tiene chofer para actualizar driver_stock.');
+      }
+
       for (const b of batch) {
         const customer = customersById.get(b.customer_id);
         if (!customer) continue;
@@ -1018,6 +1032,55 @@ export function useAssignmentsBuilderAdmin() {
         if (itemErr) {
           await sb.from(T_DELIVERIES).delete().eq('id', deliveryId);
           throw itemErr;
+        }
+
+        for (const it of validItems) {
+          const { data: existingStock, error: stockReadErr } = await sb
+            .from('driver_stock')
+            .select('driver_id,product_id,assigned_qty,used_qty')
+            .eq('driver_id', stockDriverId)
+            .eq('product_id', it.product_id)
+            .maybeSingle();
+
+          if (stockReadErr) {
+            await sb.from(T_DELIVERY_ITEMS).delete().eq('delivery_id', deliveryId);
+            await sb.from(T_DELIVERIES).delete().eq('id', deliveryId);
+            throw stockReadErr;
+          }
+
+          if (existingStock) {
+            const nextAssignedQty =
+              Math.trunc(Number(existingStock.assigned_qty ?? 0)) + it.qty;
+
+            const { error: stockUpdateErr } = await sb
+              .from('driver_stock')
+              .update({
+                assigned_qty: nextAssignedQty,
+                updated_at: new Date().toISOString(),
+              })
+              .eq('driver_id', stockDriverId)
+              .eq('product_id', it.product_id);
+
+            if (stockUpdateErr) {
+              await sb.from(T_DELIVERY_ITEMS).delete().eq('delivery_id', deliveryId);
+              await sb.from(T_DELIVERIES).delete().eq('id', deliveryId);
+              throw stockUpdateErr;
+            }
+          } else {
+            const { error: stockInsertErr } = await sb.from('driver_stock').insert({
+              driver_id: stockDriverId,
+              product_id: it.product_id,
+              assigned_qty: it.qty,
+              used_qty: 0,
+              updated_at: new Date().toISOString(),
+            });
+
+            if (stockInsertErr) {
+              await sb.from(T_DELIVERY_ITEMS).delete().eq('delivery_id', deliveryId);
+              await sb.from(T_DELIVERIES).delete().eq('id', deliveryId);
+              throw stockInsertErr;
+            }
+          }
         }
       }
 
