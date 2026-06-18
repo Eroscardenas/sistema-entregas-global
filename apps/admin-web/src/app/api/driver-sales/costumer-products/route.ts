@@ -54,7 +54,11 @@ function buildProductKey(input: {
   const kind = normalize(input.kind);
   const kg = toDouble(input.kg_por_unidad);
 
-  if (type.includes('BARRA') || name.includes('BARRA') || kind.includes('BARRA')) {
+  if (
+    type.includes('BARRA') ||
+    name.includes('BARRA') ||
+    kind.includes('BARRA')
+  ) {
     return 'BARRA';
   }
 
@@ -100,9 +104,7 @@ async function loadInventoryOutputs(params: {
     cache: 'no-store',
   });
 
-  if (!res.ok) {
-    return new Map<string, number>();
-  }
+  if (!res.ok) return new Map<string, number>();
 
   const json = await res.json().catch(() => null);
 
@@ -256,7 +258,8 @@ export async function GET(req: Request) {
 
           deliveredByKey.set(
             key,
-            (deliveredByKey.get(key) ?? 0) + toInt(item.qty_real ?? item.qty_assigned),
+            (deliveredByKey.get(key) ?? 0) +
+              toInt(item.qty_real ?? item.qty_assigned),
           );
         }
       }
@@ -322,7 +325,13 @@ export async function GET(req: Request) {
         };
       })
       .filter((row: any) => row.product_activo === true)
-      .filter((row: any) => row.available_qty > 0);
+      .sort((a: any, b: any) => {
+        if (b.available_qty !== a.available_qty) {
+          return b.available_qty - a.available_qty;
+        }
+
+        return String(a.nombre || '').localeCompare(String(b.nombre || ''), 'es');
+      });
 
     return NextResponse.json({
       ok: true,
@@ -333,6 +342,8 @@ export async function GET(req: Request) {
         driver_id: driverId,
         driver_name: driverName,
         driver_code: driverCode,
+        outputsByKey: Object.fromEntries(outputsByKey),
+        deliveredByKey: Object.fromEntries(deliveredByKey),
       },
     });
   } catch (e: any) {
