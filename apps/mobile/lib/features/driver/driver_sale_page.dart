@@ -2,6 +2,7 @@ import 'dart:convert';
 
 import 'package:flutter/material.dart';
 import 'package:http/http.dart' as http;
+import 'package:url_launcher/url_launcher.dart';
 
 class DriverSalePage extends StatefulWidget {
   final String driverId;
@@ -26,9 +27,12 @@ class _DriverSalePageState extends State<DriverSalePage> {
   static const _royal = Color(0xFF1E4A7A);
   static const _accent = Color(0xFF4DADFF);
   static const _burgundy = Color(0xFF852838);
+  static const _success = Color(0xFF10B981);
+  static const _warning = Color(0xFFF59E0B);
+  static const _danger = Color(0xFFEF4444);
 
 static const String _apiBase =
-  'https://sistema-entregas-global.vercel.app';
+    'https://sistema-entregas-global.vercel.app';
 
   final _searchCtrl = TextEditingController();
 
@@ -45,11 +49,6 @@ static const String _apiBase =
   final Map<String, int> _qtyByProduct = {};
   String _paymentMethod = 'EFECTIVO';
 
-  String _locationLabel(Map<String, dynamic> row) {
-    final url = (row['maps_url'] ?? '').toString().trim();
-    return url.isEmpty ? 'Sin ubicación' : 'Ubicación disponible';
-  }
-
   double get _total {
     double acc = 0;
     for (final p in _products) {
@@ -61,10 +60,78 @@ static const String _apiBase =
     return acc;
   }
 
+  int get _totalQty {
+    return _qtyByProduct.values.fold(0, (acc, value) => acc + value);
+  }
+
+  bool get _canRegister {
+    return !_saving && !_loadingProducts && _selectedCustomer != null && _totalQty > 0;
+  }
+
   @override
   void dispose() {
     _searchCtrl.dispose();
     super.dispose();
+  }
+
+
+  bool _isValidMapsUrl(String? value) {
+    final url = (value ?? '').trim();
+    if (url.isEmpty) return false;
+
+    final uri = Uri.tryParse(url);
+    if (uri == null) return false;
+
+    return uri.hasScheme &&
+        (uri.scheme == 'http' || uri.scheme == 'https') &&
+        uri.host.isNotEmpty;
+  }
+
+  Future<void> _openCustomerMaps() async {
+    final url = (_selectedCustomer?['maps_url'] ?? '').toString().trim();
+
+    if (!_isValidMapsUrl(url)) {
+      _showMsg('Este cliente no tiene link válido de Maps.');
+      return;
+    }
+
+    try {
+      final opened = await launchUrl(
+        Uri.parse(url),
+        mode: LaunchMode.externalApplication,
+      );
+
+      if (!opened) {
+        _showMsg('No se pudo abrir Maps.');
+      }
+    } catch (e) {
+      _showMsg('No se pudo abrir Maps: $e');
+    }
+  }
+
+  String _locationLabel(Map<String, dynamic> row) {
+    final url = (row['maps_url'] ?? '').toString().trim();
+    return url.isEmpty ? 'Sin ubicación' : 'Ubicación disponible';
+  }
+
+  Color _availableColor(int available) {
+    if (available <= 0) return _danger;
+    if (available <= 5) return _warning;
+    return _success;
+  }
+
+  String _availableLabel(int available) {
+    if (available <= 0) return 'Sin stock';
+    if (available <= 5) return 'Stock bajo';
+    return 'Disponible';
+  }
+
+  Future<Map<String, dynamic>> _readJson(http.Response res) async {
+    final decoded = jsonDecode(res.body);
+    if (decoded is! Map<String, dynamic>) {
+      throw Exception('Respuesta inválida del servidor');
+    }
+    return decoded;
   }
 
   Future<void> _searchCustomers() async {
@@ -84,21 +151,24 @@ static const String _apiBase =
     });
 
     try {
-      final uri = Uri.parse(
-        '$_apiBase/api/driver-sales/customers?q=${Uri.encodeQueryComponent(q)}',
+      final uri = Uri.parse('$_apiBase/api/driver-sales/customers').replace(
+        queryParameters: {'q': q},
       );
 
       final res = await http.get(uri);
-      final json = jsonDecode(res.body) as Map<String, dynamic>;
+      final json = await _readJson(res);
 
       if (res.statusCode >= 400 || json['ok'] != true) {
         throw Exception(json['error'] ?? 'Error buscando clientes');
       }
 
+      if (!mounted) return;
+
       setState(() {
         _customers = List<Map<String, dynamic>>.from(json['data'] ?? []);
       });
     } catch (e) {
+      if (!mounted) return;
       setState(() {
         _error = e.toString().replaceFirst('Exception: ', '');
       });
@@ -122,23 +192,36 @@ static const String _apiBase =
     try {
       final customerId = (customer['id'] ?? '').toString();
 
-      final uri = Uri.parse(
-        '$_apiBase/api/driver-sales/costumer-products'
-        '?customer_id=${Uri.encodeQueryComponent(customerId)}'
-        '&driver_id=${Uri.encodeQueryComponent(widget.driverId)}',
+      final uri = Uri.parse('$_apiBase/api/driver-sales/costumer-products').replace(
+        queryParameters: {
+          'customer_id': customerId,
+          'driver_id': widget.driverId,
+        },
       );
 
       final res = await http.get(uri);
-      final json = jsonDecode(res.body) as Map<String, dynamic>;
+      final json = await _readJson(res);
 
       if (res.statusCode >= 400 || json['ok'] != true) {
         throw Exception(json['error'] ?? 'Error cargando productos');
       }
 
+      final rows = List<Map<String, dynamic>>.from(json['data'] ?? []);
+
+      rows.sort((a, b) {
+        final avA = NumberParser.toInt(a['available_qty']);
+        final avB = NumberParser.toInt(b['available_qty']);
+        if (avA != avB) return avB.compareTo(avA);
+        return (a['nombre'] ?? '').toString().compareTo((b['nombre'] ?? '').toString());
+      });
+
+      if (!mounted) return;
+
       setState(() {
-        _products = List<Map<String, dynamic>>.from(json['data'] ?? []);
+        _products = rows;
       });
     } catch (e) {
+      if (!mounted) return;
       setState(() {
         _error = e.toString().replaceFirst('Exception: ', '');
       });
@@ -165,24 +248,74 @@ static const String _apiBase =
     });
   }
 
+  Future<void> _refreshSelectedCustomerProducts() async {
+    final selected = _selectedCustomer;
+    if (selected == null) return;
+    await _selectCustomer(selected);
+  }
+
   Future<void> _registerSale() async {
     if (_selectedCustomer == null) {
       _showMsg('Selecciona un cliente.');
       return;
     }
 
-    final items = _qtyByProduct.entries
-        .where((e) => e.value > 0)
-        .map((e) => {
-              'product_id': e.key,
-              'quantity': e.value,
-            })
-        .toList();
+    final cleanDriverId = widget.driverId.trim();
+    final cleanAssignmentId = (widget.assignmentId ?? '').trim();
+    final cleanRouteId = (widget.routeId ?? '').trim();
+
+    if (cleanDriverId.isEmpty) {
+      _showMsg('No se pudo identificar el chofer.');
+      return;
+    }
+
+    if (cleanAssignmentId.isEmpty) {
+      _showMsg('No hay asignación activa para registrar la venta en ruta.');
+      return;
+    }
+
+    final items = <Map<String, dynamic>>[];
+
+    for (final entry in _qtyByProduct.entries) {
+      if (entry.value <= 0) continue;
+
+      final product = _products.firstWhere(
+        (p) => (p['product_id'] ?? '').toString() == entry.key,
+        orElse: () => <String, dynamic>{},
+      );
+
+      if (product.isEmpty) continue;
+
+      final available = NumberParser.toInt(product['available_qty']);
+      if (entry.value > available) {
+        _showMsg('La cantidad supera el stock disponible.');
+        return;
+      }
+
+      items.add({
+        'product_id': entry.key,
+        'quantity': entry.value,
+      });
+    }
 
     if (items.isEmpty) {
       _showMsg('Agrega al menos un producto.');
       return;
     }
+
+    final payload = <String, dynamic>{
+      'driver_id': cleanDriverId,
+      'customer_id': _selectedCustomer!['id'],
+      'assignment_id': cleanAssignmentId,
+      'route_id': cleanRouteId.isEmpty ? null : cleanRouteId,
+      'payment_method': _paymentMethod,
+      'items': items,
+    };
+
+    debugPrint('VENTA DRIVER: $cleanDriverId');
+    debugPrint('VENTA ASSIGNMENT: $cleanAssignmentId');
+    debugPrint('VENTA ROUTE: ${cleanRouteId.isEmpty ? 'null' : cleanRouteId}');
+    debugPrint('VENTA PAYLOAD: ${jsonEncode(payload)}');
 
     setState(() {
       _saving = true;
@@ -195,17 +328,13 @@ static const String _apiBase =
       final res = await http.post(
         uri,
         headers: {'Content-Type': 'application/json'},
-        body: jsonEncode({
-          'driver_id': widget.driverId,
-          'customer_id': _selectedCustomer!['id'],
-          'assignment_id': widget.assignmentId,
-          'route_id': widget.routeId,
-          'payment_method': _paymentMethod,
-          'items': items,
-        }),
+        body: jsonEncode(payload),
       );
 
-      final json = jsonDecode(res.body) as Map<String, dynamic>;
+      debugPrint('VENTA STATUS: ${res.statusCode}');
+      debugPrint('VENTA BODY: ${res.body}');
+
+      final json = await _readJson(res);
 
       if (res.statusCode >= 400 || json['ok'] != true) {
         throw Exception(json['error'] ?? 'Error registrando venta');
@@ -219,9 +348,15 @@ static const String _apiBase =
 
       Navigator.of(context).pop(true);
     } catch (e) {
+      debugPrint('VENTA ERROR: $e');
+
+      if (!mounted) return;
+
       setState(() {
         _error = e.toString().replaceFirst('Exception: ', '');
       });
+
+      await _refreshSelectedCustomerProducts();
     } finally {
       if (mounted) {
         setState(() => _saving = false);
@@ -246,6 +381,14 @@ static const String _apiBase =
         foregroundColor: Colors.white,
         elevation: 0,
         title: const Text('Venta en ruta'),
+        actions: [
+          if (_selectedCustomer != null)
+            IconButton(
+              onPressed: _loadingProducts || _saving ? null : _refreshSelectedCustomerProducts,
+              icon: const Icon(Icons.refresh),
+              tooltip: 'Actualizar stock',
+            ),
+        ],
       ),
       body: Container(
         decoration: const BoxDecoration(
@@ -308,7 +451,7 @@ static const String _apiBase =
                       '3. Indica la cantidad según tu stock disponible.\n'
                       '4. Selecciona el método de pago.\n'
                       '5. Presiona "Registrar venta".\n\n'
-                      'La venta se agregará automáticamente a tu ruta, descontará producto de tu inventario y no afectará el progreso de entregas.',
+                      'La venta se agregará automáticamente a tu ruta y quedará visible para administración.',
                       style: TextStyle(
                         color: Colors.white.withOpacity(0.72),
                         height: 1.4,
@@ -336,26 +479,17 @@ static const String _apiBase =
                       style: const TextStyle(color: Colors.white),
                       decoration: InputDecoration(
                         hintText: 'Buscar cliente...',
-                        hintStyle: TextStyle(
-                          color: Colors.white.withOpacity(0.45),
-                        ),
-                        prefixIcon: const Icon(
-                          Icons.search,
-                          color: Colors.white70,
-                        ),
+                        hintStyle: TextStyle(color: Colors.white.withOpacity(0.45)),
+                        prefixIcon: const Icon(Icons.search, color: Colors.white70),
                         filled: true,
                         fillColor: Colors.white.withOpacity(0.08),
                         border: OutlineInputBorder(
                           borderRadius: BorderRadius.circular(14),
-                          borderSide: BorderSide(
-                            color: Colors.white.withOpacity(0.16),
-                          ),
+                          borderSide: BorderSide(color: Colors.white.withOpacity(0.16)),
                         ),
                         enabledBorder: OutlineInputBorder(
                           borderRadius: BorderRadius.circular(14),
-                          borderSide: BorderSide(
-                            color: Colors.white.withOpacity(0.16),
-                          ),
+                          borderSide: BorderSide(color: Colors.white.withOpacity(0.16)),
                         ),
                         focusedBorder: OutlineInputBorder(
                           borderRadius: BorderRadius.circular(14),
@@ -381,18 +515,40 @@ static const String _apiBase =
                           backgroundColor: _accent,
                           foregroundColor: Colors.white,
                           padding: const EdgeInsets.symmetric(vertical: 13),
-                          shape: RoundedRectangleBorder(
-                            borderRadius: BorderRadius.circular(14),
-                          ),
+                          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
                         ),
                       ),
                     ),
                     if (_selectedCustomer != null) ...[
                       const SizedBox(height: 12),
                       _SelectedBox(
-                        title: (_selectedCustomer!['nombre'] ?? 'Cliente')
-                            .toString(),
+                        title: (_selectedCustomer!['nombre'] ?? 'Cliente').toString(),
                         subtitle: _locationLabel(_selectedCustomer!),
+                      ),
+                      const SizedBox(height: 10),
+                      SizedBox(
+                        width: double.infinity,
+                        child: ElevatedButton.icon(
+                          onPressed: _isValidMapsUrl(_selectedCustomer?['maps_url'])
+                              ? _openCustomerMaps
+                              : null,
+                          icon: const Icon(Icons.map_outlined),
+                          label: Text(
+                            _isValidMapsUrl(_selectedCustomer?['maps_url'])
+                                ? 'Abrir ubicación en Maps'
+                                : 'Cliente sin ubicación de Maps',
+                          ),
+                          style: ElevatedButton.styleFrom(
+                            backgroundColor: _success,
+                            foregroundColor: Colors.white,
+                            disabledBackgroundColor: Colors.white.withOpacity(0.12),
+                            disabledForegroundColor: Colors.white.withOpacity(0.45),
+                            padding: const EdgeInsets.symmetric(vertical: 13),
+                            shape: RoundedRectangleBorder(
+                              borderRadius: BorderRadius.circular(14),
+                            ),
+                          ),
+                        ),
                       ),
                     ],
                     if (_customers.isNotEmpty) ...[
@@ -415,14 +571,9 @@ static const String _apiBase =
                           ),
                           subtitle: Text(
                             _locationLabel(c),
-                            style: TextStyle(
-                              color: Colors.white.withOpacity(0.65),
-                            ),
+                            style: TextStyle(color: Colors.white.withOpacity(0.65)),
                           ),
-                          trailing: const Icon(
-                            Icons.chevron_right,
-                            color: Colors.white,
-                          ),
+                          trailing: const Icon(Icons.chevron_right, color: Colors.white),
                           onTap: () => _selectCustomer(c),
                         ),
                       ),
@@ -453,20 +604,36 @@ static const String _apiBase =
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
-                      const Text(
-                        'Productos',
-                        style: TextStyle(
-                          color: Colors.white,
-                          fontWeight: FontWeight.w900,
-                        ),
+                      Row(
+                        children: [
+                          const Expanded(
+                            child: Text(
+                              'Productos',
+                              style: TextStyle(
+                                color: Colors.white,
+                                fontWeight: FontWeight.w900,
+                              ),
+                            ),
+                          ),
+                          Text(
+                            'Total: $_totalQty pzas',
+                            style: TextStyle(
+                              color: Colors.white.withOpacity(0.70),
+                              fontWeight: FontWeight.w800,
+                              fontSize: 12,
+                            ),
+                          ),
+                        ],
                       ),
                       const SizedBox(height: 8),
                       ..._products.map((p) {
                         final productId = (p['product_id'] ?? '').toString();
                         final qty = _qtyByProduct[productId] ?? 0;
-                        final available =
-                            NumberParser.toInt(p['available_qty']);
+                        final available = NumberParser.toInt(p['available_qty']);
+                        final assigned = NumberParser.toInt(p['assigned_qty']);
+                        final used = NumberParser.toInt(p['used_qty']);
                         final price = NumberParser.toDouble(p['precio']);
+                        final availableColor = _availableColor(available);
 
                         return Container(
                           margin: const EdgeInsets.only(top: 10),
@@ -474,19 +641,39 @@ static const String _apiBase =
                           decoration: BoxDecoration(
                             color: Colors.white.withOpacity(0.07),
                             borderRadius: BorderRadius.circular(16),
-                            border: Border.all(
-                              color: Colors.white.withOpacity(0.12),
-                            ),
+                            border: Border.all(color: Colors.white.withOpacity(0.12)),
                           ),
                           child: Column(
                             crossAxisAlignment: CrossAxisAlignment.start,
                             children: [
-                              Text(
-                                (p['nombre'] ?? 'Producto').toString(),
-                                style: const TextStyle(
-                                  color: Colors.white,
-                                  fontWeight: FontWeight.w900,
-                                ),
+                              Row(
+                                children: [
+                                  Expanded(
+                                    child: Text(
+                                      (p['nombre'] ?? 'Producto').toString(),
+                                      style: const TextStyle(
+                                        color: Colors.white,
+                                        fontWeight: FontWeight.w900,
+                                      ),
+                                    ),
+                                  ),
+                                  Container(
+                                    padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                                    decoration: BoxDecoration(
+                                      color: availableColor.withOpacity(0.14),
+                                      borderRadius: BorderRadius.circular(999),
+                                      border: Border.all(color: availableColor.withOpacity(0.30)),
+                                    ),
+                                    child: Text(
+                                      _availableLabel(available),
+                                      style: TextStyle(
+                                        color: availableColor,
+                                        fontWeight: FontWeight.w900,
+                                        fontSize: 11,
+                                      ),
+                                    ),
+                                  ),
+                                ],
                               ),
                               const SizedBox(height: 4),
                               Text(
@@ -497,16 +684,23 @@ static const String _apiBase =
                                   fontSize: 12,
                                 ),
                               ),
+                              if (assigned > 0 || used > 0) ...[
+                                const SizedBox(height: 3),
+                                Text(
+                                  'Cargado: $assigned • Usado: $used',
+                                  style: TextStyle(
+                                    color: Colors.white.withOpacity(0.52),
+                                    fontWeight: FontWeight.w600,
+                                    fontSize: 11,
+                                  ),
+                                ),
+                              ],
                               const SizedBox(height: 10),
                               Row(
                                 children: [
                                   IconButton(
-                                    onPressed: qty <= 0
-                                        ? null
-                                        : () => _setQty(p, qty - 1),
-                                    icon: const Icon(
-                                      Icons.remove_circle_outline,
-                                    ),
+                                    onPressed: qty <= 0 || _saving ? null : () => _setQty(p, qty - 1),
+                                    icon: const Icon(Icons.remove_circle_outline),
                                     color: Colors.white,
                                   ),
                                   Expanded(
@@ -522,12 +716,10 @@ static const String _apiBase =
                                     ),
                                   ),
                                   IconButton(
-                                    onPressed: qty >= available
+                                    onPressed: qty >= available || available <= 0 || _saving
                                         ? null
                                         : () => _setQty(p, qty + 1),
-                                    icon: const Icon(
-                                      Icons.add_circle_outline,
-                                    ),
+                                    icon: const Icon(Icons.add_circle_outline),
                                     color: Colors.white,
                                   ),
                                 ],
@@ -556,23 +748,15 @@ static const String _apiBase =
                         value: 'EFECTIVO',
                         groupValue: _paymentMethod,
                         activeColor: _accent,
-                        title: const Text(
-                          'Efectivo',
-                          style: TextStyle(color: Colors.white),
-                        ),
-                        onChanged: (v) =>
-                            setState(() => _paymentMethod = v ?? 'EFECTIVO'),
+                        title: const Text('Efectivo', style: TextStyle(color: Colors.white)),
+                        onChanged: _saving ? null : (v) => setState(() => _paymentMethod = v ?? 'EFECTIVO'),
                       ),
                       RadioListTile<String>(
                         value: 'CREDITO',
                         groupValue: _paymentMethod,
                         activeColor: _accent,
-                        title: const Text(
-                          'Crédito',
-                          style: TextStyle(color: Colors.white),
-                        ),
-                        onChanged: (v) =>
-                            setState(() => _paymentMethod = v ?? 'CREDITO'),
+                        title: const Text('Crédito', style: TextStyle(color: Colors.white)),
+                        onChanged: _saving ? null : (v) => setState(() => _paymentMethod = v ?? 'CREDITO'),
                       ),
                       const Divider(color: Colors.white24),
                       Row(
@@ -601,7 +785,7 @@ static const String _apiBase =
                       SizedBox(
                         width: double.infinity,
                         child: ElevatedButton.icon(
-                          onPressed: _saving ? null : _registerSale,
+                          onPressed: _canRegister ? _registerSale : null,
                           icon: _saving
                               ? const SizedBox(
                                   width: 16,
@@ -609,14 +793,14 @@ static const String _apiBase =
                                   child: CircularProgressIndicator(strokeWidth: 2),
                                 )
                               : const Icon(Icons.check_circle),
-                          label: const Text('Registrar venta'),
+                          label: Text(_saving ? 'Registrando...' : 'Registrar venta'),
                           style: ElevatedButton.styleFrom(
                             backgroundColor: _burgundy,
                             foregroundColor: Colors.white,
+                            disabledBackgroundColor: Colors.white.withOpacity(0.12),
+                            disabledForegroundColor: Colors.white.withOpacity(0.40),
                             padding: const EdgeInsets.symmetric(vertical: 14),
-                            shape: RoundedRectangleBorder(
-                              borderRadius: BorderRadius.circular(16),
-                            ),
+                            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
                           ),
                         ),
                       ),
@@ -732,4 +916,3 @@ class _GlassCard extends StatelessWidget {
     );
   }
 }
-

@@ -50,6 +50,9 @@ class _DriverDeliveryDetailPageState extends State<DriverDeliveryDetailPage> {
 
   String? _status;
   String? _deliveredAt;
+  String? _createdAt;
+  String? _deliveryType;
+  bool _createdByDriver = false;
   String? _assignmentId;
   String? _driverId;
   String? _workDate;
@@ -69,11 +72,42 @@ class _DriverDeliveryDetailPageState extends State<DriverDeliveryDetailPage> {
 
   bool get _isDelivered {
     final normalized = _normalizeStatus(_status);
-    return normalized == 'ENTREGADA' ||
+
+    if (normalized == 'ENTREGADA' ||
         normalized == 'CONFIRMADA' ||
         normalized == 'FINALIZADA' ||
-        normalized == 'COMPLETADA';
+        normalized == 'COMPLETADA') {
+      return true;
+    }
+
+    // Las ventas creadas desde DriverSalePage ya nacen como entrega finalizada.
+    // Esto asegura que también muestren PDF e impresión aunque delivered_at venga vacío.
+    if (_createdByDriver == true ||
+        (_deliveryType ?? '').trim().toLowerCase() == 'driver_sale') {
+      return true;
+    }
+
+    return false;
   }
+
+  bool get _canPrintTicket => _isDelivered;
+
+  String? get _effectiveDeliveredAt {
+    if (_deliveredAt != null && _deliveredAt!.trim().isNotEmpty) {
+      return _deliveredAt;
+    }
+
+    if (_createdAt != null && _createdAt!.trim().isNotEmpty) {
+      return _createdAt;
+    }
+
+    if (_isDelivered) {
+      return DateTime.now().toIso8601String();
+    }
+
+    return null;
+  }
+
 
   static int _toInt(dynamic value) {
     if (value == null) return 0;
@@ -149,6 +183,16 @@ class _DriverDeliveryDetailPageState extends State<DriverDeliveryDetailPage> {
         s == 'CONFIRMADA' ||
         s == 'FINALIZADA' ||
         s == 'COMPLETADA';
+  }
+
+  bool _isFinishedDeliveryRow(Map<String, dynamic> delivery) {
+    final status = (delivery['status'] ?? '').toString();
+    final deliveryType = (delivery['delivery_type'] ?? '').toString().trim().toLowerCase();
+    final createdByDriver = delivery['created_by_driver'] == true;
+
+    return _isDeliveredStatus(status) ||
+        createdByDriver ||
+        deliveryType == 'driver_sale';
   }
 
   String _statusLabel(String? status) {
@@ -380,7 +424,7 @@ class _DriverDeliveryDetailPageState extends State<DriverDeliveryDetailPage> {
       final delivery = await _sb
           .from('deliveries')
           .select(
-            'id, customer_id, assignment_id, status, delivered_at, total_expected, total_real, diner_nombre_snapshot, payment_method',
+            'id, customer_id, assignment_id, status, delivered_at, created_at, delivery_type, created_by_driver, total_expected, total_real, diner_nombre_snapshot, payment_method',
           )
           .eq('id', widget.deliveryId)
           .maybeSingle();
@@ -388,6 +432,13 @@ class _DriverDeliveryDetailPageState extends State<DriverDeliveryDetailPage> {
       if (delivery == null) {
         throw Exception('No se encontró la entrega.');
       }
+
+      debugPrint('DETALLE DELIVERY ID: ${widget.deliveryId}');
+      debugPrint('DETALLE DELIVERY: $delivery');
+
+      final deliveryIsFinished = _isFinishedDeliveryRow(
+        Map<String, dynamic>.from(delivery as Map),
+      );
 
       final customerId = (delivery['customer_id'] ?? '').toString();
       final mapsUrl =
@@ -450,18 +501,25 @@ class _DriverDeliveryDetailPageState extends State<DriverDeliveryDetailPage> {
         nextDriverCode = null;
       }
 
-      final outputsByProductKey = await _loadOutputsByProductKey(
-        workDate: workDate,
-        driverId: driverId,
-        driverName: nextDriverName,
-        driverCode: nextDriverCode,
-      );
+      Map<String, int> outputsByProductKey = <String, int>{};
+      Map<String, int> deliveredOtherByProductKey = <String, int>{};
 
-      final deliveredOtherByProductKey =
-          await _loadDeliveredByProductKeyForAssignment(
-        assignmentId: assignmentId,
-        currentDeliveryId: widget.deliveryId,
-      );
+      // Para ventas en ruta / entregas ya finalizadas NO necesitamos validar salidas
+      // para abrir comprobante o imprimir. Esto evita que falle el detalle por
+      // global-outputs cuando lo único que queremos es ver/imprimir el ticket.
+      if (!deliveryIsFinished) {
+        outputsByProductKey = await _loadOutputsByProductKey(
+          workDate: workDate,
+          driverId: driverId,
+          driverName: nextDriverName,
+          driverCode: nextDriverCode,
+        );
+
+        deliveredOtherByProductKey = await _loadDeliveredByProductKeyForAssignment(
+          assignmentId: assignmentId,
+          currentDeliveryId: widget.deliveryId,
+        );
+      }
 
       final rows = await _sb
           .from('delivery_items')
@@ -469,6 +527,8 @@ class _DriverDeliveryDetailPageState extends State<DriverDeliveryDetailPage> {
           .eq('delivery_id', widget.deliveryId);
 
       final rowsList = rows as List;
+
+      debugPrint('DETALLE ITEMS RAW: $rowsList');
 
       final productIds = rowsList
           .map((e) => (e['product_id'] ?? '').toString())
@@ -500,18 +560,22 @@ class _DriverDeliveryDetailPageState extends State<DriverDeliveryDetailPage> {
           kind: (p['kind'] ?? '').toString(),
         );
 
-        final outputQty = outputsByProductKey[productKey] ?? 0;
-        final deliveredOtherQty = deliveredOtherByProductKey[productKey] ?? 0;
+        final qtyRealRaw = raw['qty_real'];
+        int qtyReal = qtyRealRaw == null ? qtyAssigned : _toInt(qtyRealRaw);
+        if (qtyReal < 0) qtyReal = 0;
+
+        final outputQty = deliveryIsFinished
+            ? (qtyReal > qtyAssigned ? qtyReal : qtyAssigned)
+            : (outputsByProductKey[productKey] ?? 0);
+        final deliveredOtherQty = deliveryIsFinished
+            ? 0
+            : (deliveredOtherByProductKey[productKey] ?? 0);
         final maxAllowed = outputQty - deliveredOtherQty;
         final cleanMaxAllowed = maxAllowed < 0 ? 0 : maxAllowed;
 
-        final qtyRealRaw = raw['qty_real'];
-        int qtyReal = qtyRealRaw == null ? qtyAssigned : _toInt(qtyRealRaw);
-
-        if (!_isDelivered && qtyReal > cleanMaxAllowed) {
+        if (!deliveryIsFinished && qtyReal > cleanMaxAllowed) {
           qtyReal = cleanMaxAllowed;
         }
-        if (qtyReal < 0) qtyReal = 0;
 
         return _DeliveryItemRow(
           productId: pid,
@@ -528,6 +592,9 @@ class _DriverDeliveryDetailPageState extends State<DriverDeliveryDetailPage> {
         );
       }).toList();
 
+      debugPrint('DETALLE MAPPED LENGTH: ${mapped.length}');
+      debugPrint('DETALLE DELIVERY_IS_FINISHED: $deliveryIsFinished');
+
       if (!mounted) return;
 
       _driverName = nextDriverName;
@@ -541,6 +608,9 @@ class _DriverDeliveryDetailPageState extends State<DriverDeliveryDetailPage> {
         _workDate = workDate;
         _status = (delivery['status'] ?? 'PENDIENTE').toString();
         _deliveredAt = delivery['delivered_at']?.toString();
+        _createdAt = delivery['created_at']?.toString();
+        _deliveryType = delivery['delivery_type']?.toString();
+        _createdByDriver = delivery['created_by_driver'] == true;
         _dinerName = (delivery['diner_nombre_snapshot'] ?? '').toString();
         _totalExpected = _toDouble(delivery['total_expected']);
         _totalReal = _toDouble(delivery['total_real']);
@@ -553,7 +623,15 @@ class _DriverDeliveryDetailPageState extends State<DriverDeliveryDetailPage> {
         _syncControllers();
         _loading = false;
       });
+
+      debugPrint('DETALLE STATE STATUS: $_status');
+      debugPrint('DETALLE STATE TYPE: $_deliveryType');
+      debugPrint('DETALLE STATE CREATED_BY_DRIVER: $_createdByDriver');
+      debugPrint('DETALLE STATE IS_DELIVERED: $_isDelivered');
+      debugPrint('DETALLE STATE CAN_PRINT: $_canPrintTicket');
     } catch (e) {
+      debugPrint('DETALLE ERROR: $e');
+
       if (!mounted) return;
 
       setState(() {
@@ -934,28 +1012,28 @@ class _DriverDeliveryDetailPageState extends State<DriverDeliveryDetailPage> {
                     pw.Expanded(
                       child: _boxedField(
                         label: 'Día',
-                        value: _safeDatePartDay(_deliveredAt),
+                        value: _safeDatePartDay(_effectiveDeliveredAt),
                       ),
                     ),
                     pw.SizedBox(width: 4),
                     pw.Expanded(
                       child: _boxedField(
                         label: 'Mes',
-                        value: _safeDatePartMonth(_deliveredAt),
+                        value: _safeDatePartMonth(_effectiveDeliveredAt),
                       ),
                     ),
                     pw.SizedBox(width: 4),
                     pw.Expanded(
                       child: _boxedField(
                         label: 'Año',
-                        value: _safeDatePartYear(_deliveredAt),
+                        value: _safeDatePartYear(_effectiveDeliveredAt),
                       ),
                     ),
                     pw.SizedBox(width: 4),
                     pw.Expanded(
                       child: _boxedField(
                         label: 'Hora',
-                        value: _safeDatePartHour(_deliveredAt),
+                        value: _safeDatePartHour(_effectiveDeliveredAt),
                       ),
                     ),
                   ],
@@ -1257,7 +1335,7 @@ class _DriverDeliveryDetailPageState extends State<DriverDeliveryDetailPage> {
         customerName: widget.customerName,
         dinerName: _dinerName,
         driverName: _driverName,
-        deliveredAt: _deliveredAt,
+        deliveredAt: _effectiveDeliveredAt,
         totalReal: _isDelivered ? _totalReal : _previewTotalReal,
         paymentMethod: _paymentMethod,
         copies: 1,
@@ -1292,7 +1370,7 @@ class _DriverDeliveryDetailPageState extends State<DriverDeliveryDetailPage> {
         customerName: widget.customerName,
         dinerName: _dinerName,
         driverName: _driverName,
-        deliveredAt: _deliveredAt,
+        deliveredAt: _effectiveDeliveredAt,
         totalReal: _isDelivered ? _totalReal : _previewTotalReal,
         paymentMethod: _paymentMethod,
         copies: 1,
@@ -1374,6 +1452,7 @@ class _DriverDeliveryDetailPageState extends State<DriverDeliveryDetailPage> {
   @override
   Widget build(BuildContext context) {
     final isDelivered = _isDelivered;
+    final canPrintTicket = _canPrintTicket;
     final statusColor = _statusColor(_status);
     final hasMaps = _isValidMapsUrl(_mapsUrl);
 
@@ -1389,7 +1468,7 @@ class _DriverDeliveryDetailPageState extends State<DriverDeliveryDetailPage> {
             onPressed: (_loading || _busy) ? null : _load,
             icon: const Icon(Icons.refresh),
           ),
-          if (isDelivered)
+          if (canPrintTicket)
             IconButton(
               onPressed: _busy ? null : _openPdfPreview,
               icon: const Icon(Icons.picture_as_pdf),
@@ -1504,10 +1583,10 @@ class _DriverDeliveryDetailPageState extends State<DriverDeliveryDetailPage> {
                                     ),
                                   ),
                                 ],
-                                if (_deliveredAt != null) ...[
+                                if (isDelivered || _deliveredAt != null) ...[
                                   const SizedBox(height: 6),
                                   Text(
-                                    'Hora entrega: ${_formatDateTime(_deliveredAt)}',
+                                    'Hora entrega: ${_formatDateTime(_effectiveDeliveredAt)}',
                                     style: TextStyle(
                                       color: Colors.white.withOpacity(0.70),
                                       fontWeight: FontWeight.w700,
@@ -1606,7 +1685,7 @@ class _DriverDeliveryDetailPageState extends State<DriverDeliveryDetailPage> {
                                     });
                                   },
                                 ),
-                                if (_deliveredAt != null) ...[
+                                if (canPrintTicket) ...[
                                   const SizedBox(height: 10),
                                   Container(
                                     width: double.infinity,
@@ -1623,7 +1702,7 @@ class _DriverDeliveryDetailPageState extends State<DriverDeliveryDetailPage> {
                                           CrossAxisAlignment.start,
                                       children: [
                                         Text(
-                                          'Confirmada: ${_formatDateTime(_deliveredAt)}',
+                                          'Confirmada: ${_formatDateTime(_effectiveDeliveredAt)}',
                                           style: const TextStyle(
                                             color: Colors.white,
                                             fontWeight: FontWeight.w800,

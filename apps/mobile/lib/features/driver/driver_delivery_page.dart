@@ -1,7 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 
-import 'package:mobile/pages/driver_delivery_detail_page.dart';
+import 'package:mobile/features/driver/driver_delivery_detail_page.dart';
 
 class DriverDeliveriesPage extends StatefulWidget {
   const DriverDeliveriesPage({super.key});
@@ -119,7 +119,7 @@ class _DriverDeliveriesPageState extends State<DriverDeliveriesPage> {
       final deliveries = await _sb
           .from('deliveries')
           .select(
-            'id, folio, status, total_expected, total_real, customer_nombre_snapshot, diner_nombre_snapshot, delivered_at, payment_method, assignment_id',
+            'id, folio, status, total_expected, total_real, customer_nombre_snapshot, diner_nombre_snapshot, delivered_at, created_at, payment_method, assignment_id, delivery_type, created_by_driver',
           )
           .inFilter('assignment_id', assignmentIds)
           .order('folio', ascending: true);
@@ -134,6 +134,9 @@ class _DriverDeliveriesPageState extends State<DriverDeliveriesPage> {
               status: (raw['status'] ?? 'PENDIENTE').toString(),
               paymentMethod: (raw['payment_method'] ?? '').toString(),
               deliveredAt: raw['delivered_at']?.toString(),
+              createdAt: raw['created_at']?.toString(),
+              deliveryType: (raw['delivery_type'] ?? '').toString(),
+              createdByDriver: raw['created_by_driver'] == true,
               totalExpected: ((raw['total_expected'] ?? 0) as num).toDouble(),
               totalReal: ((raw['total_real'] ?? 0) as num).toDouble(),
             ),
@@ -183,6 +186,30 @@ class _DriverDeliveriesPageState extends State<DriverDeliveriesPage> {
         s == 'CONFIRMADA' ||
         s == 'FINALIZADA' ||
         s == 'COMPLETADA';
+  }
+
+  bool _isFinishedRow(_DeliveryCardRow row) {
+    if (_isDeliveredStatus(row.status)) return true;
+
+    if (row.createdByDriver == true) return true;
+
+    if (row.deliveryType.trim().toLowerCase() == 'driver_sale') {
+      return true;
+    }
+
+    return false;
+  }
+
+  String? _effectiveDeliveredAtForRow(_DeliveryCardRow row) {
+    if (row.deliveredAt != null && row.deliveredAt!.trim().isNotEmpty) {
+      return row.deliveredAt;
+    }
+
+    if (row.createdAt != null && row.createdAt!.trim().isNotEmpty) {
+      return row.createdAt;
+    }
+
+    return null;
   }
 
   String _statusLabel(String? status) {
@@ -242,8 +269,8 @@ class _DriverDeliveriesPageState extends State<DriverDeliveriesPage> {
 
   @override
   Widget build(BuildContext context) {
-    final deliveredCount = _rows.where((e) => _isDeliveredStatus(e.status)).length;
-    final pendingCount = _rows.where((e) => !_isDeliveredStatus(e.status)).length;
+    final deliveredCount = _rows.where(_isFinishedRow).length;
+    final pendingCount = _rows.where((e) => !_isFinishedRow(e)).length;
 
     return Scaffold(
       backgroundColor: _navy,
@@ -450,8 +477,11 @@ class _DriverDeliveriesPageState extends State<DriverDeliveriesPage> {
                       separatorBuilder: (_, __) => const SizedBox(height: 10),
                       itemBuilder: (_, i) {
                         final row = _rows[i];
-                        final isDelivered = _isDeliveredStatus(row.status);
-                        final statusColor = _statusColor(row.status);
+                        final isDelivered = _isFinishedRow(row);
+                        final statusColor = row.createdByDriver
+                            ? _success
+                            : _statusColor(row.status);
+                        final effectiveDeliveredAt = _effectiveDeliveredAtForRow(row);
 
                         return InkWell(
                           borderRadius: BorderRadius.circular(20),
@@ -519,7 +549,7 @@ class _DriverDeliveriesPageState extends State<DriverDeliveriesPage> {
                                           const SizedBox(height: 6),
                                           Text(
                                             isDelivered
-                                                ? 'Hora entrega: ${_formatDateTime(row.deliveredAt)}'
+                                                ? 'Hora entrega: ${_formatDateTime(effectiveDeliveredAt)}'
                                                 : 'Pendiente de captura',
                                             style: TextStyle(
                                               color: isDelivered
@@ -545,7 +575,9 @@ class _DriverDeliveriesPageState extends State<DriverDeliveriesPage> {
                                         ),
                                       ),
                                       child: Text(
-                                        _statusLabel(row.status),
+                                        row.createdByDriver
+                                            ? 'Venta en ruta'
+                                            : _statusLabel(row.status),
                                         style: TextStyle(
                                           color: statusColor,
                                           fontWeight: FontWeight.w800,
@@ -575,6 +607,11 @@ class _DriverDeliveriesPageState extends State<DriverDeliveriesPage> {
                                           ? 'EFECTIVO'
                                           : row.paymentMethod.toUpperCase(),
                                     ),
+                                    if (row.createdByDriver)
+                                      const _MiniPill(
+                                        label: 'Tipo',
+                                        value: 'Venta en ruta',
+                                      ),
                                   ],
                                 ),
                                 const SizedBox(height: 12),
@@ -626,6 +663,9 @@ class _DeliveryCardRow {
   final String status;
   final String paymentMethod;
   final String? deliveredAt;
+  final String? createdAt;
+  final String deliveryType;
+  final bool createdByDriver;
   final double totalExpected;
   final double totalReal;
 
@@ -637,6 +677,9 @@ class _DeliveryCardRow {
     required this.status,
     required this.paymentMethod,
     required this.deliveredAt,
+    required this.createdAt,
+    required this.deliveryType,
+    required this.createdByDriver,
     required this.totalExpected,
     required this.totalReal,
   });

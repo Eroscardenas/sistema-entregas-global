@@ -610,8 +610,6 @@ class _DriverRoutePageState extends State<DriverRoutePage> {
   }
 
   Future<void> _openDelivery(_DeliveryRow d) async {
-    if (d.isDriverSale) return;
-
     await Navigator.of(context).push<bool>(
       MaterialPageRoute(
         builder: (_) => DriverDeliveryDetailPage(
@@ -1358,7 +1356,7 @@ class _DriverRoutePageState extends State<DriverRoutePage> {
                                         child: InkWell(
                                           borderRadius:
                                               BorderRadius.circular(20),
-                                          onTap: cancelled || d.isDriverSale
+                                          onTap: cancelled
                                               ? null
                                               : () => _openDelivery(d),
                                           child: _GlassCard(
@@ -1477,34 +1475,27 @@ class _DriverRoutePageState extends State<DriverRoutePage> {
                                                 if (d.deliveredAt != null ||
                                                     d.isDriverSale) ...[
                                                   const SizedBox(height: 10),
-                                                  Align(
-                                                    alignment:
-                                                        Alignment.centerRight,
-                                                    child: ElevatedButton.icon(
-                                                      onPressed: _busy
-                                                          ? null
-                                                          : () =>
-                                                              _openDeliveryPdf(
-                                                                  d),
-                                                      icon: const Icon(Icons
-                                                          .picture_as_pdf),
-                                                      label:
-                                                          const Text('PDF'),
-                                                      style: ElevatedButton
-                                                          .styleFrom(
-                                                        backgroundColor:
-                                                            _burgundy,
-                                                        foregroundColor:
-                                                            Colors.white,
-                                                        shape:
-                                                            RoundedRectangleBorder(
-                                                          borderRadius:
-                                                              BorderRadius
-                                                                  .circular(
-                                                                      12),
+                                                  Row(
+                                                    children: [
+                                                      Icon(
+                                                        Icons.touch_app_outlined,
+                                                        color: Colors.white70,
+                                                        size: 16,
+                                                      ),
+                                                      const SizedBox(width: 6),
+                                                      Text(
+                                                        d.isDriverSale
+                                                            ? 'Toca la tarjeta para ver/imprimir ticket'
+                                                            : 'Toca la tarjeta para ver detalle',
+                                                        style: TextStyle(
+                                                          color: Colors.white
+                                                              .withOpacity(0.70),
+                                                          fontSize: 12,
+                                                          fontWeight:
+                                                              FontWeight.w700,
                                                         ),
                                                       ),
-                                                    ),
+                                                    ],
                                                   ),
                                                 ] else ...[
                                                   const SizedBox(height: 10),
