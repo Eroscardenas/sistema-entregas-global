@@ -39,6 +39,9 @@ class _DriverDashboardPageState extends State<DriverDashboardPage> {
   String? _driverId;
   String? _profileId;
 
+  double _totalEfectivoHoy = 0;
+  double _totalCreditoHoy = 0;
+
   String? _error;
 
   SupabaseClient get _sb => Supabase.instance.client;
@@ -102,7 +105,8 @@ class _DriverDashboardPageState extends State<DriverDashboardPage> {
 
       final drvNombre = (driver['nombre'] ?? '').toString().trim();
       final drvTel = (driver['telefono'] ?? '').toString().trim();
-      final drvStatus = (driver['current_status'] ?? 'available').toString().trim();
+      final drvStatus =
+          (driver['current_status'] ?? 'available').toString().trim();
 
       if (_nombre.isEmpty && drvNombre.isNotEmpty) {
         _nombre = drvNombre;
@@ -114,6 +118,8 @@ class _DriverDashboardPageState extends State<DriverDashboardPage> {
         _status = drvStatus;
       }
 
+      await _loadTodayMoneyTotals();
+
       if (!mounted) return;
       setState(() => _loading = false);
     } catch (e) {
@@ -123,6 +129,162 @@ class _DriverDashboardPageState extends State<DriverDashboardPage> {
         _loading = false;
       });
     }
+  }
+
+  Future<void> _loadTodayMoneyTotals() async {
+    _totalEfectivoHoy = 0;
+    _totalCreditoHoy = 0;
+
+    if (_driverId == null || _driverId!.isEmpty) return;
+
+    final now = DateTime.now();
+    final today =
+        '${now.year.toString().padLeft(4, '0')}-${now.month.toString().padLeft(2, '0')}-${now.day.toString().padLeft(2, '0')}';
+
+    final start = DateTime(now.year, now.month, now.day);
+    final end = start.add(const Duration(days: 1));
+
+    final assignmentIds = await _getTodayAssignmentIds(
+      today: today,
+      start: start,
+      end: end,
+    );
+
+    if (assignmentIds.isEmpty) return;
+
+    final rows = await _sb
+        .from('deliveries')
+        .select('''
+          id,
+          status,
+          payment_method,
+          total_real,
+          total_expected,
+          delivery_type,
+          created_by_driver,
+          assignment_id
+        ''')
+        .inFilter('assignment_id', assignmentIds);
+
+    double efectivo = 0;
+    double credito = 0;
+
+    for (final item in rows as List) {
+      final row = Map<String, dynamic>.from(item as Map);
+
+      final status = _normalizeStatus(row['status']);
+
+      final cancelled = [
+        'CANCELADA',
+        'CANCELADO',
+        'ANULADA',
+        'ANULADO',
+      ].contains(status);
+
+      if (cancelled) continue;
+
+      final confirmed = [
+        'ENTREGADA',
+        'CONFIRMADA',
+        'FINALIZADA',
+        'COMPLETADA',
+        'CERRADA',
+        'LIQUIDADA',
+      ].contains(status);
+
+      final driverSale = row['created_by_driver'] == true ||
+          _normalizeStatus(row['delivery_type']) == 'SALE';
+
+      if (!confirmed && !driverSale) continue;
+
+      final total = _toDouble(
+        row['total_real'] ?? row['total_expected'] ?? 0,
+      );
+
+      final paymentMethod = _normalizeStatus(
+        row['payment_method'] ?? 'EFECTIVO',
+      );
+
+      if (paymentMethod == 'CREDITO') {
+        credito += total;
+      } else {
+        efectivo += total;
+      }
+    }
+
+    _totalEfectivoHoy = efectivo;
+    _totalCreditoHoy = credito;
+  }
+
+  Future<List<String>> _getTodayAssignmentIds({
+    required String today,
+    required DateTime start,
+    required DateTime end,
+  }) async {
+    final ids = <String>{};
+
+    Future<void> tryByDateColumn(String column) async {
+      try {
+        final rows = await _sb
+            .from('assignments')
+            .select('id')
+            .eq('driver_id', _driverId!)
+            .eq(column, today);
+
+        for (final item in rows as List) {
+          final id = (item['id'] ?? '').toString();
+          if (id.isNotEmpty) ids.add(id);
+        }
+      } catch (_) {}
+    }
+
+    await tryByDateColumn('work_date');
+    await tryByDateColumn('route_date');
+    await tryByDateColumn('fecha');
+
+    if (ids.isEmpty) {
+      try {
+        final rows = await _sb
+            .from('assignments')
+            .select('id')
+            .eq('driver_id', _driverId!)
+            .gte('created_at', start.toIso8601String())
+            .lt('created_at', end.toIso8601String());
+
+        for (final item in rows as List) {
+          final id = (item['id'] ?? '').toString();
+          if (id.isNotEmpty) ids.add(id);
+        }
+      } catch (_) {}
+    }
+
+    return ids.toList();
+  }
+
+  String _normalizeStatus(dynamic value) {
+    return value
+        .toString()
+        .trim()
+        .toUpperCase()
+        .replaceAll('Á', 'A')
+        .replaceAll('É', 'E')
+        .replaceAll('Í', 'I')
+        .replaceAll('Ó', 'O')
+        .replaceAll('Ú', 'U');
+  }
+
+  double _toDouble(dynamic value) {
+    if (value == null) return 0;
+    if (value is int) return value.toDouble();
+    if (value is double) return value;
+    if (value is num) return value.toDouble();
+
+    final clean = value.toString().replaceAll('\$', '').replaceAll(',', '').trim();
+    return double.tryParse(clean) ?? 0;
+  }
+
+  String _money(double value) {
+    return '\$${value.toStringAsFixed(2)}';
   }
 
   String _statusLabel(String s) {
@@ -293,122 +455,155 @@ class _DriverDashboardPageState extends State<DriverDashboardPage> {
                           message: _error!,
                           onRetry: _bootstrap,
                         )
-                      : Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            _GlassCard(
-                              child: Row(
-                                children: [
-                                  Container(
-                                    height: 54,
-                                    width: 54,
-                                    decoration: BoxDecoration(
-                                      borderRadius: BorderRadius.circular(16),
-                                      color: Colors.white.withOpacity(0.12),
-                                      border: Border.all(
-                                        color: Colors.white.withOpacity(0.18),
+                      : SingleChildScrollView(
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              _GlassCard(
+                                child: Row(
+                                  children: [
+                                    Container(
+                                      height: 54,
+                                      width: 54,
+                                      decoration: BoxDecoration(
+                                        borderRadius: BorderRadius.circular(16),
+                                        color: Colors.white.withOpacity(0.12),
+                                        border: Border.all(
+                                          color: Colors.white.withOpacity(0.18),
+                                        ),
+                                      ),
+                                      child: const Icon(
+                                        Icons.local_shipping,
+                                        color: Colors.white,
                                       ),
                                     ),
-                                    child: const Icon(Icons.local_shipping, color: Colors.white),
-                                  ),
-                                  const SizedBox(width: 14),
+                                    const SizedBox(width: 14),
+                                    Expanded(
+                                      child: Column(
+                                        crossAxisAlignment:
+                                            CrossAxisAlignment.start,
+                                        children: [
+                                          Text(
+                                            '¡Bienvenido, $nameShown!',
+                                            maxLines: 1,
+                                            overflow: TextOverflow.ellipsis,
+                                            style: const TextStyle(
+                                              color: Colors.white,
+                                              fontSize: 16,
+                                              fontWeight: FontWeight.w900,
+                                            ),
+                                          ),
+                                          const SizedBox(height: 4),
+                                          Text(
+                                            'Tel: $_telefono',
+                                            style: TextStyle(
+                                              color:
+                                                  Colors.white.withOpacity(0.70),
+                                              fontSize: 8,
+                                              fontWeight: FontWeight.w600,
+                                            ),
+                                          ),
+                                        ],
+                                      ),
+                                    ),
+                                  ],
+                                ),
+                              ),
+                              const SizedBox(height: 16),
+
+                              Row(
+                                children: [
                                   Expanded(
-                                    child: Column(
-                                      crossAxisAlignment: CrossAxisAlignment.start,
-                                      children: [
-                                        Text(
-                                          '¡Bienvenido, $nameShown! ',
-                                          maxLines: 1,
-                                          overflow: TextOverflow.ellipsis,
-                                          style: const TextStyle(
-                                            color: Colors.white,
-                                            fontSize: 16,
-                                            fontWeight: FontWeight.w900,
-                                          ),
-                                        ),
-                                        const SizedBox(height: 4),
-                                        Text(
-                                          'Tel: $_telefono',
-                                          style: TextStyle(
-                                            color: Colors.white.withOpacity(0.70),
-                                            fontSize: 8,
-                                            fontWeight: FontWeight.w600,
-                                          ),
-                                        ),
-                                      ],
+                                    child: _MoneyCard(
+                                      icon: Icons.payments_outlined,
+                                      title: 'Efectivo hoy',
+                                      amount: _money(_totalEfectivoHoy),
+                                      subtitle: 'Total vendido',
+                                      color: const Color(0xFF10B981),
+                                    ),
+                                  ),
+                                  const SizedBox(width: 12),
+                                  Expanded(
+                                    child: _MoneyCard(
+                                      icon: Icons.credit_card,
+                                      title: 'Crédito hoy',
+                                      amount: _money(_totalCreditoHoy),
+                                      subtitle: 'Total vendido',
+                                      color: const Color(0xFF60A5FA),
                                     ),
                                   ),
                                 ],
                               ),
-                            ),
-                            const SizedBox(height: 16),
-                            Row(
-                              children: [
-                                Expanded(
-                                  child: _ActionCard(
-                                    icon: Icons.route,
-                                    title: 'Mi ruta',
-                                    subtitle: 'Ver asignaciones',
-                                    onTap: _openRoutePage,
+
+                              const SizedBox(height: 16),
+                              Row(
+                                children: [
+                                  Expanded(
+                                    child: _ActionCard(
+                                      icon: Icons.route,
+                                      title: 'Mi ruta',
+                                      subtitle: 'Ver asignaciones',
+                                      onTap: _openRoutePage,
+                                    ),
                                   ),
-                                ),
-                                const SizedBox(width: 16),
-                                Expanded(
-                                  child: _ActionCard(
-                                    icon: Icons.inventory_2_outlined,
-                                    title: 'Stock',
-                                    subtitle: 'Carga consolidada',
-                                    onTap: _openStockPage,
+                                  const SizedBox(width: 16),
+                                  Expanded(
+                                    child: _ActionCard(
+                                      icon: Icons.inventory_2_outlined,
+                                      title: 'Stock',
+                                      subtitle: 'Carga consolidada',
+                                      onTap: _openStockPage,
+                                    ),
                                   ),
-                                ),
-                              ],
-                            ),
-                            const SizedBox(height: 12),
-                            Row(
-                              children: [
-                                Expanded(
-                                  child: _ActionCard(
-                                    icon: Icons.print,
-                                    title: 'Impresora',
-                                    subtitle: 'Bluetooth térmica',
-                                    onTap: _openPrinterPage,
+                                ],
+                              ),
+                              const SizedBox(height: 12),
+                              Row(
+                                children: [
+                                  Expanded(
+                                    child: _ActionCard(
+                                      icon: Icons.print,
+                                      title: 'Impresora',
+                                      subtitle: 'Bluetooth térmica',
+                                      onTap: _openPrinterPage,
+                                    ),
                                   ),
-                                ),
-                                const SizedBox(width: 12),
-                                Expanded(
-                                  child: _ActionCard(
-                                    icon: Icons.support_agent,
-                                    title: 'Soporte',
-                                    subtitle: 'Ventas / logística',
-                                    onTap: _openSupportPage,
+                                  const SizedBox(width: 12),
+                                  Expanded(
+                                    child: _ActionCard(
+                                      icon: Icons.support_agent,
+                                      title: 'Soporte',
+                                      subtitle: 'Ventas / logística',
+                                      onTap: _openSupportPage,
+                                    ),
                                   ),
-                                ),
-                              ],
-                            ),
-                            const SizedBox(height: 12),
-                            Row(
-                              children: [
-                                Expanded(
-                                  child: _GlassMiniInfo(
-                                    icon: Icons.verified_user_outlined,
-                                    title: 'Estado actual',
-                                    subtitle: statusLabel,
-                                    badgeColor: statusColor,
+                                ],
+                              ),
+                              const SizedBox(height: 12),
+                              Row(
+                                children: [
+                                  Expanded(
+                                    child: _GlassMiniInfo(
+                                      icon: Icons.verified_user_outlined,
+                                      title: 'Estado actual',
+                                      subtitle: statusLabel,
+                                      badgeColor: statusColor,
+                                    ),
                                   ),
-                                ),
-                                const SizedBox(width: 12),
-                                Expanded(
-                                  child: _GlassMiniInfo(
-                                    icon: Icons.print_outlined,
-                                    title: 'Impresión',
-                                    subtitle: 'Configurar ticket',
-                                    badgeColor: _accent,
+                                  const SizedBox(width: 12),
+                                  Expanded(
+                                    child: _GlassMiniInfo(
+                                      icon: Icons.print_outlined,
+                                      title: 'Impresión',
+                                      subtitle: 'Configurar ticket',
+                                      badgeColor: _accent,
+                                    ),
                                   ),
-                                ),
-                              ],
-                            ),
-                            const SizedBox(height: 14),
-                          ],
+                                ],
+                              ),
+                              const SizedBox(height: 14),
+                            ],
+                          ),
                         ),
             ),
           ),
@@ -441,6 +636,99 @@ class _GlassCard extends StatelessWidget {
         ],
       ),
       child: child,
+    );
+  }
+}
+
+class _MoneyCard extends StatelessWidget {
+  final IconData icon;
+  final String title;
+  final String amount;
+  final String subtitle;
+  final Color color;
+
+  const _MoneyCard({
+    required this.icon,
+    required this.title,
+    required this.amount,
+    required this.subtitle,
+    required this.color,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      height: 128,
+      padding: const EdgeInsets.all(12),
+      decoration: BoxDecoration(
+        borderRadius: BorderRadius.circular(22),
+        color: Colors.white.withOpacity(0.11),
+        border: Border.all(color: Colors.white.withOpacity(0.16)),
+        boxShadow: [
+          BoxShadow(
+            color: Colors.black.withOpacity(0.24),
+            blurRadius: 22,
+            offset: const Offset(0, 10),
+          ),
+        ],
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              Container(
+                height: 36,
+                width: 36,
+                decoration: BoxDecoration(
+                  borderRadius: BorderRadius.circular(14),
+                  color: color.withOpacity(0.22),
+                  border: Border.all(color: color.withOpacity(0.35)),
+                ),
+                child: Icon(icon, color: Colors.white, size: 20),
+              ),
+              const SizedBox(width: 8),
+              Expanded(
+                child: Text(
+                  title,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: TextStyle(
+                    color: Colors.white.withOpacity(0.72),
+                    fontSize: 12,
+                    fontWeight: FontWeight.w800,
+                    height: 1.0,
+                  ),
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 12),
+          Text(
+            amount,
+            maxLines: 1,
+            overflow: TextOverflow.ellipsis,
+            style: const TextStyle(
+              color: Colors.white,
+              fontSize: 21,
+              fontWeight: FontWeight.w900,
+              height: 1.0,
+            ),
+          ),
+          const SizedBox(height: 8),
+          Text(
+            subtitle,
+            maxLines: 1,
+            overflow: TextOverflow.ellipsis,
+            style: TextStyle(
+              color: Colors.white.withOpacity(0.58),
+              fontSize: 10.5,
+              fontWeight: FontWeight.w700,
+              height: 1.0,
+            ),
+          ),
+        ],
+      ),
     );
   }
 }
@@ -604,50 +892,6 @@ class _ActionCard extends StatelessWidget {
           ),
         ),
       ),
-    );
-  }
-}
-
-class _InfoRow extends StatelessWidget {
-  final IconData icon;
-  final String label;
-  final String value;
-
-  const _InfoRow({
-    required this.icon,
-    required this.label,
-    required this.value,
-  });
-
-  @override
-  Widget build(BuildContext context) {
-    return Row(
-      children: [
-        Icon(icon, color: Colors.white.withOpacity(0.80), size: 18),
-        const SizedBox(width: 10),
-        Text(
-          '$label:',
-          style: TextStyle(
-            color: Colors.white.withOpacity(0.60),
-            fontSize: 12,
-            fontWeight: FontWeight.w700,
-          ),
-        ),
-        const SizedBox(width: 8),
-        Expanded(
-          child: Text(
-            value,
-            maxLines: 1,
-            overflow: TextOverflow.ellipsis,
-            textAlign: TextAlign.right,
-            style: const TextStyle(
-              color: Colors.white,
-              fontSize: 12.5,
-              fontWeight: FontWeight.w800,
-            ),
-          ),
-        ),
-      ],
     );
   }
 }
