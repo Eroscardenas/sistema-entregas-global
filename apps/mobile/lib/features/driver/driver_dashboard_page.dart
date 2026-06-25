@@ -33,6 +33,8 @@ class _DriverDashboardPageState extends State<DriverDashboardPage> {
   static const _burgundy = Color(0xFF852838);
 
   bool _loading = true;
+  bool _loadingTotals = false;
+
   String _nombre = '';
   String _telefono = '';
   String _status = 'available';
@@ -53,9 +55,12 @@ class _DriverDashboardPageState extends State<DriverDashboardPage> {
   }
 
   Future<void> _bootstrap() async {
+    final sw = Stopwatch()..start();
+
     setState(() {
       _loading = true;
       _error = null;
+      _loadingTotals = false;
     });
 
     try {
@@ -70,60 +75,24 @@ class _DriverDashboardPageState extends State<DriverDashboardPage> {
       _profileId = widget.profileId ?? user.id;
       _driverId = widget.driverId;
 
-      final profile = await _sb
-          .from('profiles')
-          .select('id, role, nombre, activo')
-          .eq('id', _profileId!)
-          .maybeSingle();
-
-      if (profile == null) {
-        throw Exception('No se encontró tu perfil.');
+      if (_driverId == null || _driverId!.isEmpty || _nombre.isEmpty) {
+        await _loadDriverFallback();
       }
-      if (profile['activo'] != true) {
-        throw Exception('Tu acceso está desactivado.');
-      }
-
-      final nombreDb = (profile['nombre'] ?? '').toString().trim();
-      if (_nombre.isEmpty && nombreDb.isNotEmpty) {
-        _nombre = nombreDb;
-      }
-
-      final driver = await _sb
-          .from('drivers')
-          .select('id, profile_id, nombre, telefono, activo, current_status')
-          .eq('profile_id', _profileId!)
-          .maybeSingle();
-
-      if (driver == null) {
-        throw Exception('No se encontró tu registro de chofer.');
-      }
-      if (driver['activo'] != true) {
-        throw Exception('Tu acceso está desactivado.');
-      }
-
-      _driverId = (driver['id'] ?? '').toString();
-
-      final drvNombre = (driver['nombre'] ?? '').toString().trim();
-      final drvTel = (driver['telefono'] ?? '').toString().trim();
-      final drvStatus =
-          (driver['current_status'] ?? 'available').toString().trim();
-
-      if (_nombre.isEmpty && drvNombre.isNotEmpty) {
-        _nombre = drvNombre;
-      }
-      if (drvTel.isNotEmpty) {
-        _telefono = drvTel;
-      }
-      if (drvStatus.isNotEmpty) {
-        _status = drvStatus;
-      }
-
-      await _loadTodayMoneyTotals();
 
       if (!mounted) return;
+
       setState(() => _loading = false);
+
+      sw.stop();
+      debugPrint('DASHBOARD BOOTSTRAP: ${sw.elapsedMilliseconds} ms');
+
+      _refreshTodayMoneyTotals();
     } catch (e) {
+      sw.stop();
+      debugPrint('DASHBOARD BOOTSTRAP ERROR: ${sw.elapsedMilliseconds} ms');
+
       if (!mounted) return;
+
       setState(() {
         _error = e.toString().replaceFirst('Exception: ', '');
         _loading = false;
@@ -131,11 +100,110 @@ class _DriverDashboardPageState extends State<DriverDashboardPage> {
     }
   }
 
-  Future<void> _loadTodayMoneyTotals() async {
-    _totalEfectivoHoy = 0;
-    _totalCreditoHoy = 0;
+  Future<void> _loadDriverFallback() async {
+    final sw = Stopwatch()..start();
 
+    final results = await Future.wait([
+      _sb
+          .from('profiles')
+          .select('id, role, nombre, activo')
+          .eq('id', _profileId!)
+          .maybeSingle(),
+      _sb
+          .from('drivers')
+          .select('id, profile_id, nombre, telefono, activo, current_status')
+          .eq('profile_id', _profileId!)
+          .maybeSingle(),
+    ]);
+
+    sw.stop();
+    debugPrint(
+      'DASHBOARD PROFILE + DRIVER FALLBACK: ${sw.elapsedMilliseconds} ms',
+    );
+
+    final profile = results[0];
+    final driver = results[1];
+
+    if (profile == null) {
+      throw Exception('No se encontró tu perfil.');
+    }
+
+    if (profile['activo'] != true) {
+      throw Exception('Tu acceso está desactivado.');
+    }
+
+    final role = (profile['role'] ?? '').toString();
+    if (role != 'driver') {
+      throw Exception('No autorizado.');
+    }
+
+    final nombreDb = (profile['nombre'] ?? '').toString().trim();
+    if (_nombre.isEmpty && nombreDb.isNotEmpty) {
+      _nombre = nombreDb;
+    }
+
+    if (driver == null) {
+      throw Exception('No se encontró tu registro de chofer.');
+    }
+
+    if (driver['activo'] != true) {
+      throw Exception('Tu acceso está desactivado.');
+    }
+
+    _driverId = (driver['id'] ?? '').toString();
+
+    final drvNombre = (driver['nombre'] ?? '').toString().trim();
+    final drvTel = (driver['telefono'] ?? '').toString().trim();
+    final drvStatus = (driver['current_status'] ?? 'available').toString().trim();
+
+    if (_nombre.isEmpty && drvNombre.isNotEmpty) {
+      _nombre = drvNombre;
+    }
+
+    if (drvTel.isNotEmpty) {
+      _telefono = drvTel;
+    }
+
+    if (drvStatus.isNotEmpty) {
+      _status = drvStatus;
+    }
+  }
+
+  Future<void> _refreshTodayMoneyTotals() async {
     if (_driverId == null || _driverId!.isEmpty) return;
+
+    final sw = Stopwatch()..start();
+
+    if (mounted) {
+      setState(() => _loadingTotals = true);
+    }
+
+    try {
+      final totals = await _calculateTodayMoneyTotals();
+
+      if (!mounted) return;
+
+      setState(() {
+        _totalEfectivoHoy = totals.efectivo;
+        _totalCreditoHoy = totals.credito;
+        _loadingTotals = false;
+      });
+
+      sw.stop();
+      debugPrint('DASHBOARD MONEY TOTALS: ${sw.elapsedMilliseconds} ms');
+    } catch (e) {
+      sw.stop();
+      debugPrint('DASHBOARD MONEY TOTALS ERROR: ${sw.elapsedMilliseconds} ms - $e');
+
+      if (!mounted) return;
+      setState(() => _loadingTotals = false);
+    }
+  }
+
+  Future<_MoneyTotals> _calculateTodayMoneyTotals() async {
+    if (_driverId == null || _driverId!.isEmpty) {
+      return const _MoneyTotals(efectivo: 0.0, credito: 0.0);
+    }
 
     final now = DateTime.now();
     final today =
@@ -150,7 +218,9 @@ class _DriverDashboardPageState extends State<DriverDashboardPage> {
       end: end,
     );
 
-    if (assignmentIds.isEmpty) return;
+    if (assignmentIds.isEmpty) {
+      return const _MoneyTotals(efectivo: 0.0, credito: 0.0);
+    }
 
     final rows = await _sb
         .from('deliveries')
@@ -166,12 +236,11 @@ class _DriverDashboardPageState extends State<DriverDashboardPage> {
         ''')
         .inFilter('assignment_id', assignmentIds);
 
-    double efectivo = 0;
-    double credito = 0;
+    double efectivo = 0.0;
+    double credito = 0.0;
 
     for (final item in rows as List) {
       final row = Map<String, dynamic>.from(item as Map);
-
       final status = _normalizeStatus(row['status']);
 
       final cancelled = [
@@ -197,13 +266,8 @@ class _DriverDashboardPageState extends State<DriverDashboardPage> {
 
       if (!confirmed && !driverSale) continue;
 
-      final total = _toDouble(
-        row['total_real'] ?? row['total_expected'] ?? 0,
-      );
-
-      final paymentMethod = _normalizeStatus(
-        row['payment_method'] ?? 'EFECTIVO',
-      );
+      final total = _toDouble(row['total_real'] ?? row['total_expected'] ?? 0);
+      final paymentMethod = _normalizeStatus(row['payment_method'] ?? 'EFECTIVO');
 
       if (paymentMethod == 'CREDITO') {
         credito += total;
@@ -212,8 +276,7 @@ class _DriverDashboardPageState extends State<DriverDashboardPage> {
       }
     }
 
-    _totalEfectivoHoy = efectivo;
-    _totalCreditoHoy = credito;
+    return _MoneyTotals(efectivo: efectivo, credito: credito);
   }
 
   Future<List<String>> _getTodayAssignmentIds({
@@ -238,9 +301,11 @@ class _DriverDashboardPageState extends State<DriverDashboardPage> {
       } catch (_) {}
     }
 
-    await tryByDateColumn('work_date');
-    await tryByDateColumn('route_date');
-    await tryByDateColumn('fecha');
+    await Future.wait([
+      tryByDateColumn('work_date'),
+      tryByDateColumn('route_date'),
+      tryByDateColumn('fecha'),
+    ]);
 
     if (ids.isEmpty) {
       try {
@@ -274,13 +339,13 @@ class _DriverDashboardPageState extends State<DriverDashboardPage> {
   }
 
   double _toDouble(dynamic value) {
-    if (value == null) return 0;
+    if (value == null) return 0.0;
     if (value is int) return value.toDouble();
     if (value is double) return value;
     if (value is num) return value.toDouble();
 
     final clean = value.toString().replaceAll('\$', '').replaceAll(',', '').trim();
-    return double.tryParse(clean) ?? 0;
+    return double.tryParse(clean) ?? 0.0;
   }
 
   String _money(double value) {
@@ -317,6 +382,7 @@ class _DriverDashboardPageState extends State<DriverDashboardPage> {
     try {
       await _sb.auth.signOut();
     } catch (_) {}
+
     if (!mounted) return;
     Navigator.of(context).popUntil((r) => r.isFirst);
   }
@@ -420,7 +486,7 @@ class _DriverDashboardPageState extends State<DriverDashboardPage> {
               width: 520,
               decoration: BoxDecoration(
                 shape: BoxShape.circle,
-                color: _accent.withOpacity(0.18),
+                color: _accent.withValues(alpha: 0.18),
               ),
             ),
           ),
@@ -432,7 +498,7 @@ class _DriverDashboardPageState extends State<DriverDashboardPage> {
               width: 640,
               decoration: BoxDecoration(
                 shape: BoxShape.circle,
-                color: _burgundy.withOpacity(0.16),
+                color: _burgundy.withValues(alpha: 0.16),
               ),
             ),
           ),
@@ -467,9 +533,9 @@ class _DriverDashboardPageState extends State<DriverDashboardPage> {
                                       width: 54,
                                       decoration: BoxDecoration(
                                         borderRadius: BorderRadius.circular(16),
-                                        color: Colors.white.withOpacity(0.12),
+                                        color: Colors.white.withValues(alpha: 0.12),
                                         border: Border.all(
-                                          color: Colors.white.withOpacity(0.18),
+                                          color: Colors.white.withValues(alpha: 0.18),
                                         ),
                                       ),
                                       child: const Icon(
@@ -480,8 +546,7 @@ class _DriverDashboardPageState extends State<DriverDashboardPage> {
                                     const SizedBox(width: 14),
                                     Expanded(
                                       child: Column(
-                                        crossAxisAlignment:
-                                            CrossAxisAlignment.start,
+                                        crossAxisAlignment: CrossAxisAlignment.start,
                                         children: [
                                           Text(
                                             '¡Bienvenido, $nameShown!',
@@ -497,8 +562,7 @@ class _DriverDashboardPageState extends State<DriverDashboardPage> {
                                           Text(
                                             'Tel: $_telefono',
                                             style: TextStyle(
-                                              color:
-                                                  Colors.white.withOpacity(0.70),
+                                              color: Colors.white.withValues(alpha: 0.70),
                                               fontSize: 8,
                                               fontWeight: FontWeight.w600,
                                             ),
@@ -510,14 +574,15 @@ class _DriverDashboardPageState extends State<DriverDashboardPage> {
                                 ),
                               ),
                               const SizedBox(height: 16),
-
                               Row(
                                 children: [
                                   Expanded(
                                     child: _MoneyCard(
                                       icon: Icons.payments_outlined,
                                       title: 'Efectivo hoy',
-                                      amount: _money(_totalEfectivoHoy),
+                                      amount: _loadingTotals
+                                          ? 'Cargando...'
+                                          : _money(_totalEfectivoHoy),
                                       subtitle: 'Total vendido',
                                       color: const Color(0xFF10B981),
                                     ),
@@ -527,14 +592,15 @@ class _DriverDashboardPageState extends State<DriverDashboardPage> {
                                     child: _MoneyCard(
                                       icon: Icons.credit_card,
                                       title: 'Crédito hoy',
-                                      amount: _money(_totalCreditoHoy),
+                                      amount: _loadingTotals
+                                          ? 'Cargando...'
+                                          : _money(_totalCreditoHoy),
                                       subtitle: 'Total vendido',
                                       color: const Color(0xFF60A5FA),
                                     ),
                                   ),
                                 ],
                               ),
-
                               const SizedBox(height: 16),
                               Row(
                                 children: [
@@ -613,10 +679,19 @@ class _DriverDashboardPageState extends State<DriverDashboardPage> {
   }
 }
 
-/* ======================= UI Components ======================= */
+class _MoneyTotals {
+  final double efectivo;
+  final double credito;
+
+  const _MoneyTotals({
+    required this.efectivo,
+    required this.credito,
+  });
+}
 
 class _GlassCard extends StatelessWidget {
   final Widget child;
+
   const _GlassCard({required this.child});
 
   @override
@@ -625,11 +700,11 @@ class _GlassCard extends StatelessWidget {
       padding: const EdgeInsets.all(16),
       decoration: BoxDecoration(
         borderRadius: BorderRadius.circular(22),
-        color: Colors.white.withOpacity(0.10),
-        border: Border.all(color: Colors.white.withOpacity(0.18)),
+        color: Colors.white.withValues(alpha: 0.10),
+        border: Border.all(color: Colors.white.withValues(alpha: 0.18)),
         boxShadow: [
           BoxShadow(
-            color: Colors.black.withOpacity(0.30),
+            color: Colors.black.withValues(alpha: 0.30),
             blurRadius: 26,
             offset: const Offset(0, 12),
           ),
@@ -657,16 +732,18 @@ class _MoneyCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final amountFontSize = amount.length > 12 ? 15.5 : 21.0;
+
     return Container(
       height: 128,
       padding: const EdgeInsets.all(12),
       decoration: BoxDecoration(
         borderRadius: BorderRadius.circular(22),
-        color: Colors.white.withOpacity(0.11),
-        border: Border.all(color: Colors.white.withOpacity(0.16)),
+        color: Colors.white.withValues(alpha: 0.11),
+        border: Border.all(color: Colors.white.withValues(alpha: 0.16)),
         boxShadow: [
           BoxShadow(
-            color: Colors.black.withOpacity(0.24),
+            color: Colors.black.withValues(alpha: 0.24),
             blurRadius: 22,
             offset: const Offset(0, 10),
           ),
@@ -682,8 +759,8 @@ class _MoneyCard extends StatelessWidget {
                 width: 36,
                 decoration: BoxDecoration(
                   borderRadius: BorderRadius.circular(14),
-                  color: color.withOpacity(0.22),
-                  border: Border.all(color: color.withOpacity(0.35)),
+                  color: color.withValues(alpha: 0.22),
+                  border: Border.all(color: color.withValues(alpha: 0.35)),
                 ),
                 child: Icon(icon, color: Colors.white, size: 20),
               ),
@@ -694,7 +771,7 @@ class _MoneyCard extends StatelessWidget {
                   maxLines: 1,
                   overflow: TextOverflow.ellipsis,
                   style: TextStyle(
-                    color: Colors.white.withOpacity(0.72),
+                    color: Colors.white.withValues(alpha: 0.72),
                     fontSize: 12,
                     fontWeight: FontWeight.w800,
                     height: 1.0,
@@ -708,9 +785,9 @@ class _MoneyCard extends StatelessWidget {
             amount,
             maxLines: 1,
             overflow: TextOverflow.ellipsis,
-            style: const TextStyle(
+            style: TextStyle(
               color: Colors.white,
-              fontSize: 21,
+              fontSize: amountFontSize,
               fontWeight: FontWeight.w900,
               height: 1.0,
             ),
@@ -721,7 +798,7 @@ class _MoneyCard extends StatelessWidget {
             maxLines: 1,
             overflow: TextOverflow.ellipsis,
             style: TextStyle(
-              color: Colors.white.withOpacity(0.58),
+              color: Colors.white.withValues(alpha: 0.58),
               fontSize: 10.5,
               fontWeight: FontWeight.w700,
               height: 1.0,
@@ -753,8 +830,8 @@ class _GlassMiniInfo extends StatelessWidget {
       padding: const EdgeInsets.all(14),
       decoration: BoxDecoration(
         borderRadius: BorderRadius.circular(20),
-        color: Colors.white.withOpacity(0.10),
-        border: Border.all(color: Colors.white.withOpacity(0.14)),
+        color: Colors.white.withValues(alpha: 0.10),
+        border: Border.all(color: Colors.white.withValues(alpha: 0.14)),
       ),
       child: Row(
         children: [
@@ -763,8 +840,8 @@ class _GlassMiniInfo extends StatelessWidget {
             width: 42,
             decoration: BoxDecoration(
               borderRadius: BorderRadius.circular(14),
-              color: Colors.white.withOpacity(0.10),
-              border: Border.all(color: Colors.white.withOpacity(0.16)),
+              color: Colors.white.withValues(alpha: 0.10),
+              border: Border.all(color: Colors.white.withValues(alpha: 0.16)),
             ),
             child: Icon(icon, color: Colors.white),
           ),
@@ -779,7 +856,7 @@ class _GlassMiniInfo extends StatelessWidget {
                   maxLines: 1,
                   overflow: TextOverflow.ellipsis,
                   style: TextStyle(
-                    color: Colors.white.withOpacity(0.62),
+                    color: Colors.white.withValues(alpha: 0.62),
                     fontWeight: FontWeight.w700,
                     fontSize: 12,
                   ),
@@ -835,7 +912,7 @@ class _ActionCard extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Material(
-      color: Colors.white.withOpacity(0.10),
+      color: Colors.white.withValues(alpha: 0.10),
       borderRadius: BorderRadius.circular(20),
       child: InkWell(
         onTap: onTap,
@@ -844,7 +921,7 @@ class _ActionCard extends StatelessWidget {
           padding: const EdgeInsets.all(14),
           decoration: BoxDecoration(
             borderRadius: BorderRadius.circular(20),
-            border: Border.all(color: Colors.white.withOpacity(0.14)),
+            border: Border.all(color: Colors.white.withValues(alpha: 0.14)),
           ),
           child: Row(
             children: [
@@ -853,8 +930,8 @@ class _ActionCard extends StatelessWidget {
                 width: 44,
                 decoration: BoxDecoration(
                   borderRadius: BorderRadius.circular(16),
-                  color: Colors.white.withOpacity(0.10),
-                  border: Border.all(color: Colors.white.withOpacity(0.16)),
+                  color: Colors.white.withValues(alpha: 0.10),
+                  border: Border.all(color: Colors.white.withValues(alpha: 0.16)),
                 ),
                 child: Icon(icon, color: Colors.white),
               ),
@@ -879,7 +956,7 @@ class _ActionCard extends StatelessWidget {
                       maxLines: 1,
                       overflow: TextOverflow.ellipsis,
                       style: TextStyle(
-                        color: Colors.white.withOpacity(0.65),
+                        color: Colors.white.withValues(alpha: 0.65),
                         fontWeight: FontWeight.w600,
                         fontSize: 12,
                       ),
@@ -887,7 +964,10 @@ class _ActionCard extends StatelessWidget {
                   ],
                 ),
               ),
-              Icon(Icons.chevron_right, color: Colors.white.withOpacity(0.70)),
+              Icon(
+                Icons.chevron_right,
+                color: Colors.white.withValues(alpha: 0.70),
+              ),
             ],
           ),
         ),
@@ -912,8 +992,8 @@ class _ErrorPanel extends StatelessWidget {
         padding: const EdgeInsets.all(16),
         decoration: BoxDecoration(
           borderRadius: BorderRadius.circular(22),
-          color: Colors.white.withOpacity(0.10),
-          border: Border.all(color: Colors.white.withOpacity(0.18)),
+          color: Colors.white.withValues(alpha: 0.10),
+          border: Border.all(color: Colors.white.withValues(alpha: 0.18)),
         ),
         child: Column(
           mainAxisSize: MainAxisSize.min,
@@ -924,7 +1004,7 @@ class _ErrorPanel extends StatelessWidget {
               message,
               textAlign: TextAlign.center,
               style: TextStyle(
-                color: Colors.white.withOpacity(0.92),
+                color: Colors.white.withValues(alpha: 0.92),
                 fontWeight: FontWeight.w700,
               ),
             ),
