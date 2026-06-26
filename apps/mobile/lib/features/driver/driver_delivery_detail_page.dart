@@ -564,9 +564,9 @@ class _DriverDeliveryDetailPageState extends State<DriverDeliveryDetailPage> {
         int qtyReal = qtyRealRaw == null ? qtyAssigned : _toInt(qtyRealRaw);
         if (qtyReal < 0) qtyReal = 0;
 
-        final outputQty = deliveryIsFinished
-            ? (qtyReal > qtyAssigned ? qtyReal : qtyAssigned)
-            : (outputsByProductKey[productKey] ?? 0);
+final outputQty = deliveryIsFinished
+    ? (qtyReal > qtyAssigned ? qtyReal : qtyAssigned)
+    : (outputsByProductKey[productKey] ?? qtyAssigned);
         final deliveredOtherQty = deliveryIsFinished
             ? 0
             : (deliveredOtherByProductKey[productKey] ?? 0);
@@ -679,33 +679,52 @@ class _DriverDeliveryDetailPageState extends State<DriverDeliveryDetailPage> {
     _setQty(index, parsed);
   }
 
-  void _validateBeforeConfirm() {
-    if (_driverId == null || _driverId!.isEmpty) {
-      throw Exception('No se pudo validar el chofer de la entrega.');
+void _validateBeforeConfirm() {
+  if (_driverId == null || _driverId!.isEmpty) {
+    throw Exception('No se pudo validar el chofer de la entrega.');
+  }
+
+  if (_workDate == null || _workDate!.isEmpty) {
+    throw Exception('No se pudo validar la fecha de trabajo.');
+  }
+
+  final totalPreview = _items.fold<double>(
+    0,
+    (acc, it) => acc + (it.qtyReal * it.precioAplicado),
+  );
+
+  if (_items.isEmpty) {
+    throw Exception('La entrega no tiene productos.');
+  }
+
+  if (_items.every((it) => it.qtyReal <= 0)) {
+    throw Exception(
+      'No se puede confirmar una entrega con todas las cantidades en 0.',
+    );
+  }
+
+  if (totalPreview <= 0) {
+    throw Exception('No se puede confirmar una entrega con total real en 0.');
+  }
+
+  for (final it in _items) {
+    if (it.qtyReal < 0) {
+      throw Exception('Cantidad inválida en ${it.nombre}.');
     }
 
-    if (_workDate == null || _workDate!.isEmpty) {
-      throw Exception('No se pudo validar la fecha de trabajo.');
+    if (it.outputQty <= 0 && it.qtyReal > 0) {
+      throw Exception(
+        'No hay salida de inventario registrada para ${it.nombre}. No se puede entregar.',
+      );
     }
 
-    for (final it in _items) {
-      if (it.qtyReal < 0) {
-        throw Exception('Cantidad inválida en ${it.nombre}.');
-      }
-
-      if (it.outputQty <= 0 && it.qtyReal > 0) {
-        throw Exception(
-          'No hay salida de inventario registrada para ${it.nombre}. No se puede entregar.',
-        );
-      }
-
-      if (it.qtyReal > it.maxAllowedQty) {
-        throw Exception(
-          'No puedes entregar ${it.qtyReal} de ${it.nombre}. Disponible por salidas: ${it.maxAllowedQty}.',
-        );
-      }
+    if (it.qtyReal > it.maxAllowedQty) {
+      throw Exception(
+        'No puedes entregar ${it.qtyReal} de ${it.nombre}. Disponible por salidas: ${it.maxAllowedQty}.',
+      );
     }
   }
+}
 
   double get _previewTotalReal {
     return _items.fold<double>(
