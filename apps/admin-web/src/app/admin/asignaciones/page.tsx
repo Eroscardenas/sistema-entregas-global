@@ -3420,11 +3420,11 @@ FECHA: ${escapeHtml(formatOnlyDate(api.workDate))}
                     value={editingDelivery.driverId}
                     onChange={(e) => setEditingDriver(e.target.value)}
                     disabled={savingEditedDelivery}
-                    className="w-full rounded-xl border border-white/10 bg-white/5 px-4 py-3 text-white focus:outline-none focus:ring-2 focus:ring-[#1E4A7A] disabled:opacity-50"
+                    className="w-full rounded-xl border border-white/10 bg-slate-900 px-4 py-3 text-white focus:outline-none focus:ring-2 focus:ring-[#1E4A7A] disabled:opacity-50"
                   >
-                    <option value="">Selecciona chofer</option>
+                    <option value="" className="bg-slate-900 text-white">Selecciona chofer</option>
                     {assignableDrivers.map((driver) => (
-                      <option key={driver.id} value={driver.id}>
+                      <option key={driver.id} value={driver.id} className="bg-slate-900 text-white">
                         {driver.nombre}
                         {driver.firebase_codigo ? ` • ${driver.firebase_codigo}` : ""}
                       </option>
@@ -3444,14 +3444,14 @@ FECHA: ${escapeHtml(formatOnlyDate(api.workDate))}
                     value={editingDelivery.customerId}
                     onChange={(e) => setEditingCustomer(e.target.value)}
                     disabled={savingEditedDelivery}
-                    className="w-full rounded-xl border border-white/10 bg-white/5 px-4 py-3 text-white focus:outline-none focus:ring-2 focus:ring-[#1E4A7A] disabled:opacity-50"
+                    className="w-full rounded-xl border border-white/10 bg-slate-900 px-4 py-3 text-white focus:outline-none focus:ring-2 focus:ring-[#1E4A7A] disabled:opacity-50"
                   >
-                    <option value="">Selecciona cliente</option>
+                    <option value="" className="bg-slate-900 text-white">Selecciona cliente</option>
                     {api.customers
                       .filter((customer) => customer.activo)
                       .sort((a, b) => a.nombre.localeCompare(b.nombre, "es"))
                       .map((customer) => (
-                        <option key={customer.id} value={customer.id}>
+                        <option key={customer.id} value={customer.id} className="bg-slate-900 text-white">
                           {customer.nombre}
                           {customer.diner_nombre ? ` • ${customer.diner_nombre}` : ""}
                         </option>
@@ -3474,7 +3474,7 @@ FECHA: ${escapeHtml(formatOnlyDate(api.workDate))}
                     value={editingDelivery.priority}
                     onChange={(e) => setEditingPriority(Number(e.target.value))}
                     disabled={savingEditedDelivery}
-                    className="w-full rounded-xl border border-white/10 bg-white/5 px-4 py-3 text-white focus:outline-none focus:ring-2 focus:ring-[#1E4A7A] disabled:opacity-50"
+                    className="w-full rounded-xl border border-white/10 bg-slate-900 px-4 py-3 text-white focus:outline-none focus:ring-2 focus:ring-[#1E4A7A] disabled:opacity-50"
                   />
                   <p className="mt-1 text-xs text-white/40">
                     1 = más urgente, 100 = menos urgente.
@@ -3489,10 +3489,10 @@ FECHA: ${escapeHtml(formatOnlyDate(api.workDate))}
                     value={editingDelivery.paymentMethod}
                     onChange={(e) => setEditingPaymentMethod(e.target.value)}
                     disabled={savingEditedDelivery}
-                    className="w-full rounded-xl border border-white/10 bg-white/5 px-4 py-3 text-white focus:outline-none focus:ring-2 focus:ring-[#1E4A7A] disabled:opacity-50"
+                    className="w-full rounded-xl border border-white/10 bg-slate-900 px-4 py-3 text-white focus:outline-none focus:ring-2 focus:ring-[#1E4A7A] disabled:opacity-50"
                   >
-                    <option value="EFECTIVO">EFECTIVO</option>
-                    <option value="CREDITO">CRÉDITO</option>
+                    <option value="EFECTIVO" className="bg-slate-900 text-white">EFECTIVO</option>
+                    <option value="CREDITO" className="bg-slate-900 text-white">CRÉDITO</option>
                   </select>
                 </div>
               </div>
@@ -3752,14 +3752,14 @@ FECHA: ${escapeHtml(formatOnlyDate(api.workDate))}
                     <select
                       value={driverId}
                       onChange={(e) => setDriverId(e.target.value)}
-                      className="w-full rounded-xl border border-white/10 bg-white/5 px-4 py-3 text-white focus:outline-none focus:ring-2 focus:ring-[#1E4A7A]"
+                      className="w-full rounded-xl border border-white/10 bg-slate-900 px-4 py-3 text-white focus:outline-none focus:ring-2 focus:ring-[#1E4A7A]"
                     >
-                      <option value="">
+                      <option value="" className="bg-slate-900 text-white">
                         Selecciona un chofer con acceso activo
                       </option>
 
                       {assignableDrivers.map((d) => (
-                        <option key={d.id} value={d.id}>
+                        <option key={d.id} value={d.id} className="bg-slate-900 text-white">
                           {d.nombre}
                           {d.firebase_codigo ? ` • ${d.firebase_codigo}` : ""}
                           {d.current_status ? ` • ${d.current_status}` : ""}
@@ -3822,7 +3822,7 @@ FECHA: ${escapeHtml(formatOnlyDate(api.workDate))}
                       type="date"
                       value={api.workDate}
                       onChange={(e) => api.setWorkDate(e.target.value)}
-                      className="w-full rounded-xl border border-white/10 bg-white/5 px-4 py-3 text-white focus:outline-none focus:ring-2 focus:ring-[#1E4A7A]"
+                      className="w-full rounded-xl border border-white/10 bg-slate-900 px-4 py-3 text-white focus:outline-none focus:ring-2 focus:ring-[#1E4A7A]"
                     />
                   </div>
                 </div>
