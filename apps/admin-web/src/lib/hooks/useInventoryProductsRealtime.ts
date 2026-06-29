@@ -46,11 +46,6 @@ type Movimiento = {
   [k: string]: unknown;
 };
 
-function safeNum(v: unknown, fallback = 0) {
-  const n = Number(v);
-  return Number.isFinite(n) ? n : fallback;
-}
-
 function safeInt0(v: unknown, fallback = 0) {
   const n = Number(v);
   if (!Number.isFinite(n)) return fallback;
@@ -211,57 +206,16 @@ export function useInventoryProductsRealtime() {
 
   const pesoByBV = useMemo(() => {
     const map = new Map<string, number>();
+
     for (const row of baseRows ?? []) {
       if (!map.has(row.bolsaVaciaCodigo)) {
         map.set(row.bolsaVaciaCodigo, safeInt0(row.pesoKg, 0));
       }
     }
+
     return map;
   }, [baseRows]);
 
-  // SOLO las barras reales detectadas por movimientos recientes
-  const realBarraKeys = useMemo(() => {
-    const out = new Set<string>();
-
-    for (const m of movimientos ?? []) {
-      const tipo = normalizeText((m as any)?.tipo);
-      const tipoProducto = normalizeText((m as any)?.tipoProducto);
-      const tipoHielo = normalizeText((m as any)?.tipoHielo ?? (m as any)?.tipoHieloContenido);
-
-      if (tipoProducto && tipoProducto !== 'BOLSA') continue;
-      if (tipoHielo !== 'BARRA') continue;
-
-      // Nos interesa la barra real operativa, no cualquier histórico raro
-      if (tipo !== 'LLENADO_BOLSA') continue;
-
-      let bvCodigo = normalizeCode((m as any)?.bolsaVaciaCodigo);
-      if (!/^BV/.test(bvCodigo)) {
-        const pc = normalizeCode((m as any)?.productoCodigo);
-        if (/^BV/.test(pc)) {
-          bvCodigo = pc;
-        }
-      }
-      if (!/^BV/.test(bvCodigo)) continue;
-
-      let pesoKg = safeInt0(pesoByBV.get(bvCodigo), 0);
-      if (!pesoKg) {
-        const kgFromNombre = extractKgFromNombre((m as any)?.productoNombre);
-        pesoKg = safeInt0(kgFromNombre, 0);
-      }
-      if (!pesoKg || pesoKg <= 0) continue;
-
-      const key = buildKey(bvCodigo, 'BARRA', pesoKg);
-
-      // como vienen en desc, el primero real por BV+kg ya basta
-      if (!out.has(key)) {
-        out.add(key);
-      }
-    }
-
-    return out;
-  }, [movimientos, pesoByBV]);
-
-  // fallback por si no existe BARRA en base para esa key real
   const barraFallbackRows = useMemo(() => {
     const out = new Map<string, InventoryProductRealtime>();
 
@@ -275,23 +229,27 @@ export function useInventoryProductsRealtime() {
       if (tipo !== 'LLENADO_BOLSA') continue;
 
       let bvCodigo = normalizeCode((m as any)?.bolsaVaciaCodigo);
+
       if (!/^BV/.test(bvCodigo)) {
         const pc = normalizeCode((m as any)?.productoCodigo);
+
         if (/^BV/.test(pc)) {
           bvCodigo = pc;
         }
       }
+
       if (!/^BV/.test(bvCodigo)) continue;
 
       let pesoKg = safeInt0(pesoByBV.get(bvCodigo), 0);
+
       if (!pesoKg) {
         const kgFromNombre = extractKgFromNombre((m as any)?.productoNombre);
         pesoKg = safeInt0(kgFromNombre, 0);
       }
+
       if (!pesoKg || pesoKg <= 0) continue;
 
       const key = buildKey(bvCodigo, 'BARRA', pesoKg);
-      if (!realBarraKeys.has(key)) continue;
 
       const stockActual = getMovementFinalStock(m);
       if (stockActual === null) continue;
@@ -308,22 +266,23 @@ export function useInventoryProductsRealtime() {
     }
 
     return out;
-  }, [movimientos, pesoByBV, realBarraKeys]);
+  }, [movimientos, pesoByBV]);
 
   const products = useMemo(() => {
     const map = new Map<string, InventoryProductRealtime>();
 
-    // 1) Base
     for (const row of baseRows ?? []) {
       const key = buildKey(row.bolsaVaciaCodigo, row.tipoHielo, row.pesoKg);
+
       map.set(key, {
         ...row,
+        tipoHielo: normalizeText(row.tipoHielo),
+        bolsaVaciaCodigo: normalizeCode(row.bolsaVaciaCodigo),
         stockActual: safeInt0(row.stockActual, 0),
         displayName: buildDisplayName(row.tipoHielo, row.pesoKg),
       });
     }
 
-    // 2) fallback solo para barras reales faltantes
     for (const [key, row] of barraFallbackRows.entries()) {
       if (!map.has(key)) {
         map.set(key, row);
@@ -331,25 +290,18 @@ export function useInventoryProductsRealtime() {
     }
 
     return Array.from(map.values())
-      .filter((x) => {
-        const key = buildKey(x.bolsaVaciaCodigo, x.tipoHielo, x.pesoKg);
-        const stock = safeInt0(x.stockActual, 0);
-        const tipo = normalizeText(x.tipoHielo);
-
-        if (tipo === 'BARRA') {
-          // mostrar solo barras reales
-          if (!realBarraKeys.has(key)) return false;
-          return true;
-        }
-
-        return stock > 0;
-      })
+      .filter((x) => safeInt0(x.stockActual, 0) > 0)
       .sort((a, b) => {
-        const aBarra = a.tipoHielo === 'BARRA' ? 0 : 1;
-        const bBarra = b.tipoHielo === 'BARRA' ? 0 : 1;
+        const aBarra = normalizeText(a.tipoHielo) === 'BARRA' ? 0 : 1;
+        const bBarra = normalizeText(b.tipoHielo) === 'BARRA' ? 0 : 1;
+
         if (aBarra !== bBarra) return aBarra - bBarra;
 
-        const byTipo = a.tipoHielo.localeCompare(b.tipoHielo, 'es-MX');
+        const byTipo = normalizeText(a.tipoHielo).localeCompare(
+          normalizeText(b.tipoHielo),
+          'es-MX'
+        );
+
         if (byTipo !== 0) return byTipo;
 
         const byPeso = a.pesoKg - b.pesoKg;
@@ -357,7 +309,7 @@ export function useInventoryProductsRealtime() {
 
         return a.displayName.localeCompare(b.displayName, 'es-MX');
       });
-  }, [baseRows, barraFallbackRows, realBarraKeys]);
+  }, [baseRows, barraFallbackRows]);
 
   return {
     products,
