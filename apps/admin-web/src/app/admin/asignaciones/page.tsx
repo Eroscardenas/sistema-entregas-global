@@ -168,8 +168,13 @@ function canCancelDelivery(status?: string | null) {
 }
 
 function isDriverSale(delivery: any) {
+  const type = String(delivery?.delivery_type || "")
+    .trim()
+    .toUpperCase();
+
   return (
-    String(delivery?.delivery_type || "").trim().toUpperCase() === "SALE" ||
+    type === "DRIVER_SALE" ||
+    type === "SALE" ||
     delivery?.created_by_driver === true
   );
 }

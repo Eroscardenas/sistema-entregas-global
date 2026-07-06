@@ -4,6 +4,8 @@ import 'package:flutter/material.dart';
 import 'package:http/http.dart' as http;
 import 'package:url_launcher/url_launcher.dart';
 
+import 'driver_delivery_detail_page.dart';
+
 class DriverSalePage extends StatefulWidget {
   final String driverId;
   final String driverName;
@@ -31,8 +33,7 @@ class _DriverSalePageState extends State<DriverSalePage> {
   static const _warning = Color(0xFFF59E0B);
   static const _danger = Color(0xFFEF4444);
 
-static const String _apiBase =
-    'https://sistema-entregas-global.vercel.app';
+  static const String _apiBase = 'https://sistema-entregas-global.vercel.app';
 
   final _searchCtrl = TextEditingController();
 
@@ -65,7 +66,10 @@ static const String _apiBase =
   }
 
   bool get _canRegister {
-    return !_saving && !_loadingProducts && _selectedCustomer != null && _totalQty > 0;
+    return !_saving &&
+        !_loadingProducts &&
+        _selectedCustomer != null &&
+        _totalQty > 0;
   }
 
   @override
@@ -73,7 +77,6 @@ static const String _apiBase =
     _searchCtrl.dispose();
     super.dispose();
   }
-
 
   bool _isValidMapsUrl(String? value) {
     final url = (value ?? '').trim();
@@ -192,7 +195,8 @@ static const String _apiBase =
     try {
       final customerId = (customer['id'] ?? '').toString();
 
-      final uri = Uri.parse('$_apiBase/api/driver-sales/costumer-products').replace(
+      final uri =
+          Uri.parse('$_apiBase/api/driver-sales/costumer-products').replace(
         queryParameters: {
           'customer_id': customerId,
           'driver_id': widget.driverId,
@@ -212,7 +216,9 @@ static const String _apiBase =
         final avA = NumberParser.toInt(a['available_qty']);
         final avB = NumberParser.toInt(b['available_qty']);
         if (avA != avB) return avB.compareTo(avA);
-        return (a['nombre'] ?? '').toString().compareTo((b['nombre'] ?? '').toString());
+        return (a['nombre'] ?? '')
+            .toString()
+            .compareTo((b['nombre'] ?? '').toString());
       });
 
       if (!mounted) return;
@@ -294,6 +300,7 @@ static const String _apiBase =
 
       items.add({
         'product_id': entry.key,
+        'inventory_product_setting_id': product['inventory_product_setting_id'],
         'quantity': entry.value,
       });
     }
@@ -342,10 +349,32 @@ static const String _apiBase =
 
       if (!mounted) return;
 
+      final deliveryId = (json['delivery_id'] ?? '').toString();
+      final folio = (json['folio'] ?? 'VENTA').toString();
+      final customerName =
+          (_selectedCustomer!['nombre'] ?? json['customer_name'] ?? 'Cliente')
+              .toString();
+
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(content: Text('Venta registrada correctamente.')),
       );
 
+      if (deliveryId.isEmpty) {
+        Navigator.of(context).pop(true);
+        return;
+      }
+
+      await Navigator.of(context).push(
+        MaterialPageRoute(
+          builder: (_) => DriverDeliveryDetailPage(
+            deliveryId: deliveryId,
+            folio: folio,
+            customerName: customerName,
+          ),
+        ),
+      );
+
+      if (!mounted) return;
       Navigator.of(context).pop(true);
     } catch (e) {
       debugPrint('VENTA ERROR: $e');
@@ -384,7 +413,8 @@ static const String _apiBase =
         actions: [
           if (_selectedCustomer != null)
             IconButton(
-              onPressed: _loadingProducts || _saving ? null : _refreshSelectedCustomerProducts,
+              onPressed:
+                  _loadingProducts || _saving ? null : _refreshSelectedCustomerProducts,
               icon: const Icon(Icons.refresh),
               tooltip: 'Actualizar stock',
             ),
@@ -451,7 +481,7 @@ static const String _apiBase =
                       '3. Indica la cantidad según tu stock disponible.\n'
                       '4. Selecciona el método de pago.\n'
                       '5. Presiona "Registrar venta".\n\n'
-                      'La venta se agregará automáticamente a tu ruta y quedará visible para administración.',
+                      'La venta se agregará automáticamente a tu ruta, quedará visible para administración y podrás imprimir ticket.',
                       style: TextStyle(
                         color: Colors.white.withOpacity(0.72),
                         height: 1.4,
@@ -479,17 +509,21 @@ static const String _apiBase =
                       style: const TextStyle(color: Colors.white),
                       decoration: InputDecoration(
                         hintText: 'Buscar cliente...',
-                        hintStyle: TextStyle(color: Colors.white.withOpacity(0.45)),
-                        prefixIcon: const Icon(Icons.search, color: Colors.white70),
+                        hintStyle:
+                            TextStyle(color: Colors.white.withOpacity(0.45)),
+                        prefixIcon:
+                            const Icon(Icons.search, color: Colors.white70),
                         filled: true,
                         fillColor: Colors.white.withOpacity(0.08),
                         border: OutlineInputBorder(
                           borderRadius: BorderRadius.circular(14),
-                          borderSide: BorderSide(color: Colors.white.withOpacity(0.16)),
+                          borderSide:
+                              BorderSide(color: Colors.white.withOpacity(0.16)),
                         ),
                         enabledBorder: OutlineInputBorder(
                           borderRadius: BorderRadius.circular(14),
-                          borderSide: BorderSide(color: Colors.white.withOpacity(0.16)),
+                          borderSide:
+                              BorderSide(color: Colors.white.withOpacity(0.16)),
                         ),
                         focusedBorder: OutlineInputBorder(
                           borderRadius: BorderRadius.circular(14),
@@ -507,7 +541,8 @@ static const String _apiBase =
                             ? const SizedBox(
                                 width: 16,
                                 height: 16,
-                                child: CircularProgressIndicator(strokeWidth: 2),
+                                child:
+                                    CircularProgressIndicator(strokeWidth: 2),
                               )
                             : const Icon(Icons.search),
                         label: const Text('Buscar'),
@@ -515,23 +550,27 @@ static const String _apiBase =
                           backgroundColor: _accent,
                           foregroundColor: Colors.white,
                           padding: const EdgeInsets.symmetric(vertical: 13),
-                          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
+                          shape: RoundedRectangleBorder(
+                            borderRadius: BorderRadius.circular(14),
+                          ),
                         ),
                       ),
                     ),
                     if (_selectedCustomer != null) ...[
                       const SizedBox(height: 12),
                       _SelectedBox(
-                        title: (_selectedCustomer!['nombre'] ?? 'Cliente').toString(),
+                        title:
+                            (_selectedCustomer!['nombre'] ?? 'Cliente').toString(),
                         subtitle: _locationLabel(_selectedCustomer!),
                       ),
                       const SizedBox(height: 10),
                       SizedBox(
                         width: double.infinity,
                         child: ElevatedButton.icon(
-                          onPressed: _isValidMapsUrl(_selectedCustomer?['maps_url'])
-                              ? _openCustomerMaps
-                              : null,
+                          onPressed:
+                              _isValidMapsUrl(_selectedCustomer?['maps_url'])
+                                  ? _openCustomerMaps
+                                  : null,
                           icon: const Icon(Icons.map_outlined),
                           label: Text(
                             _isValidMapsUrl(_selectedCustomer?['maps_url'])
@@ -541,8 +580,10 @@ static const String _apiBase =
                           style: ElevatedButton.styleFrom(
                             backgroundColor: _success,
                             foregroundColor: Colors.white,
-                            disabledBackgroundColor: Colors.white.withOpacity(0.12),
-                            disabledForegroundColor: Colors.white.withOpacity(0.45),
+                            disabledBackgroundColor:
+                                Colors.white.withOpacity(0.12),
+                            disabledForegroundColor:
+                                Colors.white.withOpacity(0.45),
                             padding: const EdgeInsets.symmetric(vertical: 13),
                             shape: RoundedRectangleBorder(
                               borderRadius: BorderRadius.circular(14),
@@ -571,9 +612,11 @@ static const String _apiBase =
                           ),
                           subtitle: Text(
                             _locationLabel(c),
-                            style: TextStyle(color: Colors.white.withOpacity(0.65)),
+                            style:
+                                TextStyle(color: Colors.white.withOpacity(0.65)),
                           ),
-                          trailing: const Icon(Icons.chevron_right, color: Colors.white),
+                          trailing:
+                              const Icon(Icons.chevron_right, color: Colors.white),
                           onTap: () => _selectCustomer(c),
                         ),
                       ),
@@ -629,7 +672,8 @@ static const String _apiBase =
                       ..._products.map((p) {
                         final productId = (p['product_id'] ?? '').toString();
                         final qty = _qtyByProduct[productId] ?? 0;
-                        final available = NumberParser.toInt(p['available_qty']);
+                        final available =
+                            NumberParser.toInt(p['available_qty']);
                         final assigned = NumberParser.toInt(p['assigned_qty']);
                         final used = NumberParser.toInt(p['used_qty']);
                         final price = NumberParser.toDouble(p['precio']);
@@ -641,7 +685,9 @@ static const String _apiBase =
                           decoration: BoxDecoration(
                             color: Colors.white.withOpacity(0.07),
                             borderRadius: BorderRadius.circular(16),
-                            border: Border.all(color: Colors.white.withOpacity(0.12)),
+                            border: Border.all(
+                              color: Colors.white.withOpacity(0.12),
+                            ),
                           ),
                           child: Column(
                             crossAxisAlignment: CrossAxisAlignment.start,
@@ -658,11 +704,16 @@ static const String _apiBase =
                                     ),
                                   ),
                                   Container(
-                                    padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                                    padding: const EdgeInsets.symmetric(
+                                      horizontal: 8,
+                                      vertical: 4,
+                                    ),
                                     decoration: BoxDecoration(
                                       color: availableColor.withOpacity(0.14),
                                       borderRadius: BorderRadius.circular(999),
-                                      border: Border.all(color: availableColor.withOpacity(0.30)),
+                                      border: Border.all(
+                                        color: availableColor.withOpacity(0.30),
+                                      ),
                                     ),
                                     child: Text(
                                       _availableLabel(available),
@@ -699,8 +750,11 @@ static const String _apiBase =
                               Row(
                                 children: [
                                   IconButton(
-                                    onPressed: qty <= 0 || _saving ? null : () => _setQty(p, qty - 1),
-                                    icon: const Icon(Icons.remove_circle_outline),
+                                    onPressed: qty <= 0 || _saving
+                                        ? null
+                                        : () => _setQty(p, qty - 1),
+                                    icon:
+                                        const Icon(Icons.remove_circle_outline),
                                     color: Colors.white,
                                   ),
                                   Expanded(
@@ -716,7 +770,9 @@ static const String _apiBase =
                                     ),
                                   ),
                                   IconButton(
-                                    onPressed: qty >= available || available <= 0 || _saving
+                                    onPressed: qty >= available ||
+                                            available <= 0 ||
+                                            _saving
                                         ? null
                                         : () => _setQty(p, qty + 1),
                                     icon: const Icon(Icons.add_circle_outline),
@@ -748,15 +804,29 @@ static const String _apiBase =
                         value: 'EFECTIVO',
                         groupValue: _paymentMethod,
                         activeColor: _accent,
-                        title: const Text('Efectivo', style: TextStyle(color: Colors.white)),
-                        onChanged: _saving ? null : (v) => setState(() => _paymentMethod = v ?? 'EFECTIVO'),
+                        title: const Text(
+                          'Efectivo',
+                          style: TextStyle(color: Colors.white),
+                        ),
+                        onChanged: _saving
+                            ? null
+                            : (v) => setState(
+                                  () => _paymentMethod = v ?? 'EFECTIVO',
+                                ),
                       ),
                       RadioListTile<String>(
                         value: 'CREDITO',
                         groupValue: _paymentMethod,
                         activeColor: _accent,
-                        title: const Text('Crédito', style: TextStyle(color: Colors.white)),
-                        onChanged: _saving ? null : (v) => setState(() => _paymentMethod = v ?? 'CREDITO'),
+                        title: const Text(
+                          'Crédito',
+                          style: TextStyle(color: Colors.white),
+                        ),
+                        onChanged: _saving
+                            ? null
+                            : (v) => setState(
+                                  () => _paymentMethod = v ?? 'CREDITO',
+                                ),
                       ),
                       const Divider(color: Colors.white24),
                       Row(
@@ -790,17 +860,24 @@ static const String _apiBase =
                               ? const SizedBox(
                                   width: 16,
                                   height: 16,
-                                  child: CircularProgressIndicator(strokeWidth: 2),
+                                  child:
+                                      CircularProgressIndicator(strokeWidth: 2),
                                 )
                               : const Icon(Icons.check_circle),
-                          label: Text(_saving ? 'Registrando...' : 'Registrar venta'),
+                          label: Text(
+                            _saving ? 'Registrando...' : 'Registrar venta',
+                          ),
                           style: ElevatedButton.styleFrom(
                             backgroundColor: _burgundy,
                             foregroundColor: Colors.white,
-                            disabledBackgroundColor: Colors.white.withOpacity(0.12),
-                            disabledForegroundColor: Colors.white.withOpacity(0.40),
+                            disabledBackgroundColor:
+                                Colors.white.withOpacity(0.12),
+                            disabledForegroundColor:
+                                Colors.white.withOpacity(0.40),
                             padding: const EdgeInsets.symmetric(vertical: 14),
-                            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+                            shape: RoundedRectangleBorder(
+                              borderRadius: BorderRadius.circular(16),
+                            ),
                           ),
                         ),
                       ),
@@ -866,7 +943,9 @@ class _SelectedBox extends StatelessWidget {
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           Icon(
-            hasLocation ? Icons.location_on_outlined : Icons.location_off_outlined,
+            hasLocation
+                ? Icons.location_on_outlined
+                : Icons.location_off_outlined,
             color: Colors.white70,
             size: 20,
           ),

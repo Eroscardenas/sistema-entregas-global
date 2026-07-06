@@ -227,28 +227,12 @@ class _DriverStockPageState extends State<DriverStockPage> {
     try {
       final assignment = await _loadTodayAssignment();
 
-      if (assignment == null) {
-        if (!mounted) return;
+      _assignmentId =
+          assignment == null ? null : (assignment['id'] ?? '').toString();
 
-        setState(() {
-          _assignmentId = null;
-          _workDate = _todayYmd();
-          _driverCode = null;
-          _rows = [];
-          _deliveriesCount = 0;
-          _deliveredCount = 0;
-          _pendingCount = 0;
-          _loading = false;
-          _refreshing = false;
-        });
-
-        return;
-      }
-
-      _assignmentId = (assignment['id'] ?? '').toString();
-
-      final effectiveWorkDate =
-          (assignment['work_date'] ?? _todayYmd()).toString();
+      final effectiveWorkDate = assignment == null
+          ? _todayYmd()
+          : (assignment['work_date'] ?? _todayYmd()).toString();
 
       _workDate = effectiveWorkDate;
 
@@ -288,19 +272,21 @@ class _DriverStockPageState extends State<DriverStockPage> {
       List<Map<String, dynamic>> deliveriesList = [];
       List<String> deliveryIds = [];
 
-      final deliveries = await _sb
-          .from('deliveries')
-          .select('id,status')
-          .eq('assignment_id', _assignmentId!);
+      if (_assignmentId != null && _assignmentId!.trim().isNotEmpty) {
+        final deliveries = await _sb
+            .from('deliveries')
+            .select('id,status')
+            .eq('assignment_id', _assignmentId!);
 
-      deliveriesList = (deliveries as List)
-          .map((e) => Map<String, dynamic>.from(e as Map))
-          .toList();
+        deliveriesList = (deliveries as List)
+            .map((e) => Map<String, dynamic>.from(e as Map))
+            .toList();
 
-      deliveryIds = deliveriesList
-          .map((e) => (e['id'] ?? '').toString())
-          .where((e) => e.isNotEmpty)
-          .toList();
+        deliveryIds = deliveriesList
+            .map((e) => (e['id'] ?? '').toString())
+            .where((e) => e.isNotEmpty)
+            .toList();
+      }
 
       final deliveryStatusById = <String, String>{};
       int deliveredCount = 0;
@@ -359,15 +345,6 @@ class _DriverStockPageState extends State<DriverStockPage> {
         }
       }
 
-      // IMPORTANTE:
-      // Antes solo se mostraban productos que venían desde asignaciones admin.
-      // Eso ocultaba salidas globales hechas desde inventario cuando el producto
-      // no existía en delivery_items.
-      //
-      // Ahora se muestran:
-      // - productos con salida global de inventario,
-      // - productos asignados desde admin,
-      // - productos entregados/confirmados.
       final allKeys = <String>{
         ...outputsByKey.keys,
         ...assignedTodayByKey.keys,
@@ -670,7 +647,7 @@ class _DriverStockPageState extends State<DriverStockPage> {
                       child: _EmptyBox(
                         title: 'Sin salidas registradas hoy',
                         subtitle:
-                            'No hay asignación, entregas o productos asignados para este chofer el día de hoy.',
+                            'No hay salidas de inventario registradas para este chofer el día de hoy.',
                       ),
                     )
                   else
@@ -973,12 +950,18 @@ class _StockProgressBar extends StatelessWidget {
                 children: [
                   if (deliveredRatio > 0)
                     Expanded(
-                      flex: (deliveredRatio * 1000).round().clamp(1, 1000).toInt(),
+                      flex: (deliveredRatio * 1000)
+                          .round()
+                          .clamp(1, 1000)
+                          .toInt(),
                       child: Container(color: Colors.white.withOpacity(0.35)),
                     ),
                   if (availableRatio > 0)
                     Expanded(
-                      flex: (availableRatio * 1000).round().clamp(1, 1000).toInt(),
+                      flex: (availableRatio * 1000)
+                          .round()
+                          .clamp(1, 1000)
+                          .toInt(),
                       child: Container(color: availableColor.withOpacity(0.95)),
                     ),
                   finalSpacer(deliveredRatio, availableRatio),

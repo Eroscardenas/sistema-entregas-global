@@ -149,7 +149,7 @@ export function useInventoryProductsRealtime() {
         console.error('Error leyendo bolsa llena en tiempo real:', error);
         setBaseRows([]);
         setLoadingProducts(false);
-      }
+      },
     );
 
     return () => unsubscribe();
@@ -190,7 +190,7 @@ export function useInventoryProductsRealtime() {
           console.error('Error leyendo movimientos realtime:', err);
           setMovimientos([]);
           setLoadingMovs(false);
-        }
+        },
       );
     };
 
@@ -285,12 +285,21 @@ export function useInventoryProductsRealtime() {
 
     for (const [key, row] of barraFallbackRows.entries()) {
       if (!map.has(key)) {
-        map.set(key, row);
+        map.set(key, {
+          ...row,
+          tipoHielo: normalizeText(row.tipoHielo),
+          bolsaVaciaCodigo: normalizeCode(row.bolsaVaciaCodigo),
+          stockActual: safeInt0(row.stockActual, 0),
+          displayName: buildDisplayName(row.tipoHielo, row.pesoKg),
+        });
       }
     }
 
     return Array.from(map.values())
-      .filter((x) => safeInt0(x.stockActual, 0) > 0)
+      .map((x) => ({
+        ...x,
+        stockActual: safeInt0(x.stockActual, 0),
+      }))
       .sort((a, b) => {
         const aBarra = normalizeText(a.tipoHielo) === 'BARRA' ? 0 : 1;
         const bBarra = normalizeText(b.tipoHielo) === 'BARRA' ? 0 : 1;
@@ -299,7 +308,7 @@ export function useInventoryProductsRealtime() {
 
         const byTipo = normalizeText(a.tipoHielo).localeCompare(
           normalizeText(b.tipoHielo),
-          'es-MX'
+          'es-MX',
         );
 
         if (byTipo !== 0) return byTipo;

@@ -3,6 +3,7 @@ import { getAdminSupabase } from '@/lib/server/supabaseAdmin';
 
 type CleanSaleItem = {
   product_id: string;
+  inventory_product_setting_id: string | null;
   quantity: number;
 };
 
@@ -20,11 +21,7 @@ function toKey(product: any) {
   const kind = String(product?.kind || '').toUpperCase();
   const kg = Number(product?.kg_por_unidad || 0);
 
-  if (
-    type.includes('BARRA') ||
-    name.includes('BARRA') ||
-    kind.includes('BARRA')
-  ) {
+  if (type.includes('BARRA') || name.includes('BARRA') || kind.includes('BARRA')) {
     return 'BARRA';
   }
 
@@ -107,9 +104,7 @@ async function syncDriverStockBeforeSale(
   const outputsJson = await outputsRes.json().catch(() => null);
 
   if (!outputsRes.ok || outputsJson?.ok !== true) {
-    throw new Error(
-      outputsJson?.error || 'No se pudieron leer salidas globales',
-    );
+    throw new Error(outputsJson?.error || 'No se pudieron leer salidas globales');
   }
 
   const qtyByKeyRaw = outputsJson?.qtyByKey || {};
@@ -124,16 +119,16 @@ async function syncDriverStockBeforeSale(
     }
   }
 
+  const uniqueProductIds = Array.from(new Set(params.productIds.filter(Boolean)));
+
   const { data: products, error: productsErr } = await sb
     .from('products')
     .select('id, nombre, kind, ice_type, kg_por_unidad')
-    .in('id', params.productIds);
+    .in('id', uniqueProductIds);
 
   if (productsErr) throw productsErr;
 
-  const productById = new Map(
-    (products || []).map((p: any) => [String(p.id), p]),
-  );
+  const productById = new Map((products || []).map((p: any) => [String(p.id), p]));
 
   const { data: deliveries, error: deliveriesErr } = await sb
     .from('deliveries')
@@ -167,7 +162,7 @@ async function syncDriverStockBeforeSale(
     }
   }
 
-  const stockRows = params.productIds.map((productId: string) => {
+  const stockRows = uniqueProductIds.map((productId: string) => {
     const product = productById.get(productId);
     const key = toKey(product);
     const assignedQty = Math.trunc(Number(qtyByKey.get(key) || 0));
@@ -200,9 +195,7 @@ export async function POST(req: Request) {
 
     const driverId = String(body?.driver_id || '').trim();
     const customerId = String(body?.customer_id || '').trim();
-    const assignmentId = body?.assignment_id
-      ? String(body.assignment_id).trim()
-      : null;
+    const assignmentId = body?.assignment_id ? String(body.assignment_id).trim() : null;
     const routeId = body?.route_id ? String(body.route_id).trim() : null;
     const paymentMethod = String(body?.payment_method || 'EFECTIVO')
       .trim()
@@ -216,6 +209,9 @@ export async function POST(req: Request) {
 
     const cleanItems: CleanSaleItem[] = items.map((item: any) => ({
       product_id: String(item?.product_id || '').trim(),
+      inventory_product_setting_id: item?.inventory_product_setting_id
+        ? String(item.inventory_product_setting_id).trim()
+        : null,
       quantity: Math.trunc(Number(item?.quantity || 0)),
     }));
 
@@ -244,9 +240,24 @@ export async function POST(req: Request) {
 
     if (error) throw error;
 
+    const deliveryId = String(data || '').trim();
+
+    const { data: deliveryRow, error: deliveryErr } = await sb
+      .from('deliveries')
+      .select('id, folio, customer_nombre_snapshot, delivery_type, created_by_driver, status')
+      .eq('id', deliveryId)
+      .maybeSingle();
+
+    if (deliveryErr) throw deliveryErr;
+
     return NextResponse.json({
       ok: true,
-      delivery_id: data,
+      delivery_id: deliveryId,
+      folio: deliveryRow?.folio ?? 'VENTA',
+      customer_name: deliveryRow?.customer_nombre_snapshot ?? '',
+      delivery_type: deliveryRow?.delivery_type ?? 'driver_sale',
+      created_by_driver: deliveryRow?.created_by_driver ?? true,
+      status: deliveryRow?.status ?? 'ENTREGADA',
     });
   } catch (e: any) {
     return NextResponse.json(
