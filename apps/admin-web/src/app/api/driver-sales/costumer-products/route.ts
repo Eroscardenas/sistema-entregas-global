@@ -2,13 +2,16 @@ import { NextResponse } from 'next/server';
 import { getAdminSupabase } from '@/lib/server/supabaseAdmin';
 
 type ProductSourceRow = {
-  source: 'customer_products' | 'customer_inventory_products' | 'catalog_fallback';
-  customer_product_id: string | null;
+  source: 'customer_inventory_products' | 'customer_products';
+  customer_product_id: string;
   customer_id: string;
   product_id: string;
+  inventory_product_setting_id: string | null;
   precio_override: number | null;
+  precio_base_setting: number;
   activo: boolean;
-  products: any;
+  product: any;
+  setting: any | null;
 };
 
 export async function OPTIONS() {
@@ -38,30 +41,72 @@ function normalize(value: any) {
   return String(value || '').trim().toUpperCase();
 }
 
-function normalizeIceType(value: any) {
-  let s = normalize(value)
-    .normalize('NFD')
-    .replace(/[\u0300-\u036f]/g, '');
+function normalizeText(value: any) {
+  return normalize(value).normalize('NFD').replace(/[\u0300-\u036f]/g, '');
+}
 
+function normalizeIceType(value: any) {
+  let s = normalizeText(value);
   if (s === 'FRAPPE') s = 'FRAP';
   if (s === 'NORMAL') s = 'ROLITO';
-
   return s;
 }
 
-function isDeliveredStatus(status: any) {
-  const s = normalize(status)
-    .normalize('NFD')
-    .replace(/[\u0300-\u036f]/g, '');
+function kgFromName(nombre: any) {
+  const name = normalizeText(nombre);
+  const match = name.match(/(\d+(?:\.\d+)?)\s*KG/);
+  if (!match) return 0;
 
-  return [
-    'ENTREGADA',
-    'CONFIRMADA',
-    'FINALIZADA',
-    'COMPLETADA',
-    'CERRADA',
-    'LIQUIDADA',
-  ].includes(s);
+  const n = Number(match[1]);
+  return Number.isFinite(n) ? n : 0;
+}
+
+function kgFromProduct(product: any) {
+  const kgName = kgFromName(product?.nombre);
+  if (kgName > 0) return kgName;
+
+  const kgDb = toDouble(product?.kg_por_unidad);
+  return kgDb > 0 ? kgDb : 0;
+}
+
+function resolveProductIceType(product: any) {
+  const name = normalizeText(product?.nombre);
+  let type = normalizeIceType(product?.ice_type);
+
+  if (!type || type === 'NORMAL') {
+    if (name.includes('GOURMET')) type = 'GOURMET';
+    else if (name.includes('FRAP')) type = 'FRAP';
+    else if (name.includes('ENFRIAR')) type = 'ENFRIAR';
+    else if (name.includes('BARRA')) type = 'BARRA';
+    else type = 'ROLITO';
+  }
+
+  return normalizeIceType(type);
+}
+
+function productMatchesInventorySetting(product: any, setting: any) {
+  const pName = normalizeText(product?.nombre);
+  const pKind = normalizeText(product?.kind);
+  const pType = resolveProductIceType(product);
+  const sType = normalizeIceType(setting?.firebase_tipo_hielo);
+
+  const pKg = kgFromProduct(product);
+  const sKg = toDouble(setting?.peso_kg);
+
+  if (!sType) return false;
+
+  if (sType.includes('BARRA')) {
+    return pType.includes('BARRA') || pName.includes('BARRA') || pKind.includes('BARRA');
+  }
+
+  if (sKg <= 0) return false;
+
+  return pType === sType && Math.abs(pKg - sKg) < 0.001;
+}
+
+function isDeliveredStatus(status: any) {
+  const s = normalizeText(status);
+  return ['ENTREGADA', 'CONFIRMADA', 'FINALIZADA', 'COMPLETADA', 'CERRADA', 'LIQUIDADA'].includes(s);
 }
 
 function buildProductKey(input: {
@@ -70,16 +115,15 @@ function buildProductKey(input: {
   kg_por_unidad?: any;
   kind?: any;
 }) {
-  const name = normalize(input.nombre);
+  const name = normalizeText(input.nombre);
   let type = normalizeIceType(input.ice_type);
-  const kind = normalize(input.kind);
-  const kg = toDouble(input.kg_por_unidad);
+  const kind = normalizeText(input.kind);
 
-  if (
-    type.includes('BARRA') ||
-    name.includes('BARRA') ||
-    kind.includes('BARRA')
-  ) {
+  const kgName = kgFromName(input.nombre);
+  const kgDb = toDouble(input.kg_por_unidad);
+  const kg = kgName > 0 ? kgName : kgDb;
+
+  if (type.includes('BARRA') || name.includes('BARRA') || kind.includes('BARRA')) {
     return 'BARRA';
   }
 
@@ -98,25 +142,6 @@ function buildProductKey(input: {
 
   if (type && kgText) return `${type}_${kgText}`;
   return type || name;
-}
-
-function productMatchesInventorySetting(product: any, setting: any) {
-  const pType = normalizeIceType(product?.ice_type);
-  const sType = normalizeIceType(setting?.firebase_tipo_hielo);
-  const pKg = toDouble(product?.kg_por_unidad);
-  const sKg = toDouble(setting?.peso_kg);
-
-  if (!sType || sKg <= 0) return false;
-
-  if (sType.includes('BARRA')) {
-    return (
-      pType.includes('BARRA') ||
-      normalize(product?.nombre).includes('BARRA') ||
-      normalize(product?.kind).includes('BARRA')
-    );
-  }
-
-  return pType === sType && Math.abs(pKg - sKg) < 0.001;
 }
 
 async function loadInventoryOutputs(params: {
@@ -148,7 +173,7 @@ async function loadInventoryOutputs(params: {
 
   const json = await res.json().catch(() => null);
 
-  if (!json?.ok || !json?.qtyByKey || typeof json.qtyByKey !== 'object') {
+  if (!json?.ok || !json.qtyByKey || typeof json.qtyByKey !== 'object') {
     return new Map<string, number>();
   }
 
@@ -166,6 +191,12 @@ async function loadInventoryOutputs(params: {
   return out;
 }
 
+function parseNullableNumber(value: any) {
+  if (value === null || value === undefined || value === '') return null;
+  const n = Number(value);
+  return Number.isFinite(n) ? n : null;
+}
+
 export async function GET(req: Request) {
   try {
     const sb = getAdminSupabase();
@@ -175,17 +206,11 @@ export async function GET(req: Request) {
     const driverId = String(searchParams.get('driver_id') || '').trim();
 
     if (!customerId) {
-      return NextResponse.json(
-        { ok: false, error: 'Falta customer_id' },
-        { status: 400 },
-      );
+      return NextResponse.json({ ok: false, error: 'Falta customer_id' }, { status: 400 });
     }
 
     if (!driverId) {
-      return NextResponse.json(
-        { ok: false, error: 'Falta driver_id' },
-        { status: 400 },
-      );
+      return NextResponse.json({ ok: false, error: 'Falta driver_id' }, { status: 400 });
     }
 
     const workDate = todayYmd();
@@ -220,9 +245,7 @@ export async function GET(req: Request) {
 
     if (driverMap) {
       driverCode = String(
-        driverMap.firebase_employee_code ||
-          driverMap.firebase_employee_id ||
-          '',
+        driverMap.firebase_employee_code || driverMap.firebase_employee_id || '',
       ).trim();
     }
 
@@ -298,16 +321,47 @@ export async function GET(req: Request) {
 
           deliveredByKey.set(
             key,
-            (deliveredByKey.get(key) ?? 0) +
-              toInt(item.qty_real ?? item.qty_assigned),
+            (deliveredByKey.get(key) ?? 0) + toInt(item.qty_real ?? item.qty_assigned),
           );
         }
       }
     }
 
-    const sourceRows: ProductSourceRow[] = [];
+    const { data: inventoryCustomerProducts, error: inventoryCustomerErr } = await sb
+      .from('customer_inventory_products')
+      .select(
+        `
+        id,
+        customer_id,
+        inventory_product_setting_id,
+        precio_override,
+        activo,
+        created_at,
+        inventory_product_settings:inventory_product_setting_id (
+          id,
+          firebase_tipo_hielo,
+          peso_kg,
+          nombre_comercial,
+          precio_base,
+          activo
+        )
+      `,
+      )
+      .eq('customer_id', customerId)
+      .eq('activo', true)
+      .order('created_at', { ascending: true });
 
-    const { data: customerProducts, error: customerProductsErr } = await sb
+    if (inventoryCustomerErr) throw inventoryCustomerErr;
+
+    const { data: productsCatalog, error: productsCatalogErr } = await sb
+      .from('products')
+      .select('id,nombre,activo,precio_base,kind,ice_type,kg_por_unidad')
+      .eq('activo', true)
+      .order('nombre', { ascending: true });
+
+    if (productsCatalogErr) throw productsCatalogErr;
+
+    const { data: legacyCustomerProducts, error: legacyCustomerErr } = await sb
       .from('customer_products')
       .select(
         `
@@ -328,62 +382,14 @@ export async function GET(req: Request) {
       `,
       )
       .eq('customer_id', customerId)
-      .eq('activo', true)
-      .order('created_at', { ascending: true });
+      .eq('activo', true);
 
-    if (customerProductsErr) throw customerProductsErr;
+    if (legacyCustomerErr) throw legacyCustomerErr;
 
-    for (const row of customerProducts ?? []) {
-      if (!(row as any)?.products) continue;
+    const sourceRows: ProductSourceRow[] = [];
 
-      sourceRows.push({
-        source: 'customer_products',
-        customer_product_id: (row as any).id,
-        customer_id: (row as any).customer_id,
-        product_id: (row as any).product_id,
-        precio_override:
-          (row as any).precio_override === null
-            ? null
-            : Number((row as any).precio_override),
-        activo: (row as any).activo === true,
-        products: (row as any).products,
-      });
-    }
-
-    const { data: inventoryCustomerProducts, error: inventoryCustomerErr } =
-      await sb
-        .from('customer_inventory_products')
-        .select(
-          `
-          id,
-          customer_id,
-          inventory_product_setting_id,
-          precio_override,
-          activo,
-          inventory_product_settings:inventory_product_setting_id (
-            id,
-            firebase_tipo_hielo,
-            peso_kg,
-            nombre_comercial,
-            precio_base,
-            activo
-          )
-        `,
-        )
-        .eq('customer_id', customerId)
-        .eq('activo', true)
-        .order('created_at', { ascending: true });
-
-    if (inventoryCustomerErr) throw inventoryCustomerErr;
-
-    const { data: productsCatalog, error: productsCatalogErr } = await sb
-      .from('products')
-      .select('id,nombre,activo,precio_base,kind,ice_type,kg_por_unidad')
-      .eq('activo', true)
-      .order('nombre', { ascending: true });
-
-    if (productsCatalogErr) throw productsCatalogErr;
-
+    // ✅ PRIORIDAD 1: precio de Admin > Clientes
+    // Tabla nueva real: customer_inventory_products.precio_override
     for (const row of inventoryCustomerProducts ?? []) {
       const setting = (row as any).inventory_product_settings;
       if (!setting || setting.activo !== true) continue;
@@ -394,72 +400,76 @@ export async function GET(req: Request) {
 
       if (!product) continue;
 
+      const override = parseNullableNumber((row as any).precio_override);
+      const precioBaseSetting = toDouble(setting.precio_base);
+
       sourceRows.push({
         source: 'customer_inventory_products',
-        customer_product_id: (row as any).id,
-        customer_id: (row as any).customer_id,
+        customer_product_id: String((row as any).id),
+        customer_id: String((row as any).customer_id),
         product_id: String((product as any).id),
-        precio_override:
-          (row as any).precio_override === null
-            ? null
-            : Number((row as any).precio_override),
+        inventory_product_setting_id: String(setting.id),
+        precio_override: override,
+        precio_base_setting: precioBaseSetting,
         activo: (row as any).activo === true,
-        products: product,
+        product,
+        setting,
       });
     }
 
-    const hasConfiguredProducts = sourceRows.length > 0;
+    // ✅ PRIORIDAD 2: fallback viejo customer_products
+    // Solo se usa si NO existe ya el mismo product_key desde customer_inventory_products.
+    const existingKeys = new Set(
+      sourceRows.map((row) =>
+        buildProductKey({
+          nombre: row.product?.nombre,
+          ice_type: row.setting?.firebase_tipo_hielo ?? row.product?.ice_type,
+          kg_por_unidad: row.setting?.peso_kg ?? row.product?.kg_por_unidad,
+          kind: row.product?.kind,
+        }),
+      ),
+    );
 
-    if (!hasConfiguredProducts) {
-      for (const p of productsCatalog ?? []) {
-        sourceRows.push({
-          source: 'catalog_fallback',
-          customer_product_id: null,
-          customer_id: customerId,
-          product_id: String((p as any).id),
-          precio_override: null,
-          activo: true,
-          products: p,
-        });
-      }
+    for (const row of legacyCustomerProducts ?? []) {
+      const product = (row as any).products;
+      if (!product || product.activo !== true) continue;
+
+      const productKey = buildProductKey({
+        nombre: product?.nombre,
+        ice_type: product?.ice_type,
+        kg_por_unidad: product?.kg_por_unidad,
+        kind: product?.kind,
+      });
+
+      if (!productKey || existingKeys.has(productKey)) continue;
+
+      const override = parseNullableNumber((row as any).precio_override);
+
+      sourceRows.push({
+        source: 'customer_products',
+        customer_product_id: String((row as any).id),
+        customer_id: String((row as any).customer_id),
+        product_id: String((row as any).product_id),
+        inventory_product_setting_id: null,
+        precio_override: override,
+        precio_base_setting: toDouble(product?.precio_base),
+        activo: (row as any).activo === true,
+        product,
+        setting: null,
+      });
+
+      existingKeys.add(productKey);
     }
 
-    const byProductId = new Map<string, ProductSourceRow>();
-
-    for (const row of sourceRows) {
-      if (!row.product_id) continue;
-
-      const existing = byProductId.get(row.product_id);
-
-      if (!existing) {
-        byProductId.set(row.product_id, row);
-        continue;
-      }
-
-      if (
-        existing.source === 'catalog_fallback' &&
-        row.source !== 'catalog_fallback'
-      ) {
-        byProductId.set(row.product_id, row);
-        continue;
-      }
-
-      if (
-        existing.source === 'customer_inventory_products' &&
-        row.source === 'customer_products'
-      ) {
-        byProductId.set(row.product_id, row);
-      }
-    }
-
-    const rows = Array.from(byProductId.values())
-      .map((row: ProductSourceRow) => {
-        const p = row.products;
+    const rows = sourceRows
+      .map((row) => {
+        const p = row.product;
+        const setting = row.setting;
 
         const productKey = buildProductKey({
           nombre: p?.nombre,
-          ice_type: p?.ice_type,
-          kg_por_unidad: p?.kg_por_unidad,
+          ice_type: setting?.firebase_tipo_hielo ?? p?.ice_type,
+          kg_por_unidad: setting?.peso_kg ?? p?.kg_por_unidad,
           kind: p?.kind,
         });
 
@@ -467,19 +477,40 @@ export async function GET(req: Request) {
         const deliveredQty = deliveredByKey.get(productKey) ?? 0;
         const availableQty = Math.max(0, outputQty - deliveredQty);
 
+        // ✅ PRECIO FINAL:
+        // 1. customer_inventory_products.precio_override
+        // 2. customer_products.precio_override
+        // 3. inventory_product_settings.precio_base
+        // 4. products.precio_base
+        const precio =
+          row.precio_override !== null && Number.isFinite(Number(row.precio_override))
+            ? Number(row.precio_override)
+            : row.precio_base_setting > 0
+              ? row.precio_base_setting
+              : toDouble(p?.precio_base);
+
         return {
           source: row.source,
           customer_product_id: row.customer_product_id,
           customer_id: row.customer_id,
+
           product_id: row.product_id,
+          inventory_product_setting_id: row.inventory_product_setting_id,
           product_key: productKey,
-          nombre: p?.nombre ?? 'Producto',
-          precio: Number(row.precio_override ?? p?.precio_base ?? 0),
+
+          nombre: setting?.nombre_comercial || p?.nombre || 'Producto',
+
+          precio: Number(precio),
+          precio_override: row.precio_override,
+          precio_base_setting: row.precio_base_setting,
+          precio_base_product: Number(p?.precio_base ?? 0),
+
           activo: row.activo === true,
           product_activo: p?.activo === true,
+
           kind: p?.kind ?? null,
-          ice_type: p?.ice_type ?? null,
-          kg_por_unidad: Number(p?.kg_por_unidad ?? 0),
+          ice_type: setting?.firebase_tipo_hielo ?? p?.ice_type ?? null,
+          kg_por_unidad: Number(setting?.peso_kg || kgFromProduct(p) || p?.kg_por_unidad || 0),
 
           assigned_qty: outputQty,
           used_qty: deliveredQty,
@@ -488,10 +519,7 @@ export async function GET(req: Request) {
       })
       .filter((row: any) => row.product_activo === true)
       .sort((a: any, b: any) => {
-        if (b.available_qty !== a.available_qty) {
-          return b.available_qty - a.available_qty;
-        }
-
+        if (b.available_qty !== a.available_qty) return b.available_qty - a.available_qty;
         return String(a.nombre || '').localeCompare(String(b.nombre || ''), 'es');
       });
 
@@ -504,13 +532,26 @@ export async function GET(req: Request) {
         driver_id: driverId,
         driver_name: driverName,
         driver_code: driverCode,
-        outputsByKey: Object.fromEntries(outputsByKey),
-        deliveredByKey: Object.fromEntries(deliveredByKey),
-        total_customer_products: customerProducts?.length ?? 0,
+        outputsByKey: Object.fromEntries(outputsByKey.entries()),
+        deliveredByKey: Object.fromEntries(deliveredByKey.entries()),
         total_customer_inventory_products: inventoryCustomerProducts?.length ?? 0,
-        used_catalog_fallback: !hasConfiguredProducts,
+        total_customer_products: legacyCustomerProducts?.length ?? 0,
         total_source_rows: sourceRows.length,
         total_rows: rows.length,
+        rows_debug: rows.map((r: any) => ({
+          source: r.source,
+          nombre: r.nombre,
+          product_id: r.product_id,
+          inventory_product_setting_id: r.inventory_product_setting_id,
+          precio: r.precio,
+          precio_override: r.precio_override,
+          precio_base_setting: r.precio_base_setting,
+          precio_base_product: r.precio_base_product,
+          product_key: r.product_key,
+          assigned_qty: r.assigned_qty,
+          used_qty: r.used_qty,
+          available_qty: r.available_qty,
+        })),
       },
     });
   } catch (e: any) {
