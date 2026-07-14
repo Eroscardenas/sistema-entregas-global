@@ -109,15 +109,23 @@ function normalizeKind(
   const tipo = normalize(data.tipo);
   const kind = normalize(data.kind);
   const codigo = normalize(data.codigo);
-  const nombre = normalize(
-    data.nombre ?? data.nombreComercial,
-  );
 
+  /*
+   * Una bolsa llena con contenido BARRA puede llamarse:
+   * "Bolsa genérica 1/4 barra"
+   *
+   * pero sigue siendo una BOLSA (normalmente código BVxxx)
+   * y su existencia vive en stockPorHielo.BARRA.
+   *
+   * Solo consideramos BARRA física cuando:
+   * - el código empieza con BR;
+   * - tipo es exactamente BARRA;
+   * - o kind es exactamente BARRA.
+   */
   if (
-    tipo.includes('BARRA') ||
-    kind.includes('BARRA') ||
     codigo.startsWith('BR') ||
-    nombre.includes('BARRA')
+    tipo === 'BARRA' ||
+    kind === 'BARRA'
   ) {
     return 'BARRA';
   }
