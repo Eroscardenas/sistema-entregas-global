@@ -327,33 +327,6 @@ class PrinterService {
     return 'PAGADO EN EFECTIVO';
   }
 
-  List<PrinterTicketItem> _mergeItems(List<PrinterTicketItem> items) {
-    final map = <String, PrinterTicketItem>{};
-
-    for (final item in items) {
-      final key = item.description.trim().toUpperCase();
-
-      if (map.containsKey(key)) {
-        final prev = map[key]!;
-        map[key] = PrinterTicketItem(
-          qtyReal: prev.qtyReal + item.qtyReal,
-          description: prev.description,
-          unitPrice: item.unitPrice != 0 ? item.unitPrice : prev.unitPrice,
-          amount: prev.amount + item.amount,
-        );
-      } else {
-        map[key] = PrinterTicketItem(
-          qtyReal: item.qtyReal,
-          description: item.description,
-          unitPrice: item.unitPrice,
-          amount: item.amount,
-        );
-      }
-    }
-
-    return map.values.toList();
-  }
-
   List<int> _buildLegalBlock({
     required Generator generator,
     required String? deliveredAt,
@@ -408,7 +381,7 @@ class PrinterService {
     required img.Image? logo,
   }) {
     final bytes = <int>[];
-    final mergedItems = _mergeItems(items);
+    final ticketItems = items;
     final normalizedCopyLabel = copyLabel.trim().toUpperCase();
     final normalizedPaymentMethod = _normalizePaymentMethod(paymentMethod);
     final paymentLegend = _paymentLegend(normalizedPaymentMethod);
@@ -535,13 +508,13 @@ class PrinterService {
 
     bytes.addAll(generator.hr(ch: '-'));
 
-    if (mergedItems.isEmpty) {
+    if (ticketItems.isEmpty) {
       bytes.addAll(generator.text(
         'SIN PRODUCTOS',
         styles: const PosStyles(align: PosAlign.center),
       ));
     } else {
-      for (final item in mergedItems) {
+      for (final item in ticketItems) {
         bytes.addAll(generator.row([
           PosColumn(
             text: '${item.qtyReal}',

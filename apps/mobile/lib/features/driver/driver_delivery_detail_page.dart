@@ -797,18 +797,56 @@ void _validateBeforeConfirm() {
   }
 
   String _normalizeTicketDescription(_DeliveryItemRow it) {
-    final name = it.nombre.toUpperCase();
+    final name = it.nombre.trim().toUpperCase();
+    final kind = it.kind.trim().toUpperCase();
+    var iceType = it.iceType.trim().toUpperCase();
 
-    if (name.contains('GOURMET') && name.contains('5')) {
-      return 'BOLSA 5 KG. GOURMET';
+    if (iceType == 'FRAP' || iceType == 'FRAPE') {
+      iceType = 'FRAPPE';
+    } else if (iceType == 'NORMAL' || iceType.isEmpty) {
+      if (name.contains('FRAP')) {
+        iceType = 'FRAPPE';
+      } else if (name.contains('GOURMET')) {
+        iceType = 'GOURMET';
+      } else if (name.contains('ENFRIAR')) {
+        iceType = 'ENFRIAR';
+      } else {
+        iceType = 'ROLITO';
+      }
     }
-    if (name.contains('15') && name.contains('BOLSA')) return 'BOLSA 15 KG.';
-    if (name.contains('10') && name.contains('BOLSA')) return 'BOLSA 10 KG.';
-    if (name.contains('5') && name.contains('BOLSA')) return 'BOLSA 5 KG.';
-    if (name.contains('3') && name.contains('BOLSA')) return 'BOLSA 3 KG.';
-    if (name.contains('BARRA')) return 'BARRA HIELO';
-    if (name.contains('FRAPE')) return 'FRAPE';
-    if (name.contains('GARRAFON') || name.contains('GARRAFÓN')) return 'GARRAFÓN';
+
+    if (name.contains('BARRA') ||
+        kind.contains('BARRA') ||
+        iceType.contains('BARRA')) {
+      return 'BARRA HIELO';
+    }
+
+    if (name.contains('GARRAFON') || name.contains('GARRAFÓN')) {
+      return 'GARRAFÓN';
+    }
+
+    final kg = it.kgPorUnidad;
+    final kgText = kg > 0
+        ? (kg % 1 == 0 ? kg.toInt().toString() : kg.toString())
+        : '';
+
+    if (kind.contains('BOLSA') || name.contains('BOLSA')) {
+      final parts = <String>['BOLSA'];
+
+      if (kgText.isNotEmpty) {
+        parts.add('$kgText KG.');
+      }
+
+      if (iceType.isNotEmpty) {
+        parts.add(iceType);
+      }
+
+      return parts.join(' ');
+    }
+
+    if (iceType == 'FRAPPE') return 'FRAPPE';
+    if (iceType == 'GOURMET') return 'GOURMET';
+    if (iceType == 'ENFRIAR') return 'ENFRIAR';
 
     return name;
   }
@@ -1895,20 +1933,8 @@ void _validateBeforeConfirm() {
                                           value: '${it.qtyAssigned}',
                                         ),
                                         _MiniInfo(
-                                          label: 'Salida global',
-                                          value: '${it.outputQty}',
-                                        ),
-                                        _MiniInfo(
-                                          label: 'Entregado otros',
-                                          value: '${it.deliveredOtherQty}',
-                                        ),
-                                        _MiniInfo(
                                           label: 'Disponible',
                                           value: '${it.maxAllowedQty}',
-                                        ),
-                                        _MiniInfo(
-                                          label: 'Real',
-                                          value: '${it.qtyReal}',
                                         ),
                                         _MiniInfo(
                                           label: 'Precio',
