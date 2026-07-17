@@ -1,0 +1,29 @@
+{
+  "project_info": {
+    "project_number": "903644482150",
+    "project_id": "inventario-global",
+    "storage_bucket": "inventario-global.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:903644482150:android:a2baa803a3d7afcd9a7ba7",
+        "android_client_info": {
+          "package_name": "com.globalice.production"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyDyIZFYUtSRZcR40YfHPtlS7qch5t4hOQM"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}

@@ -1043,11 +1043,17 @@ export async function POST(req: Request) {
 
     const folio = await generateFolio();
 
+    const nowIso = new Date().toISOString();
+
     const { data: saleRow, error: saleError } =
       await sb
         .from('deliveries')
         .insert({
           folio,
+
+          assignment_id: null,
+          route_id: null,
+          order_id: null,
 
           customer_id:
             saleType === 'CUSTOMER'
@@ -1057,28 +1063,32 @@ export async function POST(req: Request) {
           customer_nombre_snapshot:
             customerName,
 
-          assignment_id: null,
-          route_id: null,
-          driver_id: null,
-
           status: 'ENTREGADA',
+          delivered_at: nowIso,
 
-          delivery_type:
-            'production_sale',
+          total_expected: total,
+          total_real: total,
 
-          created_by_driver: false,
+          priority: 1,
 
           payment_method:
             paymentMethod,
 
-          subtotal_real: total,
-          total,
+          delivery_type:
+            'production_sale',
 
-          notes:
-            `Venta ${saleType} desde tablet de Producción. Atendió: ${employeeName}`,
+          affects_progress: false,
+          affects_stock: true,
+          created_by_driver: false,
 
-          created_at:
-            new Date().toISOString(),
+          production_employee_id:
+            employeeId,
+
+          production_employee_name:
+            employeeName,
+
+          created_at: nowIso,
+          updated_at: nowIso,
         })
         .select('id,folio')
         .single();
@@ -1089,22 +1099,29 @@ export async function POST(req: Request) {
 
     createdSaleId = clean(saleRow.id);
 
-    const deliveryItems = resolvedItems.map(
-      (item) => ({
-        delivery_id: createdSaleId,
+const itemsCreatedAt =
+  new Date().toISOString();
 
-        product_id: item.productId,
+const deliveryItems = resolvedItems.map(
+  (item) => ({
+    delivery_id: createdSaleId,
 
-        inventory_product_setting_id:
-          item.inventoryProductSettingId,
+    product_id: item.productId,
 
-        qty_assigned: item.quantity,
-        qty_real: item.quantity,
+    qty_assigned: item.quantity,
+    qty_real: item.quantity,
 
-        unit_price: item.unitPrice,
-        subtotal_real: item.subtotal,
-      }),
-    );
+    precio_aplicado:
+      item.unitPrice,
+
+
+    created_at:
+      itemsCreatedAt,
+
+    updated_at:
+      itemsCreatedAt,
+  }),
+);
 
     const { error: itemsError } = await sb
       .from('delivery_items')

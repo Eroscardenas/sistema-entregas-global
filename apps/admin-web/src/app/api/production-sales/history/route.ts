@@ -16,6 +16,7 @@ type HistoryItem = {
   product_name: string;
   quantity: number;
   unit_price: number;
+  precio_aplicado: number;
   subtotal: number;
 };
 
@@ -55,6 +56,34 @@ function getErrorField(
   return '';
 }
 
+function buildErrorResponse(
+  error: unknown,
+  fallbackMessage: string,
+) {
+  const message =
+    getErrorField(error, 'message') ||
+    (error instanceof Error
+      ? error.message
+      : fallbackMessage);
+
+  const code = getErrorField(error, 'code');
+  const details = getErrorField(error, 'details');
+  const hint = getErrorField(error, 'hint');
+
+  return NextResponse.json(
+    {
+      ok: false,
+      error: message,
+      code: code || null,
+      details: details || null,
+      hint: hint || null,
+    },
+    {
+      status: 500,
+    },
+  );
+}
+
 export async function OPTIONS() {
   return new Response(null, {
     status: 204,
@@ -74,15 +103,6 @@ export async function GET(req: Request) {
       300,
     );
 
-    /*
-     * Solo consulta ventas creadas por el módulo
-     * de Producción.
-     *
-     * IMPORTANTE:
-     * La tabla deliveries usa total_real.
-     * No existen subtotal_real, total ni notes
-     * dentro de deliveries.
-     */
     const {
       data: deliveries,
       error: deliveriesError,
@@ -95,9 +115,13 @@ export async function GET(req: Request) {
         customer_id,
         customer_nombre_snapshot,
         payment_method,
+        total_expected,
         total_real,
         status,
         delivery_type,
+        production_employee_id,
+        production_employee_name,
+        delivered_at,
         created_at
       `,
       )
@@ -137,9 +161,6 @@ export async function GET(req: Request) {
       });
     }
 
-    /*
-     * Consulta las partidas de cada venta.
-     */
     const {
       data: deliveryItems,
       error: itemsError,
@@ -150,8 +171,10 @@ export async function GET(req: Request) {
         id,
         delivery_id,
         product_id,
+        qty_assigned,
         qty_real,
-        unit_price,
+        precio_aplicado,
+        subtotal_expected,
         subtotal_real
       `,
       )
@@ -182,13 +205,8 @@ export async function GET(req: Request) {
         error: productsError,
       } = await sb
         .from('products')
-        .select(
-          'id,nombre',
-        )
-        .in(
-          'id',
-          productIds,
-        );
+        .select('id,nombre')
+        .in('id', productIds);
 
       if (productsError) {
         throw productsError;
@@ -228,23 +246,31 @@ export async function GET(req: Request) {
         0,
         Math.trunc(
           toNumber(
-            item.qty_real,
+            item.qty_real ??
+              item.qty_assigned,
           ),
         ),
       );
 
       const unitPrice = toNumber(
-        item.unit_price,
+        item.precio_aplicado,
       );
 
-      const storedSubtotal = toNumber(
+      const storedSubtotalReal = toNumber(
         item.subtotal_real,
       );
 
+      const storedSubtotalExpected =
+        toNumber(
+          item.subtotal_expected,
+        );
+
       const subtotal =
-        storedSubtotal > 0
-          ? storedSubtotal
-          : quantity * unitPrice;
+        storedSubtotalReal > 0
+          ? storedSubtotalReal
+          : storedSubtotalExpected > 0
+            ? storedSubtotalExpected
+            : quantity * unitPrice;
 
       const currentItems =
         itemsByDeliveryId.get(
@@ -252,24 +278,16 @@ export async function GET(req: Request) {
         ) ?? [];
 
       currentItems.push({
-        id: clean(
-          item.id,
-        ),
-
-        product_id:
-          productId,
-
+        id: clean(item.id),
+        product_id: productId,
         product_name:
           productNameById.get(
             productId,
           ) ??
           'Producto',
-
         quantity,
-
-        unit_price:
-          unitPrice,
-
+        unit_price: unitPrice,
+        precio_aplicado: unitPrice,
         subtotal,
       });
 
@@ -313,14 +331,22 @@ export async function GET(req: Request) {
             0,
           );
 
-        const storedTotal = toNumber(
-          rawSale.total_real,
-        );
+        const storedTotalReal =
+          toNumber(
+            rawSale.total_real,
+          );
+
+        const storedTotalExpected =
+          toNumber(
+            rawSale.total_expected,
+          );
 
         const total =
-          storedTotal > 0
-            ? storedTotal
-            : calculatedItemsTotal;
+          storedTotalReal > 0
+            ? storedTotalReal
+            : storedTotalExpected > 0
+              ? storedTotalExpected
+              : calculatedItemsTotal;
 
         const customerId =
           rawSale.customer_id
@@ -328,6 +354,18 @@ export async function GET(req: Request) {
                 rawSale.customer_id,
               )
             : null;
+
+        const employeeId =
+          clean(
+            rawSale.production_employee_id,
+          ) ||
+          null;
+
+        const employeeName =
+          clean(
+            rawSale.production_employee_name,
+          ) ||
+          'Producción';
 
         return {
           id,
@@ -348,6 +386,18 @@ export async function GET(req: Request) {
             ) ||
             'Público general',
 
+          employee_id:
+            employeeId,
+
+          employee_name:
+            employeeName,
+
+          production_employee_id:
+            employeeId,
+
+          production_employee_name:
+            employeeName,
+
           payment_method:
             clean(
               rawSale.payment_method,
@@ -359,6 +409,12 @@ export async function GET(req: Request) {
 
           total,
 
+          total_real:
+            total,
+
+          total_expected:
+            storedTotalExpected,
+
           status:
             clean(
               rawSale.status,
@@ -369,6 +425,15 @@ export async function GET(req: Request) {
             customerId
               ? 'CUSTOMER'
               : 'PUBLIC',
+
+          delivery_type:
+            clean(
+              rawSale.delivery_type,
+            ) ||
+            'production_sale',
+
+          delivered_at:
+            rawSale.delivered_at,
 
           created_at:
             rawSale.created_at,
@@ -421,56 +486,162 @@ export async function GET(req: Request) {
     });
   } catch (error: unknown) {
     console.error(
-      '[production-sales/history] error:',
+      '[production-sales/history GET] error:',
       error,
     );
 
-    const message =
-      getErrorField(
-        error,
-        'message',
-      ) ||
-      (error instanceof Error
-        ? error.message
-        : 'Error cargando historial de ventas');
+    return buildErrorResponse(
+      error,
+      'Error cargando historial de ventas',
+    );
+  }
+}
 
-    const code =
-      getErrorField(
-        error,
-        'code',
+export async function DELETE(req: Request) {
+  try {
+    const sb = getAdminSupabase();
+
+    let body: unknown;
+
+    try {
+      body = await req.json();
+    } catch {
+      return NextResponse.json(
+        {
+          ok: false,
+          error:
+            'El cuerpo de la solicitud no es válido.',
+        },
+        {
+          status: 400,
+        },
+      );
+    }
+
+    const saleId = clean(
+      (
+        body as Record<string, unknown> | null
+      )?.sale_id,
+    );
+
+    if (!saleId) {
+      return NextResponse.json(
+        {
+          ok: false,
+          error:
+            'Falta sale_id.',
+        },
+        {
+          status: 400,
+        },
+      );
+    }
+
+    const {
+      data: sale,
+      error: saleError,
+    } = await sb
+      .from('deliveries')
+      .select(
+        `
+        id,
+        folio,
+        delivery_type
+      `,
+      )
+      .eq(
+        'id',
+        saleId,
+      )
+      .maybeSingle();
+
+    if (saleError) {
+      throw saleError;
+    }
+
+    if (!sale) {
+      return NextResponse.json(
+        {
+          ok: false,
+          error:
+            'La venta no existe o ya fue eliminada.',
+        },
+        {
+          status: 404,
+        },
+      );
+    }
+
+    if (
+      clean(sale.delivery_type) !==
+      'production_sale'
+    ) {
+      return NextResponse.json(
+        {
+          ok: false,
+          error:
+            'Solo se pueden eliminar ventas creadas por Producción.',
+        },
+        {
+          status: 400,
+        },
+      );
+    }
+
+    const {
+      error: itemsDeleteError,
+    } = await sb
+      .from('delivery_items')
+      .delete()
+      .eq(
+        'delivery_id',
+        saleId,
       );
 
-    const details =
-      getErrorField(
-        error,
-        'details',
+    if (itemsDeleteError) {
+      throw itemsDeleteError;
+    }
+
+    const {
+      error: saleDeleteError,
+    } = await sb
+      .from('deliveries')
+      .delete()
+      .eq(
+        'id',
+        saleId,
+      )
+      .eq(
+        'delivery_type',
+        'production_sale',
       );
 
-    const hint =
-      getErrorField(
-        error,
-        'hint',
-      );
+    if (saleDeleteError) {
+      throw saleDeleteError;
+    }
 
-    return NextResponse.json(
-      {
-        ok: false,
+    return NextResponse.json({
+      ok: true,
 
-        error:
-          message,
+      message:
+        'Venta eliminada correctamente.',
 
-        code:
-          code || null,
+      deleted_sale_id:
+        saleId,
 
-        details:
-          details || null,
+      deleted_folio:
+        clean(sale.folio) ||
+        null,
+    });
+  } catch (error: unknown) {
+    console.error(
+      '[production-sales/history DELETE] error:',
+      error,
+    );
 
-        hint:
-          hint || null,
-      },
-      {
-        status: 500,
-      },
+    return buildErrorResponse(
+      error,
+      'No se pudo eliminar la venta',
     );
   }
 }

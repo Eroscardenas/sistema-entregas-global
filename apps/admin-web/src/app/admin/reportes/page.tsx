@@ -28,6 +28,7 @@ import {
   CheckCircle2,
   Link2,
   Warehouse,
+  Factory,
 } from "lucide-react";
 
 import { useRouter } from "next/navigation";
@@ -244,7 +245,7 @@ function movementMatchesDriver(
   });
 }
 
-type ReportMode = "general" | "driver" | "assignment";
+type ReportMode = "general" | "driver" | "assignment" | "production";
 
 type DriverRow = {
   id: string;
@@ -402,6 +403,62 @@ type DriverFilterOption = {
   nombre: string;
   firebase_codigo?: string | null;
   source: "supabase" | "inventory_only";
+};
+
+type ProductionEmployeeRow = {
+  id: string;
+  document_id?: string | null;
+  codigo: string;
+  nombre: string;
+  role: string;
+};
+
+type ProductionSaleItem = {
+  id?: string | null;
+  product_id?: string | null;
+  product_name?: string | null;
+  name?: string | null;
+  nombre?: string | null;
+  quantity?: number | string | null;
+  qty?: number | string | null;
+  unit_price?: number | string | null;
+  precio?: number | string | null;
+  subtotal?: number | string | null;
+};
+
+type ProductionSaleRow = {
+  id: string;
+  folio?: string | null;
+  customer_id?: string | null;
+  customer_name?: string | null;
+  production_employee_id?: string | null;
+  production_employee_name?: string | null;
+  employee_id?: string | null;
+  employee_name?: string | null;
+  payment_method?: string | null;
+  total?: number | string | null;
+  total_quantity?: number | string | null;
+  created_at?: string | null;
+  items?: ProductionSaleItem[] | null;
+};
+
+type ProductionEmployeeSummary = {
+  employee_id: string;
+  employee_name: string;
+  employee_code: string | null;
+  sales_count: number;
+  pieces_count: number;
+  total_amount: number;
+  efectivo: number;
+  transferencia: number;
+  credito: number;
+};
+
+type ProductionProductSummary = {
+  key: string;
+  nombre: string;
+  qty: number;
+  amount: number;
 };
 
 async function listInventoryEmployeesTransport(): Promise<
@@ -625,6 +682,97 @@ async function getInventoryOutputViaApi(input: {
   };
 }
 
+
+function toLocalDateKey(value?: string | null) {
+  if (!value) return "";
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return "";
+
+  const yyyy = date.getFullYear();
+  const mm = String(date.getMonth() + 1).padStart(2, "0");
+  const dd = String(date.getDate()).padStart(2, "0");
+  return `${yyyy}-${mm}-${dd}`;
+}
+
+function getProductionEmployeeId(sale: ProductionSaleRow) {
+  return String(
+    sale.production_employee_id ||
+      sale.employee_id ||
+      "",
+  ).trim();
+}
+
+function getProductionEmployeeName(sale: ProductionSaleRow) {
+  return (
+    String(
+      sale.production_employee_name ||
+        sale.employee_name ||
+        "",
+    ).trim() || "Empleado no identificado"
+  );
+}
+
+function getProductionItemName(item: ProductionSaleItem) {
+  return (
+    String(
+      item.product_name ||
+        item.nombre ||
+        item.name ||
+        "",
+    ).trim() || "Producto"
+  );
+}
+
+function getProductionItemQty(item: ProductionSaleItem) {
+  return Math.max(
+    0,
+    Math.trunc(
+      safeNum(
+        item.quantity ?? item.qty,
+        0,
+      ),
+    ),
+  );
+}
+
+function getProductionItemUnitPrice(item: ProductionSaleItem) {
+  return safeNum(
+    item.unit_price ?? item.precio,
+    0,
+  );
+}
+
+function getProductionItemSubtotal(item: ProductionSaleItem) {
+  const stored = safeNum(item.subtotal, 0);
+  if (stored > 0) return stored;
+  return (
+    getProductionItemQty(item) *
+    getProductionItemUnitPrice(item)
+  );
+}
+
+function getProductionSaleTotal(sale: ProductionSaleRow) {
+  const stored = safeNum(sale.total, 0);
+  if (stored > 0) return stored;
+
+  return (sale.items ?? []).reduce(
+    (sum, item) =>
+      sum + getProductionItemSubtotal(item),
+    0,
+  );
+}
+
+function getProductionSaleQty(sale: ProductionSaleRow) {
+  const stored = safeNum(sale.total_quantity, 0);
+  if (stored > 0) return Math.trunc(stored);
+
+  return (sale.items ?? []).reduce(
+    (sum, item) =>
+      sum + getProductionItemQty(item),
+    0,
+  );
+}
+
 async function listInventoryOutputsByAssignment(
   assignments: Array<{
     assignment_id: string;
@@ -680,6 +828,9 @@ export default function ReportesPage() {
     InventoryEmployeeRow[]
   >([]);
   const [rows, setRows] = useState<AssignmentReport[]>([]);
+  const [productionEmployees, setProductionEmployees] = useState<ProductionEmployeeRow[]>([]);
+  const [productionSales, setProductionSales] = useState<ProductionSaleRow[]>([]);
+  const [productionEmployeeFilter, setProductionEmployeeFilter] = useState("all");
   const [selectedAssignmentId, setSelectedAssignmentId] = useState("");
 
   const selectedAssignment = useMemo(
@@ -688,7 +839,12 @@ export default function ReportesPage() {
   );
 
   const fetchData = useCallback(async () => {
-    const [driversRes, inventoryDriversRes] = await Promise.all([
+    const [
+      driversRes,
+      inventoryDriversRes,
+      productionEmployeesResponse,
+      productionSalesResponse,
+    ] = await Promise.all([
       sb
         .from(T_DRIVERS)
         .select(
@@ -696,6 +852,14 @@ export default function ReportesPage() {
         )
         .order("nombre", { ascending: true }),
       listInventoryEmployeesTransport(),
+      fetch("/api/admin/production-employees", {
+        method: "GET",
+        cache: "no-store",
+      }),
+      fetch("/api/production-sales/history?limit=300", {
+        method: "GET",
+        cache: "no-store",
+      }),
     ]);
 
     const driversData = driversRes.data ?? [];
@@ -703,6 +867,55 @@ export default function ReportesPage() {
     if (driversErr) throw driversErr;
 
     const inventoryDriversData = inventoryDriversRes;
+
+    const productionEmployeesJson = await productionEmployeesResponse
+      .json()
+      .catch(() => null);
+
+    const productionSalesJson = await productionSalesResponse
+      .json()
+      .catch(() => null);
+
+    if (
+      !productionEmployeesResponse.ok ||
+      productionEmployeesJson?.ok !== true
+    ) {
+      throw new Error(
+        productionEmployeesJson?.error ||
+          `No se pudieron cargar los empleados de Producción (HTTP ${productionEmployeesResponse.status}).`,
+      );
+    }
+
+    if (
+      !productionSalesResponse.ok ||
+      productionSalesJson?.ok !== true
+    ) {
+      throw new Error(
+        productionSalesJson?.error ||
+          `No se pudieron cargar las ventas de Producción (HTTP ${productionSalesResponse.status}).`,
+      );
+    }
+
+    const productionEmployeesData = (
+      (productionEmployeesJson?.data ?? []) as ProductionEmployeeRow[]
+    )
+      .filter(
+        (employee) =>
+          normalizeLooseText(employee.role) === "PRODUCCION" &&
+          normalizeLooseText(employee.nombre) !== "ADMINISTRACION",
+      )
+      .sort((a, b) =>
+        a.nombre.localeCompare(b.nombre, "es", {
+          sensitivity: "base",
+        }),
+      );
+
+    const productionSalesData = (
+      (productionSalesJson?.data ?? []) as ProductionSaleRow[]
+    ).filter((sale) => {
+      const dateKey = toLocalDateKey(sale.created_at);
+      return dateKey >= dateFrom && dateKey <= dateTo;
+    });
 
     const assignmentsQuery = sb
       .from(T_ASSIGNMENTS)
@@ -904,10 +1117,17 @@ export default function ReportesPage() {
           return haystack.includes(q);
         });
 
+    const cleanDrivers = ((driversData ?? []) as DriverRow[]).filter(
+      (driver) =>
+        normalizeLooseText(driver.nombre) !== "PRUEBAS",
+    );
+
     return {
-      drivers: (driversData ?? []) as DriverRow[],
+      drivers: cleanDrivers,
       inventoryDrivers: inventoryDriversData,
       rows: filtered,
+      productionEmployees: productionEmployeesData,
+      productionSales: productionSalesData,
     };
   }, [dateFrom, dateTo, driverFilter, statusFilter, query]);
 
@@ -920,6 +1140,8 @@ export default function ReportesPage() {
       setDrivers(data.drivers);
       setInventoryDrivers(data.inventoryDrivers);
       setRows(data.rows);
+      setProductionEmployees(data.productionEmployees);
+      setProductionSales(data.productionSales);
 
       setSelectedAssignmentId((prev) => {
         if (prev && data.rows.some((x) => x.id === prev)) return prev;
@@ -950,6 +1172,8 @@ export default function ReportesPage() {
       setDrivers(data.drivers);
       setInventoryDrivers(data.inventoryDrivers);
       setRows(data.rows);
+      setProductionEmployees(data.productionEmployees);
+      setProductionSales(data.productionSales);
 
       setSelectedAssignmentId((prev) => {
         if (prev && data.rows.some((x) => x.id === prev)) return prev;
@@ -1278,6 +1502,189 @@ export default function ReportesPage() {
     return out;
   }, [rows]);
 
+
+  const filteredProductionSales = useMemo(() => {
+    const q = normalizeLooseText(query);
+
+    return productionSales.filter((sale) => {
+      if (productionEmployeeFilter !== "all") {
+        const selectedEmployee = productionEmployees.find(
+          (employee) => employee.id === productionEmployeeFilter,
+        );
+
+        const matchesById =
+          getProductionEmployeeId(sale) === productionEmployeeFilter;
+
+        const matchesByName =
+          selectedEmployee &&
+          normalizeLooseText(getProductionEmployeeName(sale)) ===
+            normalizeLooseText(selectedEmployee.nombre);
+
+        if (!matchesById && !matchesByName) {
+          return false;
+        }
+      }
+
+      if (!q) return true;
+
+      const productNames = (sale.items ?? [])
+        .map((item) => getProductionItemName(item))
+        .join(" ");
+
+      const haystack = normalizeLooseText(
+        [
+          sale.folio,
+          sale.customer_name,
+          getProductionEmployeeName(sale),
+          sale.payment_method,
+          productNames,
+        ].join(" "),
+      );
+
+      return haystack.includes(q);
+    });
+  }, [
+    productionSales,
+    productionEmployeeFilter,
+    productionEmployees,
+    query,
+  ]);
+
+  const productionKpis = useMemo(() => {
+    let totalPieces = 0;
+    let totalAmount = 0;
+    let efectivo = 0;
+    let transferencia = 0;
+    let credito = 0;
+    const employeeSet = new Set<string>();
+    const customerSet = new Set<string>();
+
+    for (const sale of filteredProductionSales) {
+      const amount = getProductionSaleTotal(sale);
+      const payment = normalizeLooseText(
+        sale.payment_method || "EFECTIVO",
+      );
+
+      totalPieces += getProductionSaleQty(sale);
+      totalAmount += amount;
+
+      const employeeId =
+        getProductionEmployeeId(sale) ||
+        normalizeLooseText(
+          getProductionEmployeeName(sale),
+        );
+
+      if (employeeId) employeeSet.add(employeeId);
+      if (sale.customer_id) {
+        customerSet.add(String(sale.customer_id));
+      }
+
+      if (payment === "CREDITO") {
+        credito += amount;
+      } else if (payment === "TRANSFERENCIA") {
+        transferencia += amount;
+      } else {
+        efectivo += amount;
+      }
+    }
+
+    return {
+      salesCount: filteredProductionSales.length,
+      employeesCount: employeeSet.size,
+      customersCount: customerSet.size,
+      totalPieces,
+      totalAmount,
+      efectivo,
+      transferencia,
+      credito,
+    };
+  }, [filteredProductionSales]);
+
+  const productionEmployeeSummary = useMemo((): ProductionEmployeeSummary[] => {
+    return productionEmployees.map((employee) => {
+      const sales = filteredProductionSales.filter((sale) => {
+        const matchesById =
+          getProductionEmployeeId(sale) === employee.id;
+
+        const matchesByName =
+          normalizeLooseText(
+            getProductionEmployeeName(sale),
+          ) === normalizeLooseText(employee.nombre);
+
+        return matchesById || matchesByName;
+      });
+
+      let pieces = 0;
+      let total = 0;
+      let efectivo = 0;
+      let transferencia = 0;
+      let credito = 0;
+
+      for (const sale of sales) {
+        const amount = getProductionSaleTotal(sale);
+        const payment = normalizeLooseText(
+          sale.payment_method || "EFECTIVO",
+        );
+
+        pieces += getProductionSaleQty(sale);
+        total += amount;
+
+        if (payment === "CREDITO") {
+          credito += amount;
+        } else if (payment === "TRANSFERENCIA") {
+          transferencia += amount;
+        } else {
+          efectivo += amount;
+        }
+      }
+
+      return {
+        employee_id: employee.id,
+        employee_name: employee.nombre,
+        employee_code: employee.codigo || null,
+        sales_count: sales.length,
+        pieces_count: pieces,
+        total_amount: total,
+        efectivo,
+        transferencia,
+        credito,
+      };
+    });
+  }, [productionEmployees, filteredProductionSales]);
+
+  const productionProductSummary = useMemo((): ProductionProductSummary[] => {
+    const map = new Map<string, ProductionProductSummary>();
+
+    for (const sale of filteredProductionSales) {
+      for (const item of sale.items ?? []) {
+        const name = getProductionItemName(item);
+        const key =
+          buildReportProductKey({
+            name,
+            productId: item.product_id || null,
+          }) || normalizeLooseText(name);
+
+        const current = map.get(key) ?? {
+          key,
+          nombre: labelFromReportProductKey(key, name),
+          qty: 0,
+          amount: 0,
+        };
+
+        current.qty += getProductionItemQty(item);
+        current.amount += getProductionItemSubtotal(item);
+        map.set(key, current);
+      }
+    }
+
+    return Array.from(map.values()).sort(
+      (a, b) =>
+        b.qty - a.qty ||
+        b.amount - a.amount ||
+        a.nombre.localeCompare(b.nombre, "es"),
+    );
+  }, [filteredProductionSales]);
+
   const executiveSummary = useMemo(() => {
     const topDriver = driverSummary[0];
     const topProduct = productSummary[0];
@@ -1309,6 +1716,7 @@ export default function ReportesPage() {
   const reportLabel = useMemo(() => {
     if (reportMode === "driver") return "Reporte por chofer";
     if (reportMode === "assignment") return "Reporte detallado por asignación";
+    if (reportMode === "production") return "Reporte de ventas de Producción";
     return "Reporte general";
   }, [reportMode]);
 
@@ -1398,6 +1806,46 @@ export default function ReportesPage() {
           </tr>
         `,
       )
+      .join("");
+
+
+    const productionSalesRows = filteredProductionSales
+      .map((sale) => `
+        <tr>
+          <td>${escapeHtml(formatDate(sale.created_at))}</td>
+          <td>${escapeHtml(sale.folio || "VENTA")}</td>
+          <td>${escapeHtml(getProductionEmployeeName(sale))}</td>
+          <td>${escapeHtml(sale.customer_name || "Público general")}</td>
+          <td>${getProductionSaleQty(sale)}</td>
+          <td>${escapeHtml(normalizeLooseText(sale.payment_method || "EFECTIVO"))}</td>
+          <td>${escapeHtml(money(getProductionSaleTotal(sale)))}</td>
+        </tr>
+      `)
+      .join("");
+
+    const productionEmployeesRows = productionEmployeeSummary
+      .map((employee) => `
+        <tr>
+          <td>${escapeHtml(employee.employee_name)}</td>
+          <td>${escapeHtml(employee.employee_code || "—")}</td>
+          <td>${employee.sales_count}</td>
+          <td>${employee.pieces_count}</td>
+          <td>${escapeHtml(money(employee.efectivo))}</td>
+          <td>${escapeHtml(money(employee.transferencia))}</td>
+          <td>${escapeHtml(money(employee.credito))}</td>
+          <td>${escapeHtml(money(employee.total_amount))}</td>
+        </tr>
+      `)
+      .join("");
+
+    const productionProductsRows = productionProductSummary
+      .map((product) => `
+        <tr>
+          <td>${escapeHtml(product.nombre)}</td>
+          <td>${product.qty}</td>
+          <td>${escapeHtml(money(product.amount))}</td>
+        </tr>
+      `)
       .join("");
 
     const detailBlock =
@@ -1677,6 +2125,76 @@ export default function ReportesPage() {
             </table>
           </section>
 
+          ${
+            reportMode === "general" || reportMode === "production"
+              ? `
+                <section class="block">
+                  <h2>Ventas de Producción</h2>
+                  <div class="kpis">
+                    <div class="kpi"><div class="kpi-label">Ventas</div><div class="kpi-value">${productionKpis.salesCount}</div></div>
+                    <div class="kpi"><div class="kpi-label">Empleados con actividad</div><div class="kpi-value">${productionKpis.employeesCount}</div></div>
+                    <div class="kpi"><div class="kpi-label">Piezas</div><div class="kpi-value">${productionKpis.totalPieces}</div></div>
+                    <div class="kpi"><div class="kpi-label">Total vendido</div><div class="kpi-value">${escapeHtml(money(productionKpis.totalAmount))}</div></div>
+                  </div>
+
+                  <table>
+                    <thead>
+                      <tr>
+                        <th>Fecha</th>
+                        <th>Folio</th>
+                        <th>Empleado</th>
+                        <th>Cliente</th>
+                        <th>Piezas</th>
+                        <th>Pago</th>
+                        <th>Total</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      ${productionSalesRows || '<tr><td colspan="7">Sin ventas de Producción</td></tr>'}
+                    </tbody>
+                  </table>
+                </section>
+
+                <section class="block">
+                  <h2>Producción por empleado</h2>
+                  <table>
+                    <thead>
+                      <tr>
+                        <th>Empleado</th>
+                        <th>Código</th>
+                        <th>Ventas</th>
+                        <th>Piezas</th>
+                        <th>Efectivo</th>
+                        <th>Transferencia</th>
+                        <th>Crédito</th>
+                        <th>Total</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      ${productionEmployeesRows || '<tr><td colspan="8">Sin empleados de Producción</td></tr>'}
+                    </tbody>
+                  </table>
+                </section>
+
+                <section class="block">
+                  <h2>Productos vendidos por Producción</h2>
+                  <table>
+                    <thead>
+                      <tr>
+                        <th>Producto</th>
+                        <th>Piezas</th>
+                        <th>Importe</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      ${productionProductsRows || '<tr><td colspan="3">Sin productos vendidos</td></tr>'}
+                    </tbody>
+                  </table>
+                </section>
+              `
+              : ""
+          }
+
           ${detailBlock}
 
           <div class="footer">
@@ -1710,6 +2228,10 @@ export default function ReportesPage() {
     rows,
     selectedAssignment,
     statusFilter,
+    filteredProductionSales,
+    productionEmployeeSummary,
+    productionProductSummary,
+    productionKpis,
   ]);
 
   if (guard.loading) {
@@ -1816,7 +2338,7 @@ export default function ReportesPage() {
         </AnimatePresence>
 
         <div className="mb-5 rounded-2xl bg-white/5 backdrop-blur-xl border border-white/10 p-4">
-          <div className="grid grid-cols-1 gap-3 lg:grid-cols-6">
+          <div className="grid grid-cols-1 gap-3 lg:grid-cols-7">
             <FieldBlock label="Modo de reporte">
               <select
                 value={reportMode}
@@ -1831,6 +2353,9 @@ export default function ReportesPage() {
                 </option>
                 <option value="assignment" className="bg-[#0A1A2F] text-white">
                   Detallado por asignación
+                </option>
+                <option value="production" className="bg-[#0A1A2F] text-white">
+                  Ventas de Producción
                 </option>
               </select>
             </FieldBlock>
@@ -1871,6 +2396,28 @@ export default function ReportesPage() {
                     {d.nombre}
                     {d.firebase_codigo ? ` • ${d.firebase_codigo}` : ""}
                     {d.source === "inventory_only" ? " • solo inventario" : ""}
+                  </option>
+                ))}
+              </select>
+            </FieldBlock>
+
+            <FieldBlock label="Empleado Producción">
+              <select
+                value={productionEmployeeFilter}
+                onChange={(e) => setProductionEmployeeFilter(e.target.value)}
+                className="w-full rounded-xl border border-white/10 bg-white/5 px-4 py-3 text-white focus:outline-none focus:ring-2 focus:ring-[#1E4A7A]"
+              >
+                <option value="all" className="bg-[#0A1A2F] text-white">
+                  Todos
+                </option>
+                {productionEmployees.map((employee) => (
+                  <option
+                    key={employee.id}
+                    value={employee.id}
+                    className="bg-[#0A1A2F] text-white"
+                  >
+                    {employee.nombre}
+                    {employee.codigo ? ` • ${employee.codigo}` : ""}
                   </option>
                 ))}
               </select>
@@ -1920,6 +2467,7 @@ export default function ReportesPage() {
                 setDateTo(todayStr);
                 setDriverFilter("all");
                 setStatusFilter("all");
+                setProductionEmployeeFilter("all");
                 setQuery("");
                 setReportMode("general");
               }}
@@ -1988,6 +2536,51 @@ export default function ReportesPage() {
             icon={<CircleDollarSign className="h-4 w-4" />}
           />
         </div>
+
+        {(reportMode === "general" || reportMode === "production") && (
+          <div className="mb-5 grid grid-cols-1 gap-3 md:grid-cols-2 xl:grid-cols-8">
+            <TopStat
+              label="Ventas Producción"
+              value={productionKpis.salesCount}
+              icon={<Factory className="h-4 w-4" />}
+            />
+            <TopStat
+              label="Empleados activos"
+              value={productionEmployees.length}
+              icon={<UserRound className="h-4 w-4" />}
+            />
+            <TopStat
+              label="Empleados con venta"
+              value={productionKpis.employeesCount}
+              icon={<Users className="h-4 w-4" />}
+            />
+            <TopStat
+              label="Piezas Producción"
+              value={productionKpis.totalPieces}
+              icon={<Boxes className="h-4 w-4" />}
+            />
+            <TopStat
+              label="Efectivo Producción"
+              value={money(productionKpis.efectivo)}
+              icon={<DollarSign className="h-4 w-4" />}
+            />
+            <TopStat
+              label="Transferencia"
+              value={money(productionKpis.transferencia)}
+              icon={<CircleDollarSign className="h-4 w-4" />}
+            />
+            <TopStat
+              label="Crédito Producción"
+              value={money(productionKpis.credito)}
+              icon={<Scale className="h-4 w-4" />}
+            />
+            <TopStat
+              label="Total Producción"
+              value={money(productionKpis.totalAmount)}
+              icon={<TrendingUp className="h-4 w-4" />}
+            />
+          </div>
+        )}
 
         <div className="mb-5 grid grid-cols-1 gap-3 md:grid-cols-6">
           <TopStat
@@ -2830,6 +3423,117 @@ export default function ReportesPage() {
             </div>
           </div>
         </div>
+
+        {(reportMode === "general" || reportMode === "production") && (
+          <div className="mt-6 grid grid-cols-1 gap-6 xl:grid-cols-2">
+            <div className="rounded-2xl bg-white/5 backdrop-blur-xl border border-white/10 overflow-hidden">
+              <div className="border-b border-white/10 p-4">
+                <p className="text-white font-semibold flex items-center gap-2">
+                  <Factory className="h-4 w-4" />
+                  Ventas de Producción por empleado
+                </p>
+                <p className="text-xs text-white/50 mt-1">
+                  Incluye empleados activos aunque no hayan vendido en el rango.
+                </p>
+              </div>
+
+              <div className="max-h-[46vh] overflow-y-auto divide-y divide-white/10">
+                {productionEmployeeSummary.length === 0 ? (
+                  <div className="p-6 text-center text-white/50">
+                    Sin empleados de Producción.
+                  </div>
+                ) : (
+                  productionEmployeeSummary.map((employee) => (
+                    <div key={employee.employee_id} className="p-4">
+                      <div className="flex items-start justify-between gap-3">
+                        <div>
+                          <p className="font-semibold text-white">
+                            {employee.employee_name}
+                          </p>
+                          <p className="mt-1 text-xs text-white/45">
+                            {employee.employee_code || "Sin código"}
+                          </p>
+                        </div>
+
+                        <p className="text-lg font-bold text-emerald-100">
+                          {money(employee.total_amount)}
+                        </p>
+                      </div>
+
+                      <div className="mt-3 grid grid-cols-2 gap-2 sm:grid-cols-5">
+                        <MiniResume
+                          label="Ventas"
+                          value={employee.sales_count}
+                          icon={<ListOrdered className="h-4 w-4" />}
+                        />
+                        <MiniResume
+                          label="Piezas"
+                          value={employee.pieces_count}
+                          icon={<Boxes className="h-4 w-4" />}
+                        />
+                        <MiniResume
+                          label="Efectivo"
+                          value={money(employee.efectivo)}
+                          icon={<DollarSign className="h-4 w-4" />}
+                        />
+                        <MiniResume
+                          label="Transfer."
+                          value={money(employee.transferencia)}
+                          icon={<CircleDollarSign className="h-4 w-4" />}
+                        />
+                        <MiniResume
+                          label="Crédito"
+                          value={money(employee.credito)}
+                          icon={<Scale className="h-4 w-4" />}
+                        />
+                      </div>
+                    </div>
+                  ))
+                )}
+              </div>
+            </div>
+
+            <div className="rounded-2xl bg-white/5 backdrop-blur-xl border border-white/10 overflow-hidden">
+              <div className="border-b border-white/10 p-4">
+                <p className="text-white font-semibold flex items-center gap-2">
+                  <Package className="h-4 w-4" />
+                  Productos vendidos por Producción
+                </p>
+                <p className="text-xs text-white/50 mt-1">
+                  Piezas e importe dentro del rango seleccionado.
+                </p>
+              </div>
+
+              <div className="max-h-[46vh] overflow-y-auto divide-y divide-white/10">
+                {productionProductSummary.length === 0 ? (
+                  <div className="p-6 text-center text-white/50">
+                    Sin productos vendidos por Producción.
+                  </div>
+                ) : (
+                  productionProductSummary.map((product) => (
+                    <div
+                      key={product.key}
+                      className="flex items-center justify-between gap-4 p-4"
+                    >
+                      <div>
+                        <p className="font-semibold text-white">
+                          {product.nombre}
+                        </p>
+                        <p className="mt-1 text-xs text-white/45">
+                          {product.qty} piezas
+                        </p>
+                      </div>
+
+                      <p className="font-bold text-emerald-100">
+                        {money(product.amount)}
+                      </p>
+                    </div>
+                  ))
+                )}
+              </div>
+            </div>
+          </div>
+        )}
       </div>
     </div>
   );

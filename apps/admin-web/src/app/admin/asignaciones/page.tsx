@@ -2915,12 +2915,19 @@ FECHA: ${escapeHtml(formatOnlyDate(api.workDate))}
                   className={cx("h-4 w-4", api.loading && "animate-spin")}
                 />
               </button>
-
+              
+              <button
+              onClick={() => router.push("/admin/ventas-produccion")}
+              className="flex items-center gap-2 rounded-xl bg-red-500/20 px-4 py-3 font-medium text-red-100 shadow-lg transition hover:bg-red-500/30"
+              >
+               <FileText className="h-5 w-5" />
+                Ventas de Producción
+                </button>
               <button
                 onClick={openMassBuilder}
                 className="flex items-center gap-2 rounded-xl bg-gradient-to-r from-[#1E4A7A] to-[#2E6B9E] px-4 py-3 font-medium text-white shadow-lg transition-all hover:from-[#2E6B9E] hover:to-[#1E4A7A]"
               >
-                <Plus className="h-5 w-5" />
+                <Truck className="h-5 w-5" />
                 Crear Entrega
               </button>
             </div>

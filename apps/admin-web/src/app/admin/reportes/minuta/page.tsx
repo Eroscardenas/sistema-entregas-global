@@ -5,9 +5,7 @@ import { motion, AnimatePresence } from "framer-motion";
 import {
   AlertCircle,
   ArrowLeft,
-  CalendarDays,
   ClipboardList,
-  Download,
   FileText,
   Gauge,
   Package,
@@ -262,6 +260,17 @@ function getTodayStr() {
   return `${yyyy}-${mm}-${dd}`;
 }
 
+function toLocalDateKey(value?: string | null) {
+  if (!value) return "";
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return "";
+
+  const yyyy = date.getFullYear();
+  const mm = String(date.getMonth() + 1).padStart(2, "0");
+  const dd = String(date.getDate()).padStart(2, "0");
+  return `${yyyy}-${mm}-${dd}`;
+}
+
 type DriverRow = {
   id: string;
   nombre: string | null;
@@ -316,6 +325,39 @@ type RouteRow = {
   km_end: number | null;
 };
 
+type ProductionEmployeeRow = {
+  id: string;
+  document_id?: string | null;
+  codigo: string;
+  nombre: string;
+  role: string;
+};
+
+type ProductionHistoryItem = {
+  product_id?: string | null;
+  product_name?: string | null;
+  name?: string | null;
+  nombre?: string | null;
+  quantity?: number | string | null;
+  qty?: number | string | null;
+  unit_price?: number | string | null;
+  subtotal?: number | string | null;
+};
+
+type ProductionHistorySale = {
+  id: string;
+  folio?: string | null;
+  production_employee_id?: string | null;
+  production_employee_name?: string | null;
+  employee_id?: string | null;
+  employee_name?: string | null;
+  total?: number | string | null;
+  total_quantity?: number | string | null;
+  payment_method?: string | null;
+  created_at?: string | null;
+  items?: ProductionHistoryItem[] | null;
+};
+
 type ProductSale = {
   key: string;
   nombre: string;
@@ -325,6 +367,7 @@ type ProductSale = {
 };
 
 type DriverMinuteRow = {
+  personType: "DRIVER" | "PRODUCTION";
   driverId: string;
   driverName: string;
   driverCode: string | null;
@@ -537,7 +580,7 @@ function buildPdfHtml(input: {
           <table>
             <thead>
               <tr>
-                <th style="width:130px;">CHOFER</th>
+                <th style="width:130px;">PERSONAL</th>
                 <th style="width:42px;">VISITAS</th>
                 <th style="width:44px;">KM. INI.</th>
                 <th style="width:44px;">KM. FIN.</th>
@@ -551,7 +594,7 @@ function buildPdfHtml(input: {
             <tbody>
               ${
                 rowsHtml ||
-                `<tr><td colspan="${8 + productKeys.length}" class="center">Sin choferes registrados.</td></tr>`
+                `<tr><td colspan="${8 + productKeys.length}" class="center">Sin personal registrado.</td></tr>`
               }
 
               <tr>
@@ -654,12 +697,77 @@ export default function MinutaReportesPage() {
     if (driversErr) throw driversErr;
     if (assignmentsErr) throw assignmentsErr;
 
-    const drivers = ((driversData ?? []) as DriverRow[])
-      .filter((d) => d.activo !== false)
-      .sort((a, b) => String(a.nombre || "").localeCompare(String(b.nombre || ""), "es"));
+const drivers = ((driversData ?? []) as DriverRow[])
+  .filter((driver) => {
+    if (driver.activo === false) return false;
+
+    const name = normalizeLooseText(
+      driver.nombre,
+    );
+
+    return name !== "PRUEBAS";
+  })
+  .sort((a, b) =>
+    String(a.nombre || "").localeCompare(
+      String(b.nombre || ""),
+      "es",
+    ),
+  );
 
     const assignments = (assignmentsData ?? []) as AssignmentRow[];
     const assignmentIds = assignments.map((a) => a.id);
+
+    const [productionEmployeesResponse, productionSalesResponse] =
+      await Promise.all([
+        fetch("/api/admin/production-employees", {
+          method: "GET",
+          cache: "no-store",
+        }),
+        fetch("/api/production-sales/history?limit=300", {
+          method: "GET",
+          cache: "no-store",
+        }),
+      ]);
+
+    const productionEmployeesJson = await productionEmployeesResponse
+      .json()
+      .catch(() => null);
+
+    const productionSalesJson = await productionSalesResponse
+      .json()
+      .catch(() => null);
+
+    if (!productionEmployeesResponse.ok || productionEmployeesJson?.ok !== true) {
+      throw new Error(
+        productionEmployeesJson?.error ||
+          `No se pudieron cargar los empleados de Producción (HTTP ${productionEmployeesResponse.status}).`,
+      );
+    }
+
+    if (!productionSalesResponse.ok || productionSalesJson?.ok !== true) {
+      throw new Error(
+        productionSalesJson?.error ||
+          `No se pudieron cargar las ventas de Producción (HTTP ${productionSalesResponse.status}).`,
+      );
+    }
+
+    const productionEmployees =
+      ((productionEmployeesJson?.data ?? []) as ProductionEmployeeRow[])
+        .filter((employee) => {
+          const employeeName = normalizeLooseText(
+            employee.nombre || employee.codigo,
+          );
+
+          return employeeName !== "ADMINISTRACION";
+        });
+
+    const productionSales =
+      ((productionSalesJson?.data ?? []) as ProductionHistorySale[]).filter(
+        (sale) => {
+          const dateKey = toLocalDateKey(sale.created_at);
+          return dateKey >= dateFrom && dateKey <= dateTo;
+        },
+      );
 
     let deliveries: DeliveryRow[] = [];
     let routes: RouteRow[] = [];
@@ -762,6 +870,7 @@ export default function MinutaReportesPage() {
 
       if (driverAssignments.length === 0) {
         return {
+          personType: "DRIVER" as const,
           driverId: driver.id,
           driverName: driver.nombre || "Chofer",
           driverCode: driver.firebase_codigo || null,
@@ -859,6 +968,7 @@ export default function MinutaReportesPage() {
       });
 
       return {
+        personType: "DRIVER" as const,
         driverId: driver.id,
         driverName: driver.nombre || "Chofer",
         driverCode: driver.firebase_codigo || null,
@@ -877,7 +987,113 @@ export default function MinutaReportesPage() {
       };
     });
 
-    return output;
+    const productionRows: DriverMinuteRow[] = productionEmployees
+      .filter((employee) => normalizeLooseText(employee.role) === "PRODUCCION")
+      .map((employee) => {
+        const employeeId = String(employee.id || employee.document_id || "").trim();
+        const employeeName = String(employee.nombre || employee.codigo || "Producción").trim();
+
+        const employeeSales = productionSales.filter((sale) => {
+          const saleEmployeeId = String(
+            sale.production_employee_id || sale.employee_id || "",
+          ).trim();
+
+          const saleEmployeeName = normalizeLooseText(
+            sale.production_employee_name || sale.employee_name || "",
+          );
+
+          return (
+            (employeeId && saleEmployeeId === employeeId) ||
+            (saleEmployeeName &&
+              saleEmployeeName === normalizeLooseText(employeeName))
+          );
+        });
+
+        const productsMap = new Map<string, ProductSale>();
+        let saleTotal = 0;
+        let totalSales = 0;
+
+        employeeSales.forEach((sale) => {
+          saleTotal += safeNum(sale.total, 0);
+          totalSales += 1;
+
+          (sale.items ?? []).forEach((item) => {
+            const productName =
+              String(
+                item.product_name ||
+                  item.nombre ||
+                  item.name ||
+                  "Producto",
+              ).trim() || "Producto";
+
+            const key =
+              buildProductKey({
+                name: productName,
+                productId: item.product_id || null,
+              }) || normalizeLooseText(productName);
+
+            const qty = Math.max(
+              0,
+              Math.trunc(
+                safeNum(item.quantity ?? item.qty, 0),
+              ),
+            );
+
+            if (qty <= 0) return;
+
+            const kgUnit = getProductKg(null, key);
+            const current = productsMap.get(key);
+
+            if (current) {
+              current.qty += qty;
+              current.tons += (qty * kgUnit) / 1000;
+            } else {
+              productsMap.set(key, {
+                key,
+                nombre: labelFromProductKey(key, productName),
+                qty,
+                kgUnit,
+                tons: (qty * kgUnit) / 1000,
+              });
+            }
+          });
+        });
+
+        return {
+          personType: "PRODUCTION" as const,
+          driverId: `production-${employeeId || employee.codigo}`,
+          driverName: employeeName,
+          driverCode: employee.codigo || null,
+          active: true,
+          assignmentIds:
+            employeeSales.length > 0
+              ? employeeSales.map((sale) => sale.id)
+              : [],
+          workDates: Array.from(
+            new Set(
+              employeeSales
+                .map((sale) => toLocalDateKey(sale.created_at))
+                .filter(Boolean),
+            ),
+          ),
+          visits: employeeSales.length > 0 ? totalSales : null,
+          kmStart: null,
+          kmEnd: null,
+          kmTotal: null,
+          routeStartedAt: null,
+          routeEndedAt: null,
+          saleTotal: employeeSales.length > 0 ? saleTotal : null,
+          expectedTotal: employeeSales.length > 0 ? saleTotal : null,
+          products: productsMap,
+        };
+      })
+      .sort((a, b) =>
+        a.driverName.localeCompare(b.driverName, "es", {
+          sensitivity: "base",
+        }),
+      );
+
+    return [...output, ...productionRows];
   }, [dateFrom, dateTo]);
 
   const loadData = useCallback(async () => {
@@ -978,7 +1194,7 @@ export default function MinutaReportesPage() {
     );
 
     const headers = [
-      "CHOFER",
+      "PERSONAL",
       "VISITAS",
       "KM INICIAL",
       "KM FINAL",
@@ -1180,7 +1396,7 @@ export default function MinutaReportesPage() {
     const workbook = XLSX.utils.book_new();
     workbook.Props = {
       Title: "Minuta de venta",
-      Subject: "Resumen de venta por chofer",
+      Subject: "Resumen de venta por chofer y Producción",
       Author: "Sistema de Entregas",
       CreatedDate: new Date(),
     };
@@ -1267,7 +1483,7 @@ export default function MinutaReportesPage() {
               <div>
                 <h1 className="text-2xl font-bold text-white">Minuta diaria</h1>
                 <p className="text-sm text-white/55">
-                  General de todos los choferes: visitas, kilómetros, venta y productos vendidos.
+                  General de choferes y empleados de Producción: visitas/ventas, kilómetros, venta y productos vendidos.
                 </p>
               </div>
             </div>
@@ -1381,8 +1597,8 @@ export default function MinutaReportesPage() {
         </div>
 
         <div className="mb-5 grid grid-cols-1 gap-3 md:grid-cols-2 xl:grid-cols-6">
-          <TopStat label="Choferes activos" value={rows.length} icon={<Truck className="h-4 w-4" />} />
-          <TopStat label="Choferes con ruta" value={totals.workingDrivers} icon={<Route className="h-4 w-4" />} />
+          <TopStat label="Personal activo" value={rows.length} icon={<Truck className="h-4 w-4" />} />
+          <TopStat label="Personal con actividad" value={totals.workingDrivers} icon={<Route className="h-4 w-4" />} />
           <TopStat label="Visitas totales" value={totals.visits} icon={<Users className="h-4 w-4" />} />
           <TopStat label="Km recorridos" value={totals.kmTotal} icon={<Gauge className="h-4 w-4" />} />
           <TopStat label="Venta total" value={money(totals.saleTotal)} icon={<DollarSign className="h-4 w-4" />} />
@@ -1435,7 +1651,7 @@ export default function MinutaReportesPage() {
           <div className="border-b border-white/10 p-4">
             <p className="flex items-center gap-2 font-semibold text-white">
               <FileText className="h-4 w-4" />
-              Resumen general por chofer
+              Resumen general por personal
             </p>
           </div>
 
@@ -1443,15 +1659,15 @@ export default function MinutaReportesPage() {
             <div className="p-8 text-center text-white/50">Cargando minuta...</div>
           ) : rows.length === 0 ? (
             <div className="p-8 text-center text-white/50">
-              No hay choferes activos registrados.
+              No hay personal activo registrado.
             </div>
           ) : (
             <div className="overflow-x-auto">
               <table className="min-w-full text-left text-sm">
                 <thead className="bg-white/10 text-xs uppercase text-white/70">
                   <tr>
-                    <th className="px-4 py-3">Chofer</th>
-                    <th className="px-4 py-3 text-center">Visitas</th>
+                    <th className="px-4 py-3">Personal</th>
+                    <th className="px-4 py-3 text-center">Visitas / Ventas</th>
                     <th className="px-4 py-3 text-center">Km inicial</th>
                     <th className="px-4 py-3 text-center">Km final</th>
                     <th className="px-4 py-3 text-center">Km recor.</th>
@@ -1478,7 +1694,21 @@ export default function MinutaReportesPage() {
                               {initials(row.driverName)}
                             </div>
                             <div>
-                              <p className="font-semibold text-white">{row.driverName}</p>
+                              <div className="flex flex-wrap items-center gap-2">
+                                <p className="font-semibold text-white">{row.driverName}</p>
+                                <span
+                                  className={cx(
+                                    "rounded-full px-2 py-0.5 text-[10px] font-bold",
+                                    row.personType === "PRODUCTION"
+                                      ? "bg-violet-500/20 text-violet-100"
+                                      : "bg-cyan-500/20 text-cyan-100",
+                                  )}
+                                >
+                                  {row.personType === "PRODUCTION"
+                                    ? "PRODUCCIÓN"
+                                    : "CHOFER"}
+                                </span>
+                              </div>
                               <p className="text-xs text-white/45">
                                 {row.driverCode ? row.driverCode : "Sin código inventario"}
                               </p>
