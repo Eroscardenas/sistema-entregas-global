@@ -1,6 +1,7 @@
 import 'dart:convert';
 
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart' show FilteringTextInputFormatter;
 import 'package:http/http.dart' as http;
 import 'package:url_launcher/url_launcher.dart';
 
@@ -48,6 +49,7 @@ class _DriverSalePageState extends State<DriverSalePage> {
   List<Map<String, dynamic>> _products = [];
 
   final Map<String, int> _qtyByProduct = {};
+  final Map<String, TextEditingController> _qtyControllers = {};
   String _paymentMethod = 'EFECTIVO';
 
   double get _total {
@@ -56,7 +58,7 @@ class _DriverSalePageState extends State<DriverSalePage> {
       final id = (p['product_id'] ?? '').toString();
       final qty = _qtyByProduct[id] ?? 0;
       final price = NumberParser.toDouble(p['precio']);
-      acc += qty * price;
+      acc += qty \ price;
     }
     return acc;
   }
@@ -75,10 +77,16 @@ class _DriverSalePageState extends State<DriverSalePage> {
   @override
   void dispose() {
     _searchCtrl.dispose();
+
+    for (final controller in _qtyControllers.values) {
+      controller.dispose();
+    }
+    _qtyControllers.clear();
+
     super.dispose();
   }
 
-  bool _isValidMapsUrl(String? value) {
+bool _isValidMapsUrl(String? value) {
     final url = (value ?? '').trim();
     if (url.isEmpty) return false;
 
@@ -100,7 +108,7 @@ class _DriverSalePageState extends State<DriverSalePage> {
 
     try {
       final opened = await launchUrl(
-        Uri.parse(url),
+Uri.parse(url),
         mode: LaunchMode.externalApplication,
       );
 
@@ -188,6 +196,12 @@ class _DriverSalePageState extends State<DriverSalePage> {
       _customers = [];
       _products = [];
       _qtyByProduct.clear();
+
+      for (final controller in _qtyControllers.values) {
+        controller.dispose();
+      }
+      _qtyControllers.clear();
+
       _error = null;
       _loadingProducts = true;
     });
@@ -196,7 +210,7 @@ class _DriverSalePageState extends State<DriverSalePage> {
       final customerId = (customer['id'] ?? '').toString();
 
       final uri =
-          Uri.parse('$_apiBase/api/driver-sales/costumer-products').replace(
+Uri.parse('$_apiBase/api/driver-sales/costumer-products').replace(
         queryParameters: {
           'customer_id': customerId,
           'driver_id': widget.driverId,
@@ -225,6 +239,16 @@ class _DriverSalePageState extends State<DriverSalePage> {
 
       setState(() {
         _products = rows;
+
+        for (final product in rows) {
+          final productId = (product['product_id'] ?? '').toString();
+          if (productId.isEmpty) continue;
+
+          _qtyControllers.putIfAbsent(
+            productId,
+            () => TextEditingController(),
+          );
+        }
       });
     } catch (e) {
       if (!mounted) return;
@@ -238,12 +262,46 @@ class _DriverSalePageState extends State<DriverSalePage> {
     }
   }
 
-  void _setQty(Map<String, dynamic> product, int qty) {
+  void _setQtyFromText(
+    Map<String, dynamic> product,
+    String value,
+  ) {
     final productId = (product['product_id'] ?? '').toString();
+    if (productId.isEmpty) return;
+
     final available = NumberParser.toInt(product['available_qty']);
+    final controller = _qtyControllers[productId];
+    final clean = value.trim();
+
+    if (clean.isEmpty) {
+      setState(() {
+        _qtyByProduct.remove(productId);
+      });
+      return;
+    }
+
+    var qty = int.tryParse(clean) ?? 0;
 
     if (qty < 0) qty = 0;
-    if (qty > available) qty = available;
+
+    if (qty > available) {
+      qty = available;
+
+      final corrected = qty <= 0 ? '' : qty.toString();
+
+      if (controller != null && controller.text != corrected) {
+        controller.value = TextEditingValue(
+          text: corrected,
+          selection: TextSelection.collapsed(offset: corrected.length),
+        );
+      }
+
+      _showMsg(
+        available <= 0
+            ? 'No tienes stock disponible de este producto.'
+            : 'Máximo disponible: $available.',
+      );
+    }
 
     setState(() {
       if (qty <= 0) {
@@ -252,6 +310,13 @@ class _DriverSalePageState extends State<DriverSalePage> {
         _qtyByProduct[productId] = qty;
       }
     });
+  }
+
+  void _selectAllQuantity(TextEditingController controller) {
+    controller.selection = TextSelection(
+      baseOffset: 0,
+      extentOffset: controller.text.length,
+    );
   }
 
   Future<void> _refreshSelectedCustomerProducts() async {
@@ -357,17 +422,17 @@ class _DriverSalePageState extends State<DriverSalePage> {
           (_selectedCustomer!['nombre'] ?? json['customer_name'] ?? 'Cliente')
               .toString();
 
-      ScaffoldMessenger.of(context).showSnackBar(
+ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(content: Text('Venta registrada correctamente.')),
       );
 
       if (deliveryId.isEmpty) {
-        Navigator.of(context).pop(true);
+Navigator.of(context).pop(true);
         return;
       }
 
       await Navigator.of(context).push(
-        MaterialPageRoute(
+MaterialPageRoute(
           builder: (_) => DriverDeliveryDetailPage(
             deliveryId: deliveryId,
             folio: folio,
@@ -377,7 +442,7 @@ class _DriverSalePageState extends State<DriverSalePage> {
       );
 
       if (!mounted) return;
-      Navigator.of(context).pop(true);
+Navigator.of(context).pop(true);
     } catch (e) {
       debugPrint('VENTA ERROR: $e');
 
@@ -396,8 +461,8 @@ class _DriverSalePageState extends State<DriverSalePage> {
   }
 
   void _showMsg(String msg) {
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(content: Text(msg)),
+ScaffoldMessenger.of(context).showSnackBar(
+SnackBar(content: Text(msg)),
     );
   }
 
@@ -414,7 +479,7 @@ class _DriverSalePageState extends State<DriverSalePage> {
         title: const Text('Venta en ruta'),
         actions: [
           if (_selectedCustomer != null)
-            IconButton(
+IconButton(
               onPressed:
                   _loadingProducts || _saving ? null : _refreshSelectedCustomerProducts,
               icon: const Icon(Icons.refresh),
@@ -434,11 +499,11 @@ class _DriverSalePageState extends State<DriverSalePage> {
           child: ListView(
             padding: const EdgeInsets.all(16),
             children: [
-              _GlassCard(
+_GlassCard(
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    Text(
+Text(
                       widget.driverName,
                       style: const TextStyle(
                         color: Colors.white,
@@ -447,7 +512,7 @@ class _DriverSalePageState extends State<DriverSalePage> {
                       ),
                     ),
                     const SizedBox(height: 6),
-                    Text(
+Text(
                       'Registra una venta aunque no tengas una asignación creada.',
                       style: TextStyle(
                         color: Colors.white.withOpacity(0.72),
@@ -458,15 +523,15 @@ class _DriverSalePageState extends State<DriverSalePage> {
                 ),
               ),
               const SizedBox(height: 14),
-              _GlassCard(
+_GlassCard(
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
                     const Row(
                       children: [
-                        Icon(Icons.info_outline, color: _accent),
-                        SizedBox(width: 8),
-                        Text(
+Icon(Icons.info_outline, color: _accent),
+SizedBox(width: 8),
+Text(
                           '¿Cómo funciona?',
                           style: TextStyle(
                             color: Colors.white,
@@ -477,7 +542,7 @@ class _DriverSalePageState extends State<DriverSalePage> {
                       ],
                     ),
                     const SizedBox(height: 10),
-                    Text(
+Text(
                       '1. Busca y selecciona un cliente.\n'
                       '2. Elige los productos que desea comprar.\n'
                       '3. Indica la cantidad según tu stock disponible.\n'
@@ -494,7 +559,7 @@ class _DriverSalePageState extends State<DriverSalePage> {
                 ),
               ),
               const SizedBox(height: 14),
-              _GlassCard(
+_GlassCard(
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
@@ -506,13 +571,13 @@ class _DriverSalePageState extends State<DriverSalePage> {
                       ),
                     ),
                     const SizedBox(height: 10),
-                    TextField(
+TextField(
                       controller: _searchCtrl,
                       style: const TextStyle(color: Colors.white),
                       decoration: InputDecoration(
                         hintText: 'Buscar cliente...',
                         hintStyle:
-                            TextStyle(color: Colors.white.withOpacity(0.45)),
+TextStyle(color: Colors.white.withOpacity(0.45)),
                         prefixIcon:
                             const Icon(Icons.search, color: Colors.white70),
                         filled: true,
@@ -520,12 +585,12 @@ class _DriverSalePageState extends State<DriverSalePage> {
                         border: OutlineInputBorder(
                           borderRadius: BorderRadius.circular(14),
                           borderSide:
-                              BorderSide(color: Colors.white.withOpacity(0.16)),
+BorderSide(color: Colors.white.withOpacity(0.16)),
                         ),
                         enabledBorder: OutlineInputBorder(
                           borderRadius: BorderRadius.circular(14),
                           borderSide:
-                              BorderSide(color: Colors.white.withOpacity(0.16)),
+BorderSide(color: Colors.white.withOpacity(0.16)),
                         ),
                         focusedBorder: OutlineInputBorder(
                           borderRadius: BorderRadius.circular(14),
@@ -535,7 +600,7 @@ class _DriverSalePageState extends State<DriverSalePage> {
                       onSubmitted: (_) => _searchCustomers(),
                     ),
                     const SizedBox(height: 10),
-                    SizedBox(
+SizedBox(
                       width: double.infinity,
                       child: ElevatedButton.icon(
                         onPressed: _loadingCustomers ? null : _searchCustomers,
@@ -544,7 +609,7 @@ class _DriverSalePageState extends State<DriverSalePage> {
                                 width: 16,
                                 height: 16,
                                 child:
-                                    CircularProgressIndicator(strokeWidth: 2),
+CircularProgressIndicator(strokeWidth: 2),
                               )
                             : const Icon(Icons.search),
                         label: const Text('Buscar'),
@@ -560,13 +625,13 @@ class _DriverSalePageState extends State<DriverSalePage> {
                     ),
                     if (_selectedCustomer != null) ...[
                       const SizedBox(height: 12),
-                      _SelectedBox(
+_SelectedBox(
                         title:
                             (_selectedCustomer!['nombre'] ?? 'Cliente').toString(),
                         subtitle: _locationLabel(_selectedCustomer!),
                       ),
                       const SizedBox(height: 10),
-                      SizedBox(
+SizedBox(
                         width: double.infinity,
                         child: ElevatedButton.icon(
                           onPressed:
@@ -583,9 +648,9 @@ class _DriverSalePageState extends State<DriverSalePage> {
                             backgroundColor: _success,
                             foregroundColor: Colors.white,
                             disabledBackgroundColor:
-                                Colors.white.withOpacity(0.12),
+Colors.white.withOpacity(0.12),
                             disabledForegroundColor:
-                                Colors.white.withOpacity(0.45),
+Colors.white.withOpacity(0.45),
                             padding: const EdgeInsets.symmetric(vertical: 13),
                             shape: RoundedRectangleBorder(
                               borderRadius: BorderRadius.circular(14),
@@ -615,7 +680,7 @@ class _DriverSalePageState extends State<DriverSalePage> {
                           subtitle: Text(
                             _locationLabel(c),
                             style:
-                                TextStyle(color: Colors.white.withOpacity(0.65)),
+TextStyle(color: Colors.white.withOpacity(0.65)),
                           ),
                           trailing:
                               const Icon(Icons.chevron_right, color: Colors.white),
@@ -635,7 +700,7 @@ class _DriverSalePageState extends State<DriverSalePage> {
                   ),
                 )
               else if (_selectedCustomer != null && _products.isEmpty)
-                _GlassCard(
+_GlassCard(
                   child: Text(
                     'Este cliente no tiene productos activos o no hay stock disponible.',
                     style: TextStyle(
@@ -645,11 +710,11 @@ class _DriverSalePageState extends State<DriverSalePage> {
                   ),
                 )
               else if (_products.isNotEmpty)
-                _GlassCard(
+_GlassCard(
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
-                      Row(
+Row(
                         children: [
                           const Expanded(
                             child: Text(
@@ -660,7 +725,7 @@ class _DriverSalePageState extends State<DriverSalePage> {
                               ),
                             ),
                           ),
-                          Text(
+Text(
                             'Total: $_totalQty pzas',
                             style: TextStyle(
                               color: Colors.white.withOpacity(0.70),
@@ -673,9 +738,8 @@ class _DriverSalePageState extends State<DriverSalePage> {
                       const SizedBox(height: 8),
                       ..._products.map((p) {
                         final productId = (p['product_id'] ?? '').toString();
-                        final qty = _qtyByProduct[productId] ?? 0;
                         final available =
-                            NumberParser.toInt(p['available_qty']);
+NumberParser.toInt(p['available_qty']);
                         final assigned = NumberParser.toInt(p['assigned_qty']);
                         final used = NumberParser.toInt(p['used_qty']);
                         final price = NumberParser.toDouble(p['precio']);
@@ -694,9 +758,9 @@ class _DriverSalePageState extends State<DriverSalePage> {
                           child: Column(
                             crossAxisAlignment: CrossAxisAlignment.start,
                             children: [
-                              Row(
+Row(
                                 children: [
-                                  Expanded(
+Expanded(
                                     child: Text(
                                       (p['nombre'] ?? 'Producto').toString(),
                                       style: const TextStyle(
@@ -705,7 +769,7 @@ class _DriverSalePageState extends State<DriverSalePage> {
                                       ),
                                     ),
                                   ),
-                                  Container(
+Container(
                                     padding: const EdgeInsets.symmetric(
                                       horizontal: 8,
                                       vertical: 4,
@@ -729,7 +793,7 @@ class _DriverSalePageState extends State<DriverSalePage> {
                                 ],
                               ),
                               const SizedBox(height: 4),
-                              Text(
+Text(
                                 'Precio: \$${_money(price)} • Disponible: $available',
                                 style: TextStyle(
                                   color: Colors.white.withOpacity(0.70),
@@ -739,7 +803,7 @@ class _DriverSalePageState extends State<DriverSalePage> {
                               ),
                               if (assigned > 0 || used > 0) ...[
                                 const SizedBox(height: 3),
-                                Text(
+Text(
                                   'Cargado: $assigned • Usado: $used',
                                   style: TextStyle(
                                     color: Colors.white.withOpacity(0.52),
@@ -748,39 +812,78 @@ class _DriverSalePageState extends State<DriverSalePage> {
                                   ),
                                 ),
                               ],
-                              const SizedBox(height: 10),
-                              Row(
-                                children: [
-                                  IconButton(
-                                    onPressed: qty <= 0 || _saving
-                                        ? null
-                                        : () => _setQty(p, qty - 1),
-                                    icon:
-                                        const Icon(Icons.remove_circle_outline),
-                                    color: Colors.white,
+                              const SizedBox(height: 12),
+                              TextField(
+                                controller: _qtyControllers[productId],
+                                enabled: !_saving && available > 0,
+                                keyboardType: TextInputType.number,
+                                inputFormatters: [
+                                  FilteringTextInputFormatter.digitsOnly,
+                                ],
+                                textAlign: TextAlign.center,
+                                style: const TextStyle(
+                                  color: Colors.white,
+                                  fontWeight: FontWeight.w900,
+                                  fontSize: 20,
+                                ),
+                                decoration: InputDecoration(
+                                  labelText: 'Cantidad a vender',
+                                  labelStyle: TextStyle(
+                                    color: Colors.white.withOpacity(0.70),
                                   ),
-                                  Expanded(
-                                    child: Center(
-                                      child: Text(
-                                        '$qty',
-                                        style: const TextStyle(
-                                          color: Colors.white,
-                                          fontWeight: FontWeight.w900,
-                                          fontSize: 20,
-                                        ),
-                                      ),
+                                  hintText: available > 0
+                                      ? 'Escribe una cantidad'
+                                      : 'Sin stock',
+                                  hintStyle: TextStyle(
+                                    color: Colors.white.withOpacity(0.35),
+                                  ),
+                                  helperText: 'Máximo disponible: $available',
+                                  helperStyle: TextStyle(
+                                    color: Colors.white.withOpacity(0.55),
+                                    fontWeight: FontWeight.w600,
+                                  ),
+                                  filled: true,
+                                  fillColor: Colors.white.withOpacity(0.08),
+                                  contentPadding: const EdgeInsets.symmetric(
+                                    horizontal: 14,
+                                    vertical: 16,
+                                  ),
+                                  border: OutlineInputBorder(
+                                    borderRadius: BorderRadius.circular(14),
+                                    borderSide: BorderSide(
+                                      color: Colors.white.withOpacity(0.12),
                                     ),
                                   ),
-                                  IconButton(
-                                    onPressed: qty >= available ||
-                                            available <= 0 ||
-                                            _saving
-                                        ? null
-                                        : () => _setQty(p, qty + 1),
-                                    icon: const Icon(Icons.add_circle_outline),
-                                    color: Colors.white,
+                                  enabledBorder: OutlineInputBorder(
+                                    borderRadius: BorderRadius.circular(14),
+                                    borderSide: BorderSide(
+                                      color: Colors.white.withOpacity(0.12),
+                                    ),
                                   ),
-                                ],
+                                  focusedBorder: const OutlineInputBorder(
+                                    borderRadius: BorderRadius.all(
+                                      Radius.circular(14),
+                                    ),
+                                    borderSide: BorderSide(
+                                      color: _accent,
+                                      width: 1.5,
+                                    ),
+                                  ),
+                                  disabledBorder: OutlineInputBorder(
+                                    borderRadius: BorderRadius.circular(14),
+                                    borderSide: BorderSide(
+                                      color: Colors.white.withOpacity(0.06),
+                                    ),
+                                  ),
+                                ),
+                                onTap: () {
+                                  final controller = _qtyControllers[productId];
+                                  if (controller != null) {
+                                    _selectAllQuantity(controller);
+                                  }
+                                },
+                                onChanged: (value) =>
+                                    _setQtyFromText(p, value),
                               ),
                             ],
                           ),
@@ -791,7 +894,7 @@ class _DriverSalePageState extends State<DriverSalePage> {
                 ),
               const SizedBox(height: 14),
               if (_products.isNotEmpty)
-                _GlassCard(
+_GlassCard(
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
@@ -802,7 +905,7 @@ class _DriverSalePageState extends State<DriverSalePage> {
                           fontWeight: FontWeight.w900,
                         ),
                       ),
-                      RadioListTile<String>(
+RadioListTile<String>(
                         value: 'EFECTIVO',
                         groupValue: _paymentMethod,
                         activeColor: _accent,
@@ -816,7 +919,7 @@ class _DriverSalePageState extends State<DriverSalePage> {
                                   () => _paymentMethod = v ?? 'EFECTIVO',
                                 ),
                       ),
-                      RadioListTile<String>(
+RadioListTile<String>(
                         value: 'CREDITO',
                         groupValue: _paymentMethod,
                         activeColor: _accent,
@@ -831,7 +934,7 @@ class _DriverSalePageState extends State<DriverSalePage> {
                                 ),
                       ),
                       const Divider(color: Colors.white24),
-                      Row(
+Row(
                         children: [
                           const Expanded(
                             child: Text(
@@ -843,7 +946,7 @@ class _DriverSalePageState extends State<DriverSalePage> {
                               ),
                             ),
                           ),
-                          Text(
+Text(
                             '\$${_money(_total)}',
                             style: const TextStyle(
                               color: Colors.white,
@@ -854,7 +957,7 @@ class _DriverSalePageState extends State<DriverSalePage> {
                         ],
                       ),
                       const SizedBox(height: 14),
-                      SizedBox(
+SizedBox(
                         width: double.infinity,
                         child: ElevatedButton.icon(
                           onPressed: _canRegister ? _registerSale : null,
@@ -863,7 +966,7 @@ class _DriverSalePageState extends State<DriverSalePage> {
                                   width: 16,
                                   height: 16,
                                   child:
-                                      CircularProgressIndicator(strokeWidth: 2),
+CircularProgressIndicator(strokeWidth: 2),
                                 )
                               : const Icon(Icons.check_circle),
                           label: Text(
@@ -873,9 +976,9 @@ class _DriverSalePageState extends State<DriverSalePage> {
                             backgroundColor: _burgundy,
                             foregroundColor: Colors.white,
                             disabledBackgroundColor:
-                                Colors.white.withOpacity(0.12),
+Colors.white.withOpacity(0.12),
                             disabledForegroundColor:
-                                Colors.white.withOpacity(0.40),
+Colors.white.withOpacity(0.40),
                             padding: const EdgeInsets.symmetric(vertical: 14),
                             shape: RoundedRectangleBorder(
                               borderRadius: BorderRadius.circular(16),
@@ -888,7 +991,7 @@ class _DriverSalePageState extends State<DriverSalePage> {
                 ),
               if (_error != null) ...[
                 const SizedBox(height: 14),
-                _GlassCard(
+_GlassCard(
                   child: Text(
                     _error!,
                     style: const TextStyle(
@@ -944,7 +1047,7 @@ class _SelectedBox extends StatelessWidget {
       child: Row(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Icon(
+Icon(
             hasLocation
                 ? Icons.location_on_outlined
                 : Icons.location_off_outlined,
@@ -952,11 +1055,11 @@ class _SelectedBox extends StatelessWidget {
             size: 20,
           ),
           const SizedBox(width: 8),
-          Expanded(
+Expanded(
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                Text(
+Text(
                   title,
                   style: const TextStyle(
                     color: Colors.white,
@@ -965,7 +1068,7 @@ class _SelectedBox extends StatelessWidget {
                 ),
                 if (subtitle.trim().isNotEmpty) ...[
                   const SizedBox(height: 3),
-                  Text(
+Text(
                     subtitle,
                     style: TextStyle(color: Colors.white.withOpacity(0.70)),
                   ),

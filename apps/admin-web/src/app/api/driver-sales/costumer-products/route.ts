@@ -26,21 +26,36 @@ export async function OPTIONS() {
 }
 
 function todayYmd() {
-  const d = new Date();
-  return `${d.getFullYear().toString().padStart(4, '0')}-${(d.getMonth() + 1)
-    .toString()
-    .padStart(2, '0')}-${d.getDate().toString().padStart(2, '0')}`;
+  const parts = new Intl.DateTimeFormat('en-CA', {
+    timeZone: 'America/Mexico_City',
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+  }).formatToParts(new Date());
+
+  const year =
+    parts.find((part) => part.type === 'year')?.value ?? '';
+  const month =
+    parts.find((part) => part.type === 'month')?.value ?? '';
+  const day =
+    parts.find((part) => part.type === 'day')?.value ?? '';
+
+  return `${year}-${month}-${day}`;
 }
 
 function toInt(value: any) {
   if (value === null || value === undefined) return 0;
+
   const n = Number(value);
+
   return Number.isFinite(n) ? Math.trunc(n) : 0;
 }
 
 function toDouble(value: any) {
   if (value === null || value === undefined) return 0;
+
   const n = Number(value);
+
   return Number.isFinite(n) ? n : 0;
 }
 
@@ -49,43 +64,59 @@ function normalize(value: any) {
 }
 
 function normalizeText(value: any) {
-  return normalize(value).normalize('NFD').replace(/[\u0300-\u036f]/g, '');
+  return normalize(value)
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '');
 }
 
 function normalizeIceType(value: any) {
   let s = normalizeText(value);
+
   if (s === 'FRAPPE') s = 'FRAP';
   if (s === 'NORMAL') s = 'ROLITO';
+
   return s;
 }
 
 function kgFromName(nombre: any) {
   const name = normalizeText(nombre);
+
   const match = name.match(/(\d+(?:\.\d+)?)\s*KG/);
+
   if (!match) return 0;
 
   const n = Number(match[1]);
+
   return Number.isFinite(n) ? n : 0;
 }
 
 function kgFromProduct(product: any) {
   const kgName = kgFromName(product?.nombre);
+
   if (kgName > 0) return kgName;
 
   const kgDb = toDouble(product?.kg_por_unidad);
+
   return kgDb > 0 ? kgDb : 0;
 }
 
 function resolveProductIceType(product: any) {
   const name = normalizeText(product?.nombre);
+
   let type = normalizeIceType(product?.ice_type);
 
   if (!type || type === 'NORMAL') {
-    if (name.includes('GOURMET')) type = 'GOURMET';
-    else if (name.includes('FRAP')) type = 'FRAP';
-    else if (name.includes('ENFRIAR')) type = 'ENFRIAR';
-    else if (name.includes('BARRA')) type = 'BARRA';
-    else type = 'ROLITO';
+    if (name.includes('GOURMET')) {
+      type = 'GOURMET';
+    } else if (name.includes('FRAP')) {
+      type = 'FRAP';
+    } else if (name.includes('ENFRIAR')) {
+      type = 'ENFRIAR';
+    } else if (name.includes('BARRA')) {
+      type = 'BARRA';
+    } else {
+      type = 'ROLITO';
+    }
   }
 
   return normalizeIceType(type);
@@ -103,7 +134,11 @@ function productMatchesInventorySetting(product: any, setting: any) {
   if (!sType) return false;
 
   if (sType.includes('BARRA')) {
-    return pType.includes('BARRA') || pName.includes('BARRA') || pKind.includes('BARRA');
+    return (
+      pType.includes('BARRA') ||
+      pName.includes('BARRA') ||
+      pKind.includes('BARRA')
+    );
   }
 
   if (sKg <= 0) return false;
@@ -113,7 +148,15 @@ function productMatchesInventorySetting(product: any, setting: any) {
 
 function isDeliveredStatus(status: any) {
   const s = normalizeText(status);
-  return ['ENTREGADA', 'CONFIRMADA', 'FINALIZADA', 'COMPLETADA', 'CERRADA', 'LIQUIDADA'].includes(s);
+
+  return [
+    'ENTREGADA',
+    'CONFIRMADA',
+    'FINALIZADA',
+    'COMPLETADA',
+    'CERRADA',
+    'LIQUIDADA',
+  ].includes(s);
 }
 
 function buildProductKey(input: {
@@ -123,31 +166,49 @@ function buildProductKey(input: {
   kind?: any;
 }) {
   const name = normalizeText(input.nombre);
+
   let type = normalizeIceType(input.ice_type);
+
   const kind = normalizeText(input.kind);
 
   const kgName = kgFromName(input.nombre);
   const kgDb = toDouble(input.kg_por_unidad);
   const kg = kgName > 0 ? kgName : kgDb;
 
-  if (type.includes('BARRA') || name.includes('BARRA') || kind.includes('BARRA')) {
+  if (
+    type.includes('BARRA') ||
+    name.includes('BARRA') ||
+    kind.includes('BARRA')
+  ) {
     return 'BARRA';
   }
 
   if (!type || type === 'NORMAL') {
-    if (name.includes('GOURMET')) type = 'GOURMET';
-    else if (name.includes('FRAP')) type = 'FRAP';
-    else if (name.includes('ENFRIAR')) type = 'ENFRIAR';
-    else type = 'ROLITO';
+    if (name.includes('GOURMET')) {
+      type = 'GOURMET';
+    } else if (name.includes('FRAP')) {
+      type = 'FRAP';
+    } else if (name.includes('ENFRIAR')) {
+      type = 'ENFRIAR';
+    } else {
+      type = 'ROLITO';
+    }
   }
 
   if (type === 'FRAPPE') type = 'FRAP';
   if (type === 'NORMAL') type = 'ROLITO';
 
   const kgText =
-    kg > 0 ? (Number.isInteger(kg) ? String(Math.trunc(kg)) : String(kg)) : '';
+    kg > 0
+      ? Number.isInteger(kg)
+        ? String(Math.trunc(kg))
+        : String(kg)
+      : '';
 
-  if (type && kgText) return `${type}_${kgText}`;
+  if (type && kgText) {
+    return `${type}_${kgText}`;
+  }
+
   return type || name;
 }
 
@@ -162,6 +223,7 @@ async function loadInventoryOutputs(params: {
   const origin = url.origin;
 
   const qs = new URLSearchParams();
+
   qs.set('date', params.workDate);
   qs.set('driverName', params.driverName);
 
@@ -171,23 +233,44 @@ async function loadInventoryOutputs(params: {
     qs.set('driverCode', params.driverId);
   }
 
-  const res = await fetch(`${origin}/api/inventory/global-outputs?${qs.toString()}`, {
-    method: 'GET',
-    cache: 'no-store',
-  });
+  const res = await fetch(
+    `${origin}/api/inventory/global-outputs?${qs.toString()}`,
+    {
+      method: 'GET',
+      cache: 'no-store',
+    },
+  );
 
-  if (!res.ok) return new Map<string, number>();
+  if (!res.ok) {
+    console.warn(
+      '[costumer-products] global-outputs respondió:',
+      res.status,
+    );
+
+    return new Map<string, number>();
+  }
 
   const json = await res.json().catch(() => null);
 
-  if (!json?.ok || !json.qtyByKey || typeof json.qtyByKey !== 'object') {
+  if (
+    !json?.ok ||
+    !json.qtyByKey ||
+    typeof json.qtyByKey !== 'object'
+  ) {
+    console.warn(
+      '[costumer-products] global-outputs no devolvió qtyByKey válido',
+    );
+
     return new Map<string, number>();
   }
 
   const out = new Map<string, number>();
 
   for (const [keyRaw, qtyRaw] of Object.entries(json.qtyByKey)) {
-    const key = String(keyRaw || '').trim().toUpperCase();
+    const key = String(keyRaw || '')
+      .trim()
+      .toUpperCase();
+
     const qty = Math.abs(toInt(qtyRaw));
 
     if (key && qty > 0) {
@@ -199,30 +282,69 @@ async function loadInventoryOutputs(params: {
 }
 
 function parseNullableNumber(value: any) {
-  if (value === null || value === undefined || value === '') return null;
+  if (
+    value === null ||
+    value === undefined ||
+    value === ''
+  ) {
+    return null;
+  }
+
   const n = Number(value);
+
   return Number.isFinite(n) ? n : null;
 }
 
 export async function GET(req: Request) {
   try {
     const sb = getAdminSupabase();
+
     const { searchParams } = new URL(req.url);
 
-    const customerId = String(searchParams.get('customer_id') || '').trim();
-    const driverId = String(searchParams.get('driver_id') || '').trim();
+    const customerId = String(
+      searchParams.get('customer_id') || '',
+    ).trim();
+
+    const driverId = String(
+      searchParams.get('driver_id') || '',
+    ).trim();
 
     if (!customerId) {
-      return NextResponse.json({ ok: false, error: 'Falta customer_id' }, { status: 400 });
+      return NextResponse.json(
+        {
+          ok: false,
+          error: 'Falta customer_id',
+        },
+        {
+          status: 400,
+        },
+      );
     }
 
     if (!driverId) {
-      return NextResponse.json({ ok: false, error: 'Falta driver_id' }, { status: 400 });
+      return NextResponse.json(
+        {
+          ok: false,
+          error: 'Falta driver_id',
+        },
+        {
+          status: 400,
+        },
+      );
     }
 
     const workDate = todayYmd();
 
-    const { data: driverRow, error: driverErr } = await sb
+    /*
+     * =========================================================
+     * CHOFER
+     * =========================================================
+     */
+
+    const {
+      data: driverRow,
+      error: driverErr,
+    } = await sb
       .from('drivers')
       .select('id,nombre')
       .eq('id', driverId)
@@ -230,9 +352,20 @@ export async function GET(req: Request) {
 
     if (driverErr) throw driverErr;
 
-    const driverName = String(driverRow?.nombre || '').trim();
+    const driverName = String(
+      driverRow?.nombre || '',
+    ).trim();
 
-    const { data: assignment, error: assignmentErr } = await sb
+    /*
+     * =========================================================
+     * ASIGNACIÓN DEL DÍA
+     * =========================================================
+     */
+
+    const {
+      data: assignment,
+      error: assignmentErr,
+    } = await sb
       .from('assignments')
       .select('id,driver_id,work_date,status')
       .eq('driver_id', driverId)
@@ -241,20 +374,48 @@ export async function GET(req: Request) {
 
     if (assignmentErr) throw assignmentErr;
 
+    /*
+     * =========================================================
+     * MAPEO CHOFER -> FIREBASE INVENTARIO
+     * =========================================================
+     */
+
     let driverCode: string | null = null;
 
     const { data: driverMap } = await sb
       .from('driver_inventory_mapping')
-      .select('firebase_employee_code,firebase_employee_id,firebase_employee_name')
+      .select(
+        'firebase_employee_code,firebase_employee_id,firebase_employee_name',
+      )
       .eq('driver_id', driverId)
       .eq('is_active', true)
       .maybeSingle();
 
     if (driverMap) {
       driverCode = String(
-        driverMap.firebase_employee_code || driverMap.firebase_employee_id || '',
+        driverMap.firebase_employee_code ||
+          driverMap.firebase_employee_id ||
+          '',
       ).trim();
     }
+
+    /*
+     * =========================================================
+     * SALIDAS REALES DE INVENTARIO
+     *
+     * ESTA ES LA FUENTE DE VERDAD DE CUÁNTO PRODUCTO
+     * SE LE HA CARGADO AL CHOFER DURANTE EL DÍA.
+     *
+     * Puede haber:
+     *
+     * salida 1
+     * salida 2
+     * salida 3
+     * salida 4
+     *
+     * global-outputs debe devolver la suma de todas.
+     * =========================================================
+     */
 
     const outputsByKey = await loadInventoryOutputs({
       req,
@@ -264,57 +425,120 @@ export async function GET(req: Request) {
       driverCode,
     });
 
-    // Fuente principal de stock para venta libre del chofer.
-    // No depende de que exista una asignación del día.
-    const { data: driverStockRows, error: driverStockErr } = await sb
+    /*
+     * =========================================================
+     * DRIVER STOCK
+     *
+     * Se conserva porque aquí tenemos el consumo acumulado
+     * que generan las ventas/entregas del chofer.
+     *
+     * IMPORTANTE:
+     *
+     * driver_stock.assigned_qty NO puede ser la fuente principal
+     * de producto cargado, porque puede quedarse con la primera
+     * salida del día.
+     *
+     * driver_stock.available_qty tampoco se usa como fuente final
+     * porque puede quedar obsoleto cuando Administración registra
+     * una segunda salida.
+     * =========================================================
+     */
+
+    const {
+      data: driverStockRows,
+      error: driverStockErr,
+    } = await sb
       .from('driver_stock')
-      .select('product_id,assigned_qty,used_qty,available_qty')
+      .select(
+        'product_id,assigned_qty,used_qty,available_qty',
+      )
       .eq('driver_id', driverId);
 
     if (driverStockErr) throw driverStockErr;
 
-    const driverStockByProductId = new Map<string, DriverStockRow>();
+    const driverStockByProductId =
+      new Map<string, DriverStockRow>();
 
     for (const raw of driverStockRows ?? []) {
       const stock = raw as DriverStockRow;
-      const productId = String(stock.product_id || '').trim();
+
+      const productId = String(
+        stock.product_id || '',
+      ).trim();
 
       if (!productId) continue;
 
       driverStockByProductId.set(productId, {
         product_id: productId,
-        assigned_qty: toInt(stock.assigned_qty),
-        used_qty: toInt(stock.used_qty),
+
+        assigned_qty: toInt(
+          stock.assigned_qty,
+        ),
+
+        used_qty: toInt(
+          stock.used_qty,
+        ),
+
         available_qty:
-          stock.available_qty === null || stock.available_qty === undefined
+          stock.available_qty === null ||
+          stock.available_qty === undefined
             ? null
             : toInt(stock.available_qty),
       });
     }
 
-    const deliveredByKey = new Map<string, number>();
+    /*
+     * =========================================================
+     * ENTREGADO DEL DÍA
+     *
+     * Esto se conserva como respaldo en caso de que todavía no
+     * exista driver_stock para algún producto.
+     * =========================================================
+     */
+
+    const deliveredByKey =
+      new Map<string, number>();
 
     if (assignment?.id) {
-      const { data: deliveries, error: deliveriesErr } = await sb
+      const {
+        data: deliveries,
+        error: deliveriesErr,
+      } = await sb
         .from('deliveries')
         .select('id,status')
         .eq('assignment_id', assignment.id);
 
-      if (deliveriesErr) throw deliveriesErr;
+      if (deliveriesErr) {
+        throw deliveriesErr;
+      }
 
-      const deliveryStatusById = new Map<string, string>();
+      const deliveryStatusById =
+        new Map<string, string>();
+
       const deliveryIds: string[] = [];
 
       for (const d of deliveries ?? []) {
-        const id = String((d as any).id || '').trim();
+        const id = String(
+          (d as any).id || '',
+        ).trim();
+
         if (!id) continue;
 
         deliveryIds.push(id);
-        deliveryStatusById.set(id, String((d as any).status || 'PENDIENTE'));
+
+        deliveryStatusById.set(
+          id,
+          String(
+            (d as any).status || 'PENDIENTE',
+          ),
+        );
       }
 
       if (deliveryIds.length > 0) {
-        const { data: items, error: itemsErr } = await sb
+        const {
+          data: items,
+          error: itemsErr,
+        } = await sb
           .from('delivery_items')
           .select(
             `
@@ -333,22 +557,35 @@ export async function GET(req: Request) {
           )
           .in('delivery_id', deliveryIds);
 
-        if (itemsErr) throw itemsErr;
+        if (itemsErr) {
+          throw itemsErr;
+        }
 
         for (const raw of items ?? []) {
           const item = raw as any;
-          const deliveryId = String(item.delivery_id || '').trim();
-          const status = deliveryStatusById.get(deliveryId) || '';
 
-          if (!isDeliveredStatus(status)) continue;
+          const deliveryId = String(
+            item.delivery_id || '',
+          ).trim();
+
+          const status =
+            deliveryStatusById.get(
+              deliveryId,
+            ) || '';
+
+          if (!isDeliveredStatus(status)) {
+            continue;
+          }
 
           const p = item.products;
+
           if (!p) continue;
 
           const key = buildProductKey({
             nombre: p.nombre,
             ice_type: p.ice_type,
-            kg_por_unidad: p.kg_por_unidad,
+            kg_por_unidad:
+              p.kg_por_unidad,
             kind: p.kind,
           });
 
@@ -356,13 +593,26 @@ export async function GET(req: Request) {
 
           deliveredByKey.set(
             key,
-            (deliveredByKey.get(key) ?? 0) + toInt(item.qty_real ?? item.qty_assigned),
+            (deliveredByKey.get(key) ?? 0) +
+              toInt(
+                item.qty_real ??
+                  item.qty_assigned,
+              ),
           );
         }
       }
     }
 
-    const { data: inventoryCustomerProducts, error: inventoryCustomerErr } = await sb
+    /*
+     * =========================================================
+     * PRODUCTOS CONFIGURADOS PARA EL CLIENTE
+     * =========================================================
+     */
+
+    const {
+      data: inventoryCustomerProducts,
+      error: inventoryCustomerErr,
+    } = await sb
       .from('customer_inventory_products')
       .select(
         `
@@ -384,19 +634,47 @@ export async function GET(req: Request) {
       )
       .eq('customer_id', customerId)
       .eq('activo', true)
-      .order('created_at', { ascending: true });
+      .order('created_at', {
+        ascending: true,
+      });
 
-    if (inventoryCustomerErr) throw inventoryCustomerErr;
+    if (inventoryCustomerErr) {
+      throw inventoryCustomerErr;
+    }
 
-    const { data: productsCatalog, error: productsCatalogErr } = await sb
+    /*
+     * =========================================================
+     * CATÁLOGO DE PRODUCTOS
+     * =========================================================
+     */
+
+    const {
+      data: productsCatalog,
+      error: productsCatalogErr,
+    } = await sb
       .from('products')
-      .select('id,nombre,activo,precio_base,kind,ice_type,kg_por_unidad')
+      .select(
+        'id,nombre,activo,precio_base,kind,ice_type,kg_por_unidad',
+      )
       .eq('activo', true)
-      .order('nombre', { ascending: true });
+      .order('nombre', {
+        ascending: true,
+      });
 
-    if (productsCatalogErr) throw productsCatalogErr;
+    if (productsCatalogErr) {
+      throw productsCatalogErr;
+    }
 
-    const { data: legacyCustomerProducts, error: legacyCustomerErr } = await sb
+    /*
+     * =========================================================
+     * PRODUCTOS LEGACY DEL CLIENTE
+     * =========================================================
+     */
+
+    const {
+      data: legacyCustomerProducts,
+      error: legacyCustomerErr,
+    } = await sb
       .from('customer_products')
       .select(
         `
@@ -419,216 +697,626 @@ export async function GET(req: Request) {
       .eq('customer_id', customerId)
       .eq('activo', true);
 
-    if (legacyCustomerErr) throw legacyCustomerErr;
+    if (legacyCustomerErr) {
+      throw legacyCustomerErr;
+    }
 
-    const sourceRows: ProductSourceRow[] = [];
+    const sourceRows: ProductSourceRow[] =
+      [];
 
-    // ✅ PRIORIDAD 1: precio de Admin > Clientes
-    // Tabla nueva real: customer_inventory_products.precio_override
-    for (const row of inventoryCustomerProducts ?? []) {
-      const setting = (row as any).inventory_product_settings;
-      if (!setting || setting.activo !== true) continue;
+    /*
+     * =========================================================
+     * PRIORIDAD 1
+     * customer_inventory_products
+     * =========================================================
+     */
 
-      const product = (productsCatalog ?? []).find((p: any) =>
-        productMatchesInventorySetting(p, setting),
+    for (
+      const row of
+        inventoryCustomerProducts ?? []
+    ) {
+      const setting = (row as any)
+        .inventory_product_settings;
+
+      if (
+        !setting ||
+        setting.activo !== true
+      ) {
+        continue;
+      }
+
+      const product = (
+        productsCatalog ?? []
+      ).find((p: any) =>
+        productMatchesInventorySetting(
+          p,
+          setting,
+        ),
       );
 
       if (!product) continue;
 
-      const override = parseNullableNumber((row as any).precio_override);
-      const precioBaseSetting = toDouble(setting.precio_base);
+      const override =
+        parseNullableNumber(
+          (row as any).precio_override,
+        );
+
+      const precioBaseSetting =
+        toDouble(setting.precio_base);
 
       sourceRows.push({
-        source: 'customer_inventory_products',
-        customer_product_id: String((row as any).id),
-        customer_id: String((row as any).customer_id),
-        product_id: String((product as any).id),
-        inventory_product_setting_id: String(setting.id),
+        source:
+          'customer_inventory_products',
+
+        customer_product_id: String(
+          (row as any).id,
+        ),
+
+        customer_id: String(
+          (row as any).customer_id,
+        ),
+
+        product_id: String(
+          (product as any).id,
+        ),
+
+        inventory_product_setting_id:
+          String(setting.id),
+
         precio_override: override,
-        precio_base_setting: precioBaseSetting,
-        activo: (row as any).activo === true,
+
+        precio_base_setting:
+          precioBaseSetting,
+
+        activo:
+          (row as any).activo === true,
+
         product,
+
         setting,
       });
     }
 
-    // ✅ PRIORIDAD 2: fallback viejo customer_products
-    // Solo se usa si NO existe ya el mismo product_key desde customer_inventory_products.
+    /*
+     * =========================================================
+     * PRIORIDAD 2
+     * customer_products LEGACY
+     *
+     * Solo entra si el mismo producto no existe ya en
+     * customer_inventory_products.
+     * =========================================================
+     */
+
     const existingKeys = new Set(
       sourceRows.map((row) =>
         buildProductKey({
-          nombre: row.product?.nombre,
-          ice_type: row.setting?.firebase_tipo_hielo ?? row.product?.ice_type,
-          kg_por_unidad: row.setting?.peso_kg ?? row.product?.kg_por_unidad,
-          kind: row.product?.kind,
+          nombre:
+            row.product?.nombre,
+
+          ice_type:
+            row.setting
+              ?.firebase_tipo_hielo ??
+            row.product?.ice_type,
+
+          kg_por_unidad:
+            row.setting?.peso_kg ??
+            row.product
+              ?.kg_por_unidad,
+
+          kind:
+            row.product?.kind,
         }),
       ),
     );
 
-    for (const row of legacyCustomerProducts ?? []) {
-      const product = (row as any).products;
-      if (!product || product.activo !== true) continue;
+    for (
+      const row of
+        legacyCustomerProducts ?? []
+    ) {
+      const product =
+        (row as any).products;
 
-      const productKey = buildProductKey({
-        nombre: product?.nombre,
-        ice_type: product?.ice_type,
-        kg_por_unidad: product?.kg_por_unidad,
-        kind: product?.kind,
-      });
+      if (
+        !product ||
+        product.activo !== true
+      ) {
+        continue;
+      }
 
-      if (!productKey || existingKeys.has(productKey)) continue;
+      const productKey =
+        buildProductKey({
+          nombre:
+            product?.nombre,
 
-      const override = parseNullableNumber((row as any).precio_override);
+          ice_type:
+            product?.ice_type,
+
+          kg_por_unidad:
+            product
+              ?.kg_por_unidad,
+
+          kind:
+            product?.kind,
+        });
+
+      if (
+        !productKey ||
+        existingKeys.has(productKey)
+      ) {
+        continue;
+      }
+
+      const override =
+        parseNullableNumber(
+          (row as any).precio_override,
+        );
 
       sourceRows.push({
-        source: 'customer_products',
-        customer_product_id: String((row as any).id),
-        customer_id: String((row as any).customer_id),
-        product_id: String((row as any).product_id),
-        inventory_product_setting_id: null,
-        precio_override: override,
-        precio_base_setting: toDouble(product?.precio_base),
-        activo: (row as any).activo === true,
+        source:
+          'customer_products',
+
+        customer_product_id: String(
+          (row as any).id,
+        ),
+
+        customer_id: String(
+          (row as any).customer_id,
+        ),
+
+        product_id: String(
+          (row as any).product_id,
+        ),
+
+        inventory_product_setting_id:
+          null,
+
+        precio_override:
+          override,
+
+        precio_base_setting:
+          toDouble(
+            product?.precio_base,
+          ),
+
+        activo:
+          (row as any).activo === true,
+
         product,
+
         setting: null,
       });
 
       existingKeys.add(productKey);
     }
 
+    /*
+     * =========================================================
+     * CONSTRUCCIÓN FINAL DEL STOCK
+     *
+     * REGLA:
+     *
+     * CARGADO:
+     *   salidas reales del inventario
+     *
+     * USADO:
+     *   driver_stock.used_qty
+     *
+     * DISPONIBLE:
+     *   cargado - usado
+     *
+     * Si global-outputs todavía no encuentra ninguna salida para
+     * ese producto, se permite driver_stock como fallback para no
+     * romper datos antiguos.
+     * =========================================================
+     */
+
     const rows = sourceRows
       .map((row) => {
         const p = row.product;
         const setting = row.setting;
 
-        const productKey = buildProductKey({
-          nombre: p?.nombre,
-          ice_type: setting?.firebase_tipo_hielo ?? p?.ice_type,
-          kg_por_unidad: setting?.peso_kg ?? p?.kg_por_unidad,
-          kind: p?.kind,
-        });
+        const productKey =
+          buildProductKey({
+            nombre:
+              p?.nombre,
 
-        const fallbackAssignedQty = outputsByKey.get(productKey) ?? 0;
-        const fallbackUsedQty = deliveredByKey.get(productKey) ?? 0;
+            ice_type:
+              setting
+                ?.firebase_tipo_hielo ??
+              p?.ice_type,
 
-        const driverStock = driverStockByProductId.get(row.product_id);
+            kg_por_unidad:
+              setting?.peso_kg ??
+              p?.kg_por_unidad,
 
-        // driver_stock es la fuente principal. Si todavía no existe una fila
-        // para ese producto, se conserva el cálculo anterior como respaldo.
-        const assignedQty = driverStock
-          ? Math.max(0, toInt(driverStock.assigned_qty))
-          : Math.max(0, fallbackAssignedQty);
+            kind:
+              p?.kind,
+          });
 
+        /*
+         * Total real acumulado de salidas:
+         *
+         * salida 1 + salida 2 + salida 3 + salida 4...
+         */
+        const inventoryOutputQty =
+          Math.max(
+            0,
+            outputsByKey.get(
+              productKey,
+            ) ?? 0,
+          );
+
+        /*
+         * Consumo calculado por entregas, utilizado como respaldo.
+         */
+        const deliveredFallbackQty =
+          Math.max(
+            0,
+            deliveredByKey.get(
+              productKey,
+            ) ?? 0,
+          );
+
+        const driverStock =
+          driverStockByProductId.get(
+            row.product_id,
+          );
+
+        /*
+         * =====================================================
+         * FIX MULTIPLES SALIDAS
+         * =====================================================
+         *
+         * ANTES:
+         *
+         * Si existía driver_stock:
+         *
+         * assigned = driver_stock.assigned_qty
+         *
+         * Eso provocaba que una segunda salida en Firebase
+         * no aumentara el stock del chofer.
+         *
+         * AHORA:
+         *
+         * Si global-outputs encontró salidas reales del día,
+         * siempre usamos el total acumulado de esas salidas.
+         *
+         * driver_stock.assigned_qty queda únicamente como
+         * respaldo para datos antiguos.
+         */
+
+        const assignedQty =
+          inventoryOutputQty > 0
+            ? inventoryOutputQty
+            : Math.max(
+                0,
+                toInt(
+                  driverStock
+                    ?.assigned_qty,
+                ),
+              );
+
+        /*
+         * Para lo consumido sí mantenemos driver_stock porque
+         * las ventas del chofer actualizan used_qty.
+         *
+         * Si todavía no existe la fila, utilizamos las entregas
+         * confirmadas como fallback.
+         */
         const usedQty = driverStock
-          ? Math.max(0, toInt(driverStock.used_qty))
-          : Math.max(0, fallbackUsedQty);
-
-        const availableQty = driverStock
           ? Math.max(
               0,
-              driverStock.available_qty === null
-                ? assignedQty - usedQty
-                : toInt(driverStock.available_qty),
+              toInt(
+                driverStock.used_qty,
+              ),
             )
-          : Math.max(0, fallbackAssignedQty - fallbackUsedQty);
+          : deliveredFallbackQty;
 
-        const stockSource = driverStock ? 'driver_stock' : 'inventory_outputs_fallback';
+        /*
+         * Nunca usamos directamente:
+         *
+         * driver_stock.available_qty
+         *
+         * porque puede ser exactamente el dato obsoleto que quedó
+         * después de la primera salida.
+         *
+         * El disponible se recalcula siempre.
+         */
+        const availableQty =
+          Math.max(
+            0,
+            assignedQty - usedQty,
+          );
 
-        // ✅ PRECIO FINAL:
-        // 1. customer_inventory_products.precio_override
-        // 2. customer_products.precio_override
-        // 3. inventory_product_settings.precio_base
-        // 4. products.precio_base
+        const stockSource =
+          inventoryOutputQty > 0
+            ? driverStock
+              ? 'inventory_outputs+driver_stock_usage'
+              : 'inventory_outputs'
+            : driverStock
+              ? 'driver_stock_fallback'
+              : 'delivery_fallback';
+
+        /*
+         * =====================================================
+         * PRECIO
+         *
+         * 1. customer_inventory_products.precio_override
+         * 2. customer_products.precio_override
+         * 3. inventory_product_settings.precio_base
+         * 4. products.precio_base
+         * =====================================================
+         */
+
         const precio =
-          row.precio_override !== null && Number.isFinite(Number(row.precio_override))
-            ? Number(row.precio_override)
-            : row.precio_base_setting > 0
+          row.precio_override !==
+            null &&
+          Number.isFinite(
+            Number(
+              row.precio_override,
+            ),
+          )
+            ? Number(
+                row.precio_override,
+              )
+            : row.precio_base_setting >
+                0
               ? row.precio_base_setting
-              : toDouble(p?.precio_base);
+              : toDouble(
+                  p?.precio_base,
+                );
 
         return {
           source: row.source,
-          customer_product_id: row.customer_product_id,
-          customer_id: row.customer_id,
 
-          product_id: row.product_id,
-          inventory_product_setting_id: row.inventory_product_setting_id,
-          product_key: productKey,
+          customer_product_id:
+            row.customer_product_id,
 
-          nombre: setting?.nombre_comercial || p?.nombre || 'Producto',
+          customer_id:
+            row.customer_id,
 
-          precio: Number(precio),
-          precio_override: row.precio_override,
-          precio_base_setting: row.precio_base_setting,
-          precio_base_product: Number(p?.precio_base ?? 0),
+          product_id:
+            row.product_id,
 
-          activo: row.activo === true,
-          product_activo: p?.activo === true,
+          inventory_product_setting_id:
+            row.inventory_product_setting_id,
 
-          kind: p?.kind ?? null,
-          ice_type: setting?.firebase_tipo_hielo ?? p?.ice_type ?? null,
-          kg_por_unidad: Number(setting?.peso_kg || kgFromProduct(p) || p?.kg_por_unidad || 0),
+          product_key:
+            productKey,
 
-          assigned_qty: assignedQty,
-          used_qty: usedQty,
-          available_qty: availableQty,
-          stock_source: stockSource,
+          nombre:
+            setting
+              ?.nombre_comercial ||
+            p?.nombre ||
+            'Producto',
+
+          precio:
+            Number(precio),
+
+          precio_override:
+            row.precio_override,
+
+          precio_base_setting:
+            row.precio_base_setting,
+
+          precio_base_product:
+            Number(
+              p?.precio_base ?? 0,
+            ),
+
+          activo:
+            row.activo === true,
+
+          product_activo:
+            p?.activo === true,
+
+          kind:
+            p?.kind ?? null,
+
+          ice_type:
+            setting
+              ?.firebase_tipo_hielo ??
+            p?.ice_type ??
+            null,
+
+          kg_por_unidad:
+            Number(
+              setting?.peso_kg ||
+                kgFromProduct(p) ||
+                p?.kg_por_unidad ||
+                0,
+            ),
+
+          assigned_qty:
+            assignedQty,
+
+          used_qty:
+            usedQty,
+
+          available_qty:
+            availableQty,
+
+          stock_source:
+            stockSource,
         };
       })
-      .filter((row: any) => row.product_activo === true)
-      .sort((a: any, b: any) => {
-        if (b.available_qty !== a.available_qty) return b.available_qty - a.available_qty;
-        return String(a.nombre || '').localeCompare(String(b.nombre || ''), 'es');
-      });
+      .filter(
+        (row: any) =>
+          row.product_activo === true,
+      )
+      .sort(
+        (a: any, b: any) => {
+          if (
+            b.available_qty !==
+            a.available_qty
+          ) {
+            return (
+              b.available_qty -
+              a.available_qty
+            );
+          }
+
+          return String(
+            a.nombre || '',
+          ).localeCompare(
+            String(
+              b.nombre || '',
+            ),
+            'es',
+          );
+        },
+      );
+
+    /*
+     * =========================================================
+     * RESPUESTA
+     * =========================================================
+     */
 
     return NextResponse.json({
       ok: true,
+
       data: rows,
+
       debug: {
         workDate,
-        assignment_id: assignment?.id ?? null,
-        driver_id: driverId,
-        driver_name: driverName,
-        driver_code: driverCode,
-        outputsByKey: Object.fromEntries(outputsByKey.entries()),
-        deliveredByKey: Object.fromEntries(deliveredByKey.entries()),
-        driverStockByProductId: Object.fromEntries(
-          Array.from(driverStockByProductId.entries()).map(([productId, stock]) => [
-            productId,
-            {
-              assigned_qty: toInt(stock.assigned_qty),
-              used_qty: toInt(stock.used_qty),
-              available_qty:
-                stock.available_qty === null ? null : toInt(stock.available_qty),
-            },
-          ]),
+
+        assignment_id:
+          assignment?.id ?? null,
+
+        driver_id:
+          driverId,
+
+        driver_name:
+          driverName,
+
+        driver_code:
+          driverCode,
+
+        /*
+         * Aquí podrás comprobar directamente si Firebase está
+         * acumulando salida 1 + salida 2 + salida 3...
+         */
+        outputsByKey:
+          Object.fromEntries(
+            outputsByKey.entries(),
+          ),
+
+        deliveredByKey:
+          Object.fromEntries(
+            deliveredByKey.entries(),
+          ),
+
+        driverStockByProductId:
+          Object.fromEntries(
+            Array.from(
+              driverStockByProductId.entries(),
+            ).map(
+              ([
+                productId,
+                stock,
+              ]) => [
+                productId,
+                {
+                  assigned_qty:
+                    toInt(
+                      stock.assigned_qty,
+                    ),
+
+                  used_qty:
+                    toInt(
+                      stock.used_qty,
+                    ),
+
+                  available_qty:
+                    stock.available_qty ===
+                      null
+                      ? null
+                      : toInt(
+                          stock.available_qty,
+                        ),
+                },
+              ],
+            ),
+          ),
+
+        total_driver_stock_rows:
+          driverStockByProductId.size,
+
+        total_customer_inventory_products:
+          inventoryCustomerProducts
+            ?.length ?? 0,
+
+        total_customer_products:
+          legacyCustomerProducts
+            ?.length ?? 0,
+
+        total_source_rows:
+          sourceRows.length,
+
+        total_rows:
+          rows.length,
+
+        rows_debug: rows.map(
+          (r: any) => ({
+            source:
+              r.source,
+
+            nombre:
+              r.nombre,
+
+            product_id:
+              r.product_id,
+
+            inventory_product_setting_id:
+              r.inventory_product_setting_id,
+
+            precio:
+              r.precio,
+
+            precio_override:
+              r.precio_override,
+
+            precio_base_setting:
+              r.precio_base_setting,
+
+            precio_base_product:
+              r.precio_base_product,
+
+            product_key:
+              r.product_key,
+
+            assigned_qty:
+              r.assigned_qty,
+
+            used_qty:
+              r.used_qty,
+
+            available_qty:
+              r.available_qty,
+
+            stock_source:
+              r.stock_source,
+          }),
         ),
-        total_driver_stock_rows: driverStockByProductId.size,
-        total_customer_inventory_products: inventoryCustomerProducts?.length ?? 0,
-        total_customer_products: legacyCustomerProducts?.length ?? 0,
-        total_source_rows: sourceRows.length,
-        total_rows: rows.length,
-        rows_debug: rows.map((r: any) => ({
-          source: r.source,
-          nombre: r.nombre,
-          product_id: r.product_id,
-          inventory_product_setting_id: r.inventory_product_setting_id,
-          precio: r.precio,
-          precio_override: r.precio_override,
-          precio_base_setting: r.precio_base_setting,
-          precio_base_product: r.precio_base_product,
-          product_key: r.product_key,
-          assigned_qty: r.assigned_qty,
-          used_qty: r.used_qty,
-          available_qty: r.available_qty,
-          stock_source: r.stock_source,
-        })),
       },
     });
   } catch (e: any) {
+    console.error(
+      '[costumer-products] error:',
+      e,
+    );
+
     return NextResponse.json(
-      { ok: false, error: e?.message ?? 'Error cargando productos del cliente' },
-      { status: 400 },
+      {
+        ok: false,
+        error:
+          e?.message ??
+          'Error cargando productos del cliente',
+      },
+      {
+        status: 400,
+      },
     );
   }
 }

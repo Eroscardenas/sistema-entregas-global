@@ -1864,11 +1864,6 @@ void _validateBeforeConfirm() {
 
                               final canEdit = !isDelivered && !_busy;
                               final hasStock = it.maxAllowedQty > 0;
-                              final canRemove = canEdit && it.qtyReal > 0;
-                              final canAdd = canEdit &&
-                                  hasStock &&
-                                  it.qtyReal < it.maxAllowedQty;
-
                               final availableColor =
                                   hasStock ? _success : _danger;
 
@@ -1947,100 +1942,79 @@ void _validateBeforeConfirm() {
                                       ],
                                     ),
                                     const SizedBox(height: 12),
-                                    Row(
-                                      children: [
-                                        IconButton(
-                                          onPressed: canRemove
-                                              ? () =>
-                                                  _setQty(i, it.qtyReal - 1)
-                                              : null,
-                                          icon: Icon(
-                                            Icons.remove_circle_outline,
-                                            color: canRemove
-                                                ? Colors.white
-                                                : Colors.white24,
-                                          ),
-                                        ),
-                                        SizedBox(
-                                          width: 84,
-                                          child: TextField(
-                                            controller: controller,
-                                            enabled: canEdit,
-                                            keyboardType: TextInputType.number,
-                                            inputFormatters: [
-                                              FilteringTextInputFormatter
-                                                  .digitsOnly,
-                                            ],
-                                            textAlign: TextAlign.center,
-                                            style: const TextStyle(
-                                              color: Colors.white,
-                                            ),
-                                            decoration: InputDecoration(
-                                              isDense: true,
-                                              filled: true,
-                                              fillColor: Colors.white
-                                                  .withOpacity(0.08),
-                                              border: OutlineInputBorder(
-                                                borderRadius:
-                                                    BorderRadius.circular(12),
-                                                borderSide: BorderSide(
-                                                  color: Colors.white
-                                                      .withOpacity(0.10),
-                                                ),
-                                              ),
-                                              enabledBorder: OutlineInputBorder(
-                                                borderRadius:
-                                                    BorderRadius.circular(12),
-                                                borderSide: BorderSide(
-                                                  color: Colors.white
-                                                      .withOpacity(0.10),
-                                                ),
-                                              ),
-                                              focusedBorder:
-                                                  const OutlineInputBorder(
-                                                borderRadius: BorderRadius.all(
-                                                  Radius.circular(12),
-                                                ),
-                                                borderSide:
-                                                    BorderSide(color: _accent),
-                                              ),
-                                            ),
-                                            onChanged: (v) =>
-                                                _setQtyFromText(i, v),
-                                          ),
-                                        ),
-                                        IconButton(
-                                          onPressed: canAdd
-                                              ? () =>
-                                                  _setQty(i, it.qtyReal + 1)
-                                              : null,
-                                          icon: Icon(
-                                            Icons.add_circle_outline,
-                                            color: canAdd
-                                                ? Colors.white
-                                                : Colors.white24,
-                                          ),
-                                        ),
-                                        const Spacer(),
-                                        TextButton(
-                                          onPressed:
-                                              canEdit ? () => _setQty(i, 0) : null,
-                                          child: const Text('No dejó'),
-                                        ),
-                                        const SizedBox(width: 6),
-                                        TextButton(
-                                          onPressed: canEdit && hasStock
-                                              ? () => _setQty(
-                                                    i,
-                                                    it.qtyAssigned >
-                                                            it.maxAllowedQty
-                                                        ? it.maxAllowedQty
-                                                        : it.qtyAssigned,
-                                                  )
-                                              : null,
-                                          child: const Text('Completo'),
-                                        ),
+                                    TextField(
+                                      controller: controller,
+                                      enabled: canEdit,
+                                      keyboardType: TextInputType.number,
+                                      inputFormatters: [
+                                        FilteringTextInputFormatter.digitsOnly,
                                       ],
+                                      textAlign: TextAlign.center,
+                                      style: const TextStyle(
+                                        color: Colors.white,
+                                        fontSize: 20,
+                                        fontWeight: FontWeight.w900,
+                                      ),
+                                      decoration: InputDecoration(
+                                        labelText: 'Cantidad a entregar',
+                                        labelStyle: TextStyle(
+                                          color: Colors.white.withOpacity(0.70),
+                                          fontWeight: FontWeight.w700,
+                                        ),
+                                        hintText: 'Ej. 25',
+                                        hintStyle: TextStyle(
+                                          color: Colors.white.withOpacity(0.35),
+                                        ),
+                                        filled: true,
+                                        fillColor: Colors.white.withOpacity(0.08),
+                                        contentPadding:
+                                            const EdgeInsets.symmetric(
+                                          horizontal: 14,
+                                          vertical: 16,
+                                        ),
+                                        border: OutlineInputBorder(
+                                          borderRadius:
+                                              BorderRadius.circular(14),
+                                          borderSide: BorderSide(
+                                            color:
+                                                Colors.white.withOpacity(0.10),
+                                          ),
+                                        ),
+                                        enabledBorder: OutlineInputBorder(
+                                          borderRadius:
+                                              BorderRadius.circular(14),
+                                          borderSide: BorderSide(
+                                            color:
+                                                Colors.white.withOpacity(0.10),
+                                          ),
+                                        ),
+                                        focusedBorder: const OutlineInputBorder(
+                                          borderRadius: BorderRadius.all(
+                                            Radius.circular(14),
+                                          ),
+                                          borderSide: BorderSide(
+                                            color: _accent,
+                                            width: 1.5,
+                                          ),
+                                        ),
+                                      ),
+                                      onTap: () {
+                                        controller.selection = TextSelection(
+                                          baseOffset: 0,
+                                          extentOffset: controller.text.length,
+                                        );
+                                      },
+                                      onChanged: (v) =>
+                                          _setQtyFromText(i, v),
+                                    ),
+                                    const SizedBox(height: 8),
+                                    Text(
+                                      'Máximo disponible: ${it.maxAllowedQty}',
+                                      style: TextStyle(
+                                        color: Colors.white.withOpacity(0.60),
+                                        fontWeight: FontWeight.w700,
+                                        fontSize: 12,
+                                      ),
                                     ),
                                     if (!isDelivered &&
                                         it.qtyAssigned != it.qtyReal) ...[
