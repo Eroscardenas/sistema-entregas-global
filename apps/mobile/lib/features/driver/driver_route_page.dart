@@ -377,15 +377,15 @@ class _DriverRoutePageState extends State<DriverRoutePage> {
   }
 
   Future<void> _openDriverSale() async {
-    if (_assignment == null || _busy) return;
+    if (_busy) return;
 
     final result = await Navigator.of(context).push<bool>(
       MaterialPageRoute(
         builder: (_) => DriverSalePage(
           driverId: widget.driverId,
           driverName: widget.driverName,
-          assignmentId: _assignment!.id,
-          routeId: _assignment!.routeId,
+          assignmentId: _assignment?.id,
+          routeId: _assignment?.routeId,
         ),
       ),
     );
@@ -1004,9 +1004,11 @@ class _DriverRoutePageState extends State<DriverRoutePage> {
                         ],
                       )
                     : _assignment == null
-                        ? const _EmptyBoxScrollable(
-                            title: 'Sin asignación hoy',
-                            subtitle: 'Todavía no tienes asignación para hoy.',
+                        ? _NoAssignmentSaleView(
+                            driverName: widget.driverName,
+                            busy: _busy,
+                            onSale: _openDriverSale,
+                            onRefresh: _reloadHard,
                           )
                         : CustomScrollView(
                             physics: const AlwaysScrollableScrollPhysics(),
@@ -1242,9 +1244,7 @@ class _DriverRoutePageState extends State<DriverRoutePage> {
                                           width: double.infinity,
                                           child: ElevatedButton.icon(
                                             onPressed:
-                                                (_busy || _assignment == null)
-                                                    ? null
-                                                    : _openDriverSale,
+                                                _busy ? null : _openDriverSale,
                                             icon:
                                                 const Icon(Icons.point_of_sale),
                                             label: const Text('Hacer venta'),
@@ -2039,6 +2039,104 @@ class _EmptyBox extends StatelessWidget {
   }
 }
 
+class _NoAssignmentSaleView extends StatelessWidget {
+  final String driverName;
+  final bool busy;
+  final Future<void> Function() onSale;
+  final Future<void> Function() onRefresh;
+
+  const _NoAssignmentSaleView({
+    required this.driverName,
+    required this.busy,
+    required this.onSale,
+    required this.onRefresh,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return RefreshIndicator(
+      onRefresh: onRefresh,
+      child: ListView(
+        physics: const AlwaysScrollableScrollPhysics(),
+        padding: const EdgeInsets.all(16),
+        children: [
+          const SizedBox(height: 70),
+          _GlassCard(
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                const Icon(
+                  Icons.point_of_sale,
+                  color: Color(0xFF4DADFF),
+                  size: 44,
+                ),
+                const SizedBox(height: 12),
+                Text(
+                  driverName,
+                  textAlign: TextAlign.center,
+                  style: const TextStyle(
+                    color: Colors.white,
+                    fontWeight: FontWeight.w900,
+                    fontSize: 17,
+                  ),
+                ),
+                const SizedBox(height: 8),
+                const Text(
+                  'Sin asignación para hoy',
+                  textAlign: TextAlign.center,
+                  style: TextStyle(
+                    color: Colors.white,
+                    fontWeight: FontWeight.w900,
+                    fontSize: 16,
+                  ),
+                ),
+                const SizedBox(height: 8),
+                Text(
+                  'Todavía no tienes entregas asignadas, pero puedes registrar una venta. El sistema creará automáticamente la asignación y la ruta necesarias.',
+                  textAlign: TextAlign.center,
+                  style: TextStyle(
+                    color: Colors.white.withOpacity(0.72),
+                    fontWeight: FontWeight.w600,
+                    height: 1.4,
+                  ),
+                ),
+                const SizedBox(height: 18),
+                SizedBox(
+                  width: double.infinity,
+                  child: ElevatedButton.icon(
+                    onPressed: busy ? null : () => onSale(),
+                    icon: const Icon(Icons.point_of_sale),
+                    label: const Text('Hacer venta'),
+                    style: ElevatedButton.styleFrom(
+                      backgroundColor: const Color(0xFF10B981),
+                      foregroundColor: Colors.white,
+                      disabledBackgroundColor: Colors.white.withOpacity(0.10),
+                      disabledForegroundColor: Colors.white.withOpacity(0.40),
+                      padding: const EdgeInsets.symmetric(vertical: 14),
+                      shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(16),
+                      ),
+                    ),
+                  ),
+                ),
+                const SizedBox(height: 10),
+                TextButton.icon(
+                  onPressed: busy ? null : () => onRefresh(),
+                  icon: const Icon(Icons.refresh),
+                  label: const Text('Actualizar asignación'),
+                  style: TextButton.styleFrom(
+                    foregroundColor: Colors.white70,
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
 class _EmptyBoxScrollable extends StatelessWidget {
   final String title;
   final String subtitle;
@@ -2063,7 +2161,7 @@ class _EmptyBoxScrollable extends StatelessWidget {
 
 class _ErrorBox extends StatelessWidget {
   final String message;
-  final VoidCallback onRetry;
+  final VoidCallback onRetry; 
 
   const _ErrorBox({required this.message, required this.onRetry});
 

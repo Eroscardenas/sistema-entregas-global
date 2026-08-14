@@ -352,7 +352,6 @@ async function loadDashboard(): Promise<DashboardData> {
         synced_from_inventory: true,
       };
     }
-
     return {
       id: '',
       nombre: t.firebase_nombre || 'Chofer',
@@ -373,6 +372,7 @@ async function loadDashboard(): Promise<DashboardData> {
     mappings.map((m) => String(m.driver_id ?? '').trim()).filter(Boolean)
   );
 
+  
   drivers.forEach((d) => {
     if (!d.activo) return;
     if (alreadyIncluded.has(d.id)) return;

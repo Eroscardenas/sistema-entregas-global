@@ -29,6 +29,7 @@ class DriverAuthService {
     return '$digits@drivers.local';
   }
 
+
   Future<DriverSession> loginWithPhoneAndPassword({
     required String phone,
     required String password,
@@ -97,6 +98,8 @@ class DriverAuthService {
       throw Exception('Tu acceso está desactivado');
     }
 
+      profileId: profileId,
+      driverId: (driver['id'] ?? '')
     return DriverSession(
       profileId: profileId,
       driverId: (driver['id'] ?? '').toString(),
@@ -105,6 +108,15 @@ class DriverAuthService {
       activo: true,
       currentStatus: (driver['current_status'] ?? 'available').toString(),
     );
+    
+
+    return DriverSession{
+      profileId: profileId,
+      driverId: (driver['id'] ?? '').toString(),
+      nombre: (driver['nombre'] ?? profNombre).toString(),
+      telefono: (driver['telefono'])
+
+    }
   }
 
   Future<void> logout() async {

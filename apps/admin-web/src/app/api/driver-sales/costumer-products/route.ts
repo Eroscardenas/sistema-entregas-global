@@ -14,6 +14,13 @@ type ProductSourceRow = {
   setting: any | null;
 };
 
+type DriverStockRow = {
+  product_id: string;
+  assigned_qty: number | null;
+  used_qty: number | null;
+  available_qty: number | null;
+};
+
 export async function OPTIONS() {
   return new Response(null, { status: 204 });
 }
@@ -257,6 +264,34 @@ export async function GET(req: Request) {
       driverCode,
     });
 
+    // Fuente principal de stock para venta libre del chofer.
+    // No depende de que exista una asignación del día.
+    const { data: driverStockRows, error: driverStockErr } = await sb
+      .from('driver_stock')
+      .select('product_id,assigned_qty,used_qty,available_qty')
+      .eq('driver_id', driverId);
+
+    if (driverStockErr) throw driverStockErr;
+
+    const driverStockByProductId = new Map<string, DriverStockRow>();
+
+    for (const raw of driverStockRows ?? []) {
+      const stock = raw as DriverStockRow;
+      const productId = String(stock.product_id || '').trim();
+
+      if (!productId) continue;
+
+      driverStockByProductId.set(productId, {
+        product_id: productId,
+        assigned_qty: toInt(stock.assigned_qty),
+        used_qty: toInt(stock.used_qty),
+        available_qty:
+          stock.available_qty === null || stock.available_qty === undefined
+            ? null
+            : toInt(stock.available_qty),
+      });
+    }
+
     const deliveredByKey = new Map<string, number>();
 
     if (assignment?.id) {
@@ -473,9 +508,31 @@ export async function GET(req: Request) {
           kind: p?.kind,
         });
 
-        const outputQty = outputsByKey.get(productKey) ?? 0;
-        const deliveredQty = deliveredByKey.get(productKey) ?? 0;
-        const availableQty = Math.max(0, outputQty - deliveredQty);
+        const fallbackAssignedQty = outputsByKey.get(productKey) ?? 0;
+        const fallbackUsedQty = deliveredByKey.get(productKey) ?? 0;
+
+        const driverStock = driverStockByProductId.get(row.product_id);
+
+        // driver_stock es la fuente principal. Si todavía no existe una fila
+        // para ese producto, se conserva el cálculo anterior como respaldo.
+        const assignedQty = driverStock
+          ? Math.max(0, toInt(driverStock.assigned_qty))
+          : Math.max(0, fallbackAssignedQty);
+
+        const usedQty = driverStock
+          ? Math.max(0, toInt(driverStock.used_qty))
+          : Math.max(0, fallbackUsedQty);
+
+        const availableQty = driverStock
+          ? Math.max(
+              0,
+              driverStock.available_qty === null
+                ? assignedQty - usedQty
+                : toInt(driverStock.available_qty),
+            )
+          : Math.max(0, fallbackAssignedQty - fallbackUsedQty);
+
+        const stockSource = driverStock ? 'driver_stock' : 'inventory_outputs_fallback';
 
         // ✅ PRECIO FINAL:
         // 1. customer_inventory_products.precio_override
@@ -512,9 +569,10 @@ export async function GET(req: Request) {
           ice_type: setting?.firebase_tipo_hielo ?? p?.ice_type ?? null,
           kg_por_unidad: Number(setting?.peso_kg || kgFromProduct(p) || p?.kg_por_unidad || 0),
 
-          assigned_qty: outputQty,
-          used_qty: deliveredQty,
+          assigned_qty: assignedQty,
+          used_qty: usedQty,
           available_qty: availableQty,
+          stock_source: stockSource,
         };
       })
       .filter((row: any) => row.product_activo === true)
@@ -534,6 +592,18 @@ export async function GET(req: Request) {
         driver_code: driverCode,
         outputsByKey: Object.fromEntries(outputsByKey.entries()),
         deliveredByKey: Object.fromEntries(deliveredByKey.entries()),
+        driverStockByProductId: Object.fromEntries(
+          Array.from(driverStockByProductId.entries()).map(([productId, stock]) => [
+            productId,
+            {
+              assigned_qty: toInt(stock.assigned_qty),
+              used_qty: toInt(stock.used_qty),
+              available_qty:
+                stock.available_qty === null ? null : toInt(stock.available_qty),
+            },
+          ]),
+        ),
+        total_driver_stock_rows: driverStockByProductId.size,
         total_customer_inventory_products: inventoryCustomerProducts?.length ?? 0,
         total_customer_products: legacyCustomerProducts?.length ?? 0,
         total_source_rows: sourceRows.length,
@@ -551,6 +621,7 @@ export async function GET(req: Request) {
           assigned_qty: r.assigned_qty,
           used_qty: r.used_qty,
           available_qty: r.available_qty,
+          stock_source: r.stock_source,
         })),
       },
     });

@@ -275,11 +275,6 @@ class _DriverSalePageState extends State<DriverSalePage> {
       return;
     }
 
-    if (cleanAssignmentId.isEmpty) {
-      _showMsg('No hay asignación activa para registrar la venta en ruta.');
-      return;
-    }
-
     final items = <Map<String, dynamic>>[];
 
     for (final entry in _qtyByProduct.entries) {
@@ -313,15 +308,22 @@ class _DriverSalePageState extends State<DriverSalePage> {
     final payload = <String, dynamic>{
       'driver_id': cleanDriverId,
       'customer_id': _selectedCustomer!['id'],
-      'assignment_id': cleanAssignmentId,
+      'assignment_id':
+          cleanAssignmentId.isEmpty ? null : cleanAssignmentId,
       'route_id': cleanRouteId.isEmpty ? null : cleanRouteId,
       'payment_method': _paymentMethod,
       'items': items,
     };
 
     debugPrint('VENTA DRIVER: $cleanDriverId');
-    debugPrint('VENTA ASSIGNMENT: $cleanAssignmentId');
-    debugPrint('VENTA ROUTE: ${cleanRouteId.isEmpty ? 'null' : cleanRouteId}');
+    debugPrint(
+      'VENTA ASSIGNMENT: '
+      '${cleanAssignmentId.isEmpty ? 'null (automática)' : cleanAssignmentId}',
+    );
+    debugPrint(
+      'VENTA ROUTE: '
+      '${cleanRouteId.isEmpty ? 'null (automática)' : cleanRouteId}',
+    );
     debugPrint('VENTA PAYLOAD: ${jsonEncode(payload)}');
 
     setState(() {
@@ -446,7 +448,7 @@ class _DriverSalePageState extends State<DriverSalePage> {
                     ),
                     const SizedBox(height: 6),
                     Text(
-                      'Registra una venta extra durante tu ruta.',
+                      'Registra una venta aunque no tengas una asignación creada.',
                       style: TextStyle(
                         color: Colors.white.withOpacity(0.72),
                         fontWeight: FontWeight.w600,
@@ -481,7 +483,7 @@ class _DriverSalePageState extends State<DriverSalePage> {
                       '3. Indica la cantidad según tu stock disponible.\n'
                       '4. Selecciona el método de pago.\n'
                       '5. Presiona "Registrar venta".\n\n'
-                      'La venta se agregará automáticamente a tu ruta, quedará visible para administración y podrás imprimir ticket.',
+                      'La venta quedará visible para administración y podrás imprimir ticket. Si no existe una asignación o ruta, el sistema las creará automáticamente.',
                       style: TextStyle(
                         color: Colors.white.withOpacity(0.72),
                         height: 1.4,

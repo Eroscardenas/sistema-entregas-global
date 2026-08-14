@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 
+import 'package:mobile/features/production/production_login_page.dart';
 import 'package:mobile/features/production/production_sale_page.dart';
 import 'package:mobile/features/production/production_sales_history_page.dart';
 import 'package:mobile/features/production/production_printer_page.dart';
@@ -9,7 +10,7 @@ class ProductionDashboardPage extends StatelessWidget {
   final String profileId;
 
   const ProductionDashboardPage({
-    super.key,
+super.key,
     required this.nombre,
     required this.profileId,
   });
@@ -19,12 +20,12 @@ class ProductionDashboardPage extends StatelessWidget {
   static const Color _wine = Color(0xFF852838);
   static const Color _background = Color(0xFFF4F7FB);
 
-  Future<void> _openProductionSale(
-    BuildContext context, {
+Future<void> _openProductionSale(
+BuildContext context, {
     required ProductionSaleMode mode,
   }) async {
     final result = await Navigator.of(context).push<bool>(
-      MaterialPageRoute(
+MaterialPageRoute(
         builder: (_) => ProductionSalePage(
           employeeId: profileId,
           employeeName: nombre,
@@ -34,7 +35,7 @@ class ProductionDashboardPage extends StatelessWidget {
     );
 
     if (result == true && context.mounted) {
-      ScaffoldMessenger.of(context).showSnackBar(
+ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(
           content: Text(
             'Venta registrada correctamente.',
@@ -45,11 +46,11 @@ class ProductionDashboardPage extends StatelessWidget {
   }
 
   void _showComingSoon(
-    BuildContext context,
-    String module,
+BuildContext context,
+String module,
   ) {
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(
+ScaffoldMessenger.of(context).showSnackBar(
+SnackBar(
         content: Text(
           '$module estará disponible en el siguiente paso.',
         ),
@@ -57,25 +58,25 @@ class ProductionDashboardPage extends StatelessWidget {
     );
   }
 
-  Future<void> _logout(BuildContext context) async {
+Future<void> _logout(BuildContext context) async {
     final shouldLogout = await showDialog<bool>(
       context: context,
       builder: (dialogContext) {
         return AlertDialog(
           title: const Text('Cerrar sesión'),
           content: const Text(
-            '¿Deseas salir del módulo de Producción?',
+            '¿Deseas cerrar tu sesión de Producción?',
           ),
           actions: [
             TextButton(
               onPressed: () {
-                Navigator.pop(dialogContext, false);
+                Navigator.of(dialogContext).pop(false);
               },
               child: const Text('Cancelar'),
             ),
             FilledButton(
               onPressed: () {
-                Navigator.pop(dialogContext, true);
+                Navigator.of(dialogContext).pop(true);
               },
               child: const Text('Cerrar sesión'),
             ),
@@ -88,13 +89,16 @@ class ProductionDashboardPage extends StatelessWidget {
       return;
     }
 
-    Navigator.of(context).popUntil(
-      (route) => route.isFirst,
+    Navigator.of(context).pushAndRemoveUntil(
+      MaterialPageRoute(
+        builder: (_) => const ProductionLoginPage(),
+      ),
+      (route) => false,
     );
   }
 
   @override
-  Widget build(BuildContext context) {
+Widget build(BuildContext context) {
     final firstName = nombre.trim().isEmpty
         ? 'Producción'
         : nombre.trim().split(' ').first;
@@ -104,11 +108,11 @@ class ProductionDashboardPage extends StatelessWidget {
       body: SafeArea(
         child: Column(
           children: [
-            _DashboardHeader(
+_DashboardHeader(
               nombre: firstName,
               onLogout: () => _logout(context),
             ),
-            Expanded(
+Expanded(
               child: RefreshIndicator(
                 onRefresh: () async {
                   await Future<void>.delayed(
@@ -117,7 +121,7 @@ class ProductionDashboardPage extends StatelessWidget {
 
                   if (!context.mounted) return;
 
-                  ScaffoldMessenger.of(context).showSnackBar(
+ScaffoldMessenger.of(context).showSnackBar(
                     const SnackBar(
                       content: Text(
                         'Información actualizada.',
@@ -140,9 +144,9 @@ class ProductionDashboardPage extends StatelessWidget {
                       ),
                       child: Column(
                         crossAxisAlignment:
-                            CrossAxisAlignment.start,
+CrossAxisAlignment.start,
                         children: [
-                          _WelcomeBanner(
+_WelcomeBanner(
                             nombre: firstName,
                           ),
                           const SizedBox(height: 18),
@@ -152,7 +156,7 @@ class ProductionDashboardPage extends StatelessWidget {
                                 'Información general de ventas y operación',
                           ),
                           const SizedBox(height: 12),
-                          LayoutBuilder(
+LayoutBuilder(
                             builder: (
                               context,
                               constraints,
@@ -168,7 +172,7 @@ class ProductionDashboardPage extends StatelessWidget {
                                 spacing: 12,
                                 runSpacing: 12,
                                 children: [
-                                  SizedBox(
+SizedBox(
                                     width: cardWidth,
                                     child: const _SummaryCard(
                                       title: 'Ventas del turno',
@@ -177,25 +181,25 @@ class ProductionDashboardPage extends StatelessWidget {
                                       accent: _blue,
                                     ),
                                   ),
-                                  SizedBox(
+SizedBox(
                                     width: cardWidth,
                                     child: const _SummaryCard(
                                       title: 'Total vendido',
                                       value: '\$0.00',
                                       icon:
-                                          Icons.payments_outlined,
+Icons.payments_outlined,
                                       accent:
-                                          Color(0xFF24A36A),
+Color(0xFF24A36A),
                                     ),
                                   ),
-                                  SizedBox(
+SizedBox(
                                     width: cardWidth,
                                     child: const _SummaryCard(
                                       title:
                                           'Productos vendidos',
                                       value: '0',
                                       icon:
-                                          Icons.inventory_2_outlined,
+Icons.inventory_2_outlined,
                                       accent: _wine,
                                     ),
                                   ),
@@ -210,7 +214,7 @@ class ProductionDashboardPage extends StatelessWidget {
                                 'Selecciona una opción para comenzar',
                           ),
                           const SizedBox(height: 12),
-                          LayoutBuilder(
+LayoutBuilder(
                             builder: (
                               context,
                               constraints,
@@ -226,7 +230,7 @@ class ProductionDashboardPage extends StatelessWidget {
                                 spacing: 16,
                                 runSpacing: 16,
                                 children: [
-                                  SizedBox(
+SizedBox(
                                     width: itemWidth,
                                     child: _ActionCard(
                                       title:
@@ -234,7 +238,7 @@ class ProductionDashboardPage extends StatelessWidget {
                                       description:
                                           'Busca un cliente registrado y aplica sus precios especiales.',
                                       icon:
-                                          Icons.storefront_outlined,
+Icons.storefront_outlined,
                                       accent: _blue,
                                       buttonText:
                                           'Nueva venta',
@@ -242,13 +246,13 @@ class ProductionDashboardPage extends StatelessWidget {
                                         _openProductionSale(
                                           context,
                                           mode:
-                                              ProductionSaleMode
+ProductionSaleMode
                                                   .customer,
                                         );
                                       },
                                     ),
                                   ),
-                                  SizedBox(
+SizedBox(
                                     width: itemWidth,
                                     child: _ActionCard(
                                       title:
@@ -256,7 +260,7 @@ class ProductionDashboardPage extends StatelessWidget {
                                       description:
                                           'Captura un nombre y vende con precios generales.',
                                       icon:
-                                          Icons.shopping_cart_checkout,
+Icons.shopping_cart_checkout,
                                       accent:
                                           const Color(0xFF24A36A),
                                       buttonText:
@@ -265,13 +269,13 @@ class ProductionDashboardPage extends StatelessWidget {
                                         _openProductionSale(
                                           context,
                                           mode:
-                                              ProductionSaleMode
+ProductionSaleMode
                                                   .public,
                                         );
                                       },
                                     ),
                                   ),
-                                  SizedBox(
+SizedBox(
                                     width: itemWidth,
                                     child: _ActionCard(
                                       title:
@@ -279,16 +283,16 @@ class ProductionDashboardPage extends StatelessWidget {
                                       description:
                                           'Revisa folios, clientes, totales e impresiones.',
                                       icon:
-                                          Icons.receipt_long_outlined,
+Icons.receipt_long_outlined,
                                       accent:
                                           const Color(0xFF6E56CF),
                                       buttonText:
                                           'Ver historial',
                                       onTap: () {
-                                        Navigator.of(context).push(
-                                          MaterialPageRoute(
+Navigator.of(context).push(
+MaterialPageRoute(
                                             builder: (_) =>
-                                                ProductionSalesHistoryPage(
+ProductionSalesHistoryPage(
                                               employeeId: profileId,
                                               employeeName: nombre,
                                             ),
@@ -308,10 +312,10 @@ class ProductionDashboardPage extends StatelessWidget {
                                 'Herramientas del módulo de Producción',
                           ),
                           const SizedBox(height: 12),
-                          _QuickActions(
+_QuickActions(
                             onPrinter: () {
-                             Navigator.of(context).push(
-                              MaterialPageRoute(
+Navigator.of(context).push(
+MaterialPageRoute(
                             builder: (_) => ProductionPrinterPage(
                              employeeName: nombre,
                               ),
@@ -325,7 +329,7 @@ class ProductionDashboardPage extends StatelessWidget {
                               );
                             },
                             onRefresh: () {
-                              ScaffoldMessenger.of(context)
+ScaffoldMessenger.of(context)
                                   .showSnackBar(
                                 const SnackBar(
                                   content: Text(
@@ -336,7 +340,7 @@ class ProductionDashboardPage extends StatelessWidget {
                             },
                           ),
                           const SizedBox(height: 24),
-                          _SessionInfo(
+_SessionInfo(
                             nombre: nombre,
                             profileId: profileId,
                           ),
@@ -364,7 +368,7 @@ class _DashboardHeader extends StatelessWidget {
   });
 
   @override
-  Widget build(BuildContext context) {
+Widget build(BuildContext context) {
     return Container(
       width: double.infinity,
       padding: const EdgeInsets.fromLTRB(
@@ -376,7 +380,7 @@ class _DashboardHeader extends StatelessWidget {
       decoration: const BoxDecoration(
         color: ProductionDashboardPage._navy,
         boxShadow: [
-          BoxShadow(
+BoxShadow(
             color: Color(0x22000000),
             blurRadius: 14,
             offset: Offset(0, 6),
@@ -385,7 +389,7 @@ class _DashboardHeader extends StatelessWidget {
       ),
       child: Row(
         children: [
-          Container(
+Container(
             height: 46,
             width: 46,
             padding: const EdgeInsets.all(7),
@@ -402,17 +406,17 @@ class _DashboardHeader extends StatelessWidget {
                 stackTrace,
               ) {
                 return const Icon(
-                  Icons.ac_unit,
+Icons.ac_unit,
                   color: ProductionDashboardPage._navy,
                 );
               },
             ),
           ),
           const SizedBox(width: 12),
-          Expanded(
+Expanded(
             child: Column(
               crossAxisAlignment:
-                  CrossAxisAlignment.start,
+CrossAxisAlignment.start,
               children: [
                 const Text(
                   'Global Ice Producción',
@@ -423,7 +427,7 @@ class _DashboardHeader extends StatelessWidget {
                   ),
                 ),
                 const SizedBox(height: 2),
-                Text(
+Text(
                   'Sesión de $nombre',
                   style: TextStyle(
                     color: Colors.white.withValues(
@@ -435,11 +439,11 @@ class _DashboardHeader extends StatelessWidget {
               ],
             ),
           ),
-          IconButton(
+IconButton(
             tooltip: 'Cerrar sesión',
             onPressed: onLogout,
             icon: const Icon(
-              Icons.logout,
+Icons.logout,
               color: Colors.white,
             ),
           ),
@@ -457,7 +461,7 @@ class _WelcomeBanner extends StatelessWidget {
   });
 
   @override
-  Widget build(BuildContext context) {
+Widget build(BuildContext context) {
     return Container(
       width: double.infinity,
       padding: const EdgeInsets.all(22),
@@ -467,13 +471,13 @@ class _WelcomeBanner extends StatelessWidget {
           begin: Alignment.topLeft,
           end: Alignment.bottomRight,
           colors: [
-            ProductionDashboardPage._navy,
-            Color(0xFF12365C),
-            Color(0xFF1E5B88),
+ProductionDashboardPage._navy,
+Color(0xFF12365C),
+Color(0xFF1E5B88),
           ],
         ),
         boxShadow: const [
-          BoxShadow(
+BoxShadow(
             color: Color(0x280A1A2F),
             blurRadius: 24,
             offset: Offset(0, 12),
@@ -482,12 +486,12 @@ class _WelcomeBanner extends StatelessWidget {
       ),
       child: Row(
         children: [
-          Expanded(
+Expanded(
             child: Column(
               crossAxisAlignment:
-                  CrossAxisAlignment.start,
+CrossAxisAlignment.start,
               children: [
-                Text(
+Text(
                   'Hola, $nombre 👋',
                   style: const TextStyle(
                     color: Colors.white,
@@ -496,7 +500,7 @@ class _WelcomeBanner extends StatelessWidget {
                   ),
                 ),
                 const SizedBox(height: 7),
-                Text(
+Text(
                   'Registra ventas, consulta inventario y genera tickets desde esta tablet.',
                   style: TextStyle(
                     color: Colors.white.withValues(
@@ -507,7 +511,7 @@ class _WelcomeBanner extends StatelessWidget {
                   ),
                 ),
                 const SizedBox(height: 14),
-                Container(
+Container(
                   padding: const EdgeInsets.symmetric(
                     horizontal: 12,
                     vertical: 7,
@@ -517,7 +521,7 @@ class _WelcomeBanner extends StatelessWidget {
                       alpha: 0.12,
                     ),
                     borderRadius:
-                        BorderRadius.circular(999),
+BorderRadius.circular(999),
                     border: Border.all(
                       color: Colors.white.withValues(
                         alpha: 0.18,
@@ -537,7 +541,7 @@ class _WelcomeBanner extends StatelessWidget {
             ),
           ),
           const SizedBox(width: 16),
-          Container(
+Container(
             height: 86,
             width: 86,
             decoration: BoxDecoration(
@@ -552,7 +556,7 @@ class _WelcomeBanner extends StatelessWidget {
               ),
             ),
             child: const Icon(
-              Icons.factory_outlined,
+Icons.factory_outlined,
               size: 46,
               color: Colors.white,
             ),
@@ -573,12 +577,12 @@ class _SectionTitle extends StatelessWidget {
   });
 
   @override
-  Widget build(BuildContext context) {
+Widget build(BuildContext context) {
     return Column(
       crossAxisAlignment:
-          CrossAxisAlignment.start,
+CrossAxisAlignment.start,
       children: [
-        Text(
+Text(
           title,
           style: const TextStyle(
             color: ProductionDashboardPage._navy,
@@ -587,7 +591,7 @@ class _SectionTitle extends StatelessWidget {
           ),
         ),
         const SizedBox(height: 3),
-        Text(
+Text(
           subtitle,
           style: const TextStyle(
             color: Colors.black54,
@@ -613,7 +617,7 @@ class _SummaryCard extends StatelessWidget {
   });
 
   @override
-  Widget build(BuildContext context) {
+Widget build(BuildContext context) {
     return Container(
       padding: const EdgeInsets.all(17),
       decoration: BoxDecoration(
@@ -623,7 +627,7 @@ class _SummaryCard extends StatelessWidget {
           color: const Color(0xFFE5EAF1),
         ),
         boxShadow: const [
-          BoxShadow(
+BoxShadow(
             color: Color(0x10000000),
             blurRadius: 14,
             offset: Offset(0, 7),
@@ -632,9 +636,9 @@ class _SummaryCard extends StatelessWidget {
       ),
       child: Column(
         crossAxisAlignment:
-            CrossAxisAlignment.start,
+CrossAxisAlignment.start,
         children: [
-          Container(
+Container(
             height: 42,
             width: 42,
             decoration: BoxDecoration(
@@ -648,7 +652,7 @@ class _SummaryCard extends StatelessWidget {
             ),
           ),
           const SizedBox(height: 15),
-          Text(
+Text(
             value,
             style: const TextStyle(
               color: ProductionDashboardPage._navy,
@@ -657,7 +661,7 @@ class _SummaryCard extends StatelessWidget {
             ),
           ),
           const SizedBox(height: 3),
-          Text(
+Text(
             title,
             style: const TextStyle(
               color: Colors.black54,
@@ -689,7 +693,7 @@ class _ActionCard extends StatelessWidget {
   });
 
   @override
-  Widget build(BuildContext context) {
+Widget build(BuildContext context) {
     return Material(
       color: Colors.white,
       borderRadius: BorderRadius.circular(23),
@@ -704,7 +708,7 @@ class _ActionCard extends StatelessWidget {
               color: const Color(0xFFE4E9F1),
             ),
             boxShadow: const [
-              BoxShadow(
+BoxShadow(
                 color: Color(0x0D000000),
                 blurRadius: 16,
                 offset: Offset(0, 8),
@@ -713,7 +717,7 @@ class _ActionCard extends StatelessWidget {
           ),
           child: Row(
             children: [
-              Container(
+Container(
                 height: 58,
                 width: 58,
                 decoration: BoxDecoration(
@@ -721,7 +725,7 @@ class _ActionCard extends StatelessWidget {
                     alpha: 0.12,
                   ),
                   borderRadius:
-                      BorderRadius.circular(18),
+BorderRadius.circular(18),
                 ),
                 child: Icon(
                   icon,
@@ -730,22 +734,22 @@ class _ActionCard extends StatelessWidget {
                 ),
               ),
               const SizedBox(width: 15),
-              Expanded(
+Expanded(
                 child: Column(
                   crossAxisAlignment:
-                      CrossAxisAlignment.start,
+CrossAxisAlignment.start,
                   children: [
-                    Text(
+Text(
                       title,
                       style: const TextStyle(
                         color:
-                            ProductionDashboardPage._navy,
+ProductionDashboardPage._navy,
                         fontSize: 17,
                         fontWeight: FontWeight.w900,
                       ),
                     ),
                     const SizedBox(height: 5),
-                    Text(
+Text(
                       description,
                       style: const TextStyle(
                         color: Colors.black54,
@@ -754,9 +758,9 @@ class _ActionCard extends StatelessWidget {
                       ),
                     ),
                     const SizedBox(height: 10),
-                    Row(
+Row(
                       children: [
-                        Text(
+Text(
                           buttonText,
                           style: TextStyle(
                             color: accent,
@@ -765,8 +769,8 @@ class _ActionCard extends StatelessWidget {
                           ),
                         ),
                         const SizedBox(width: 4),
-                        Icon(
-                          Icons.arrow_forward,
+Icon(
+Icons.arrow_forward,
                           size: 16,
                           color: accent,
                         ),
@@ -795,7 +799,7 @@ class _QuickActions extends StatelessWidget {
   });
 
   @override
-  Widget build(BuildContext context) {
+Widget build(BuildContext context) {
     return Container(
       width: double.infinity,
       padding: const EdgeInsets.all(12),
@@ -811,12 +815,12 @@ class _QuickActions extends StatelessWidget {
         spacing: 8,
         runSpacing: 8,
         children: [
-          _QuickActionButton(
+_QuickActionButton(
             icon: Icons.print_outlined,
             label: 'Impresora',
             onTap: onPrinter,
           ),
-          _QuickActionButton(
+_QuickActionButton(
             icon: Icons.sync,
             label: 'Actualizar',
             onTap: onRefresh,
@@ -839,7 +843,7 @@ class _QuickActionButton extends StatelessWidget {
   });
 
   @override
-  Widget build(BuildContext context) {
+Widget build(BuildContext context) {
     return TextButton.icon(
       onPressed: onTap,
       icon: Icon(
@@ -867,7 +871,7 @@ class _SessionInfo extends StatelessWidget {
   });
 
   @override
-  Widget build(BuildContext context) {
+Widget build(BuildContext context) {
     return Container(
       width: double.infinity,
       padding: const EdgeInsets.all(17),
@@ -881,25 +885,25 @@ class _SessionInfo extends StatelessWidget {
       child: Row(
         children: [
           const Icon(
-            Icons.verified_user_outlined,
+Icons.verified_user_outlined,
             color: ProductionDashboardPage._blue,
           ),
           const SizedBox(width: 12),
-          Expanded(
+Expanded(
             child: Column(
               crossAxisAlignment:
-                  CrossAxisAlignment.start,
+CrossAxisAlignment.start,
               children: [
-                Text(
+Text(
                   nombre,
                   style: const TextStyle(
                     color:
-                        ProductionDashboardPage._navy,
+ProductionDashboardPage._navy,
                     fontWeight: FontWeight.w800,
                   ),
                 ),
                 const SizedBox(height: 2),
-                Text(
+Text(
                   'Sesión activa · ID $profileId',
                   style: const TextStyle(
                     color: Colors.black54,
