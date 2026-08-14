@@ -58,7 +58,7 @@ class _DriverSalePageState extends State<DriverSalePage> {
       final id = (p['product_id'] ?? '').toString();
       final qty = _qtyByProduct[id] ?? 0;
       final price = NumberParser.toDouble(p['precio']);
-      acc += qty \ price;
+      acc += qty * price;
     }
     return acc;
   }
