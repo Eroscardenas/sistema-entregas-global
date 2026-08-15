@@ -801,17 +801,6 @@ Text(
                                   fontSize: 12,
                                 ),
                               ),
-                              if (assigned > 0 || used > 0) ...[
-                                const SizedBox(height: 3),
-Text(
-                                  'Cargado: $assigned • Usado: $used',
-                                  style: TextStyle(
-                                    color: Colors.white.withOpacity(0.52),
-                                    fontWeight: FontWeight.w600,
-                                    fontSize: 11,
-                                  ),
-                                ),
-                              ],
                               const SizedBox(height: 12),
                               TextField(
                                 controller: _qtyControllers[productId],
@@ -827,7 +816,7 @@ Text(
                                   fontSize: 20,
                                 ),
                                 decoration: InputDecoration(
-                                  labelText: 'Cantidad a vender',
+                                  labelText: 'Cantidad Entregada',
                                   labelStyle: TextStyle(
                                     color: Colors.white.withOpacity(0.70),
                                   ),
@@ -836,11 +825,6 @@ Text(
                                       : 'Sin stock',
                                   hintStyle: TextStyle(
                                     color: Colors.white.withOpacity(0.35),
-                                  ),
-                                  helperText: 'Máximo disponible: $available',
-                                  helperStyle: TextStyle(
-                                    color: Colors.white.withOpacity(0.55),
-                                    fontWeight: FontWeight.w600,
                                   ),
                                   filled: true,
                                   fillColor: Colors.white.withOpacity(0.08),

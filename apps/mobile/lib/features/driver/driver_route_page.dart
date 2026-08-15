@@ -176,6 +176,16 @@ class _DriverRoutePageState extends State<DriverRoutePage> {
     return true;
   }
 
+  bool get _canMakeSale {
+    if (_assignment == null) return false;
+    if (_busy) return false;
+
+    final status = _normalizeStatus(_assignment!.routeStatus);
+
+    // Solo se permiten ventas mientras la ruta está realmente iniciada.
+    return status == 'EN_RUTA';
+  }
+
   double? _toDoubleOrNull(dynamic value) {
     if (value == null) return null;
     if (value is num) return value.toDouble();
@@ -376,8 +386,70 @@ class _DriverRoutePageState extends State<DriverRoutePage> {
     await _load();
   }
 
+  Future<void> _showStartRouteFirstMessage() async {
+    if (!mounted) return;
+
+    final driverName = widget.driverName.trim().isEmpty
+        ? 'Chofer'
+        : widget.driverName.trim();
+
+    await showDialog<void>(
+      context: context,
+      builder: (dialogContext) => AlertDialog(
+        backgroundColor: const Color(0xFF10233D),
+        shape: RoundedRectangleBorder(
+          borderRadius: BorderRadius.circular(20),
+        ),
+        title: const Row(
+          children: [
+            Icon(
+              Icons.warning_amber_rounded,
+              color: Color(0xFFF59E0B),
+            ),
+            SizedBox(width: 10),
+            Expanded(
+              child: Text(
+                'Inicia ruta primero',
+                style: TextStyle(
+                  color: Colors.white,
+                  fontWeight: FontWeight.w900,
+                ),
+              ),
+            ),
+          ],
+        ),
+        content: Text(
+          '$driverName, inicia la ruta primero para poder hacer una venta.',
+          style: TextStyle(
+            color: Colors.white.withOpacity(0.82),
+            fontWeight: FontWeight.w600,
+            height: 1.35,
+          ),
+        ),
+        actions: [
+          ElevatedButton(
+            onPressed: () => Navigator.of(dialogContext).pop(),
+            style: ElevatedButton.styleFrom(
+              backgroundColor: _accent,
+              foregroundColor: Colors.white,
+              shape: RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(12),
+              ),
+            ),
+            child: const Text('Entendido'),
+          ),
+        ],
+      ),
+    );
+  }
+
   Future<void> _openDriverSale() async {
     if (_busy) return;
+
+    if (!_canMakeSale) {
+      await _showStartRouteFirstMessage();
+      return;
+    }
 
     final result = await Navigator.of(context).push<bool>(
       MaterialPageRoute(
@@ -1049,44 +1121,6 @@ class _DriverRoutePageState extends State<DriverRoutePage> {
                                             fontWeight: FontWeight.w700,
                                           ),
                                         ),
-                                        const SizedBox(height: 4),
-                                        Text(
-                                          'Hora Guadalajara: ${_fmtNowMx(nowMx)}',
-                                          style: TextStyle(
-                                            color:
-                                                Colors.white.withOpacity(0.62),
-                                            fontWeight: FontWeight.w600,
-                                            fontSize: 12.5,
-                                          ),
-                                        ),
-                                        const SizedBox(height: 12),
-                                        Row(
-                                          children: [
-                                            Expanded(
-                                              child: _StatChip(
-                                                label: 'Entregas',
-                                                value:
-                                                    '${_assignment!.totalDeliveries}',
-                                              ),
-                                            ),
-                                            const SizedBox(width: 10),
-                                            Expanded(
-                                              child: _StatChip(
-                                                label: 'Entregadas',
-                                                value:
-                                                    '${_assignment!.deliveredCount}',
-                                              ),
-                                            ),
-                                            const SizedBox(width: 10),
-                                            Expanded(
-                                              child: _StatChip(
-                                                label: 'Activas',
-                                                value:
-                                                    '${_assignment!.activeCount}',
-                                              ),
-                                            ),
-                                          ],
-                                        ),
                                         const SizedBox(height: 12),
                                         Text(
                                           'Progreso $_progressPercent%',
@@ -1157,12 +1191,6 @@ class _DriverRoutePageState extends State<DriverRoutePage> {
                                               icon: Icons.pin_outlined,
                                               text:
                                                   'KM final ${_fmtKm(_assignment!.kmEnd)}',
-                                            ),
-                                            const _MiniPill(
-                                              icon:
-                                                  Icons.event_note_outlined,
-                                              text:
-                                                  'Fecha controlada por sistema',
                                             ),
                                           ],
                                         ),
@@ -1243,14 +1271,27 @@ class _DriverRoutePageState extends State<DriverRoutePage> {
                                         SizedBox(
                                           width: double.infinity,
                                           child: ElevatedButton.icon(
+                                            // Se mantiene tocable antes de iniciar
+                                            // para poder mostrar el aviso.
                                             onPressed:
                                                 _busy ? null : _openDriverSale,
-                                            icon:
-                                                const Icon(Icons.point_of_sale),
-                                            label: const Text('Hacer venta'),
+                                            icon: Icon(
+                                              _canMakeSale
+                                                  ? Icons.point_of_sale
+                                                  : Icons.lock_outline,
+                                            ),
+                                            label: Text(
+                                              _canMakeSale
+                                                  ? 'Hacer venta'
+                                                  : 'Hacer venta • inicia ruta primero',
+                                            ),
                                             style: ElevatedButton.styleFrom(
-                                              backgroundColor: _green,
-                                              foregroundColor: Colors.white,
+                                              backgroundColor: _canMakeSale
+                                                  ? _green
+                                                  : Colors.white.withOpacity(0.10),
+                                              foregroundColor: _canMakeSale
+                                                  ? Colors.white
+                                                  : Colors.white.withOpacity(0.55),
                                               disabledBackgroundColor:
                                                   Colors.white.withOpacity(0.10),
                                               disabledForegroundColor:
@@ -2092,7 +2133,7 @@ class _NoAssignmentSaleView extends StatelessWidget {
                 ),
                 const SizedBox(height: 8),
                 Text(
-                  'Todavía no tienes entregas asignadas, pero puedes registrar una venta. El sistema creará automáticamente la asignación y la ruta necesarias.',
+                  'Todavía no tienes una asignación para hoy. Necesitas una asignación y después iniciar la ruta antes de poder registrar una venta.',
                   textAlign: TextAlign.center,
                   style: TextStyle(
                     color: Colors.white.withOpacity(0.72),
@@ -2104,12 +2145,14 @@ class _NoAssignmentSaleView extends StatelessWidget {
                 SizedBox(
                   width: double.infinity,
                   child: ElevatedButton.icon(
+                    // Aunque visualmente está bloqueado, conserva el touch
+                    // para mostrar el aviso de iniciar ruta primero.
                     onPressed: busy ? null : () => onSale(),
-                    icon: const Icon(Icons.point_of_sale),
-                    label: const Text('Hacer venta'),
+                    icon: const Icon(Icons.lock_outline),
+                    label: const Text('Hacer venta • inicia ruta primero'),
                     style: ElevatedButton.styleFrom(
-                      backgroundColor: const Color(0xFF10B981),
-                      foregroundColor: Colors.white,
+                      backgroundColor: Colors.white.withOpacity(0.10),
+                      foregroundColor: Colors.white.withOpacity(0.55),
                       disabledBackgroundColor: Colors.white.withOpacity(0.10),
                       disabledForegroundColor: Colors.white.withOpacity(0.40),
                       padding: const EdgeInsets.symmetric(vertical: 14),
