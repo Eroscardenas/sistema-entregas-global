@@ -65,6 +65,27 @@ function toInt(value: unknown) {
     : 0;
 }
 
+function normalizeText(value: unknown) {
+  return String(value || '')
+    .trim()
+    .toUpperCase()
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '');
+}
+
+function isDeliveredStatus(status: unknown) {
+  const s = normalizeText(status);
+
+  return [
+    'ENTREGADA',
+    'CONFIRMADA',
+    'FINALIZADA',
+    'COMPLETADA',
+    'CERRADA',
+    'LIQUIDADA',
+  ].includes(s);
+}
+
 function toKey(product: any) {
   const name = String(
     product?.nombre || '',
@@ -469,39 +490,20 @@ async function ensureAssignmentAndRoute(params: {
 
 /**
  * ============================================================
- * SINCRONIZACIÓN DEL STOCK DEL CHOFER
+ * SINCRONIZACIÓN DEL STOCK DEL CHOFER PARA EL DÍA ACTUAL
  * ============================================================
  *
- * Antes:
+ * driver_stock no tiene work_date. Por eso NO podemos conservar
+ * used_qty histórico entre días.
  *
- * driver_stock solo se inicializaba la primera vez.
+ * Antes de registrar una venta:
  *
- * Si Administración hacía:
+ * assigned_qty = todas las salidas reales del día
+ * used_qty     = todas las entregas/ventas finalizadas del día
  *
- * salida 1 = 50
- * salida 2 = 30
+ * Después register_driver_sale suma únicamente la venta nueva.
  *
- * global-outputs = 80
- *
- * pero driver_stock podía seguir:
- *
- * assigned_qty = 50
- *
- * Eso hacía que register_driver_sale creyera que el chofer
- * únicamente tenía la primera salida.
- *
- * Ahora:
- *
- * - Siempre consulta global-outputs.
- * - Siempre obtiene el acumulado de todas las salidas del día.
- * - Si driver_stock ya existe:
- *      actualiza assigned_qty.
- *      conserva used_qty.
- *
- * - Si driver_stock no existe:
- *      crea la fila.
- *
- * available_qty NO se toca porque PostgreSQL lo genera:
+ * available_qty es generado por PostgreSQL:
  *
  * available_qty = assigned_qty - used_qty
  */
@@ -832,6 +834,90 @@ async function ensureDriverStockRows(
 
   /*
    * =========================================================
+   * USADO REAL DEL DÍA
+   *
+   * Se consideran TODAS las asignaciones del chofer para la
+   * fecha de trabajo y todas sus entregas/ventas finalizadas.
+   * Esto evita arrastrar used_qty de días anteriores.
+   * =========================================================
+   */
+
+  const {
+    data: dayAssignments,
+    error: dayAssignmentsErr,
+  } = await sb
+    .from('assignments')
+    .select('id')
+    .eq('driver_id', params.driverId)
+    .eq('work_date', workDate);
+
+  if (dayAssignmentsErr) {
+    throw dayAssignmentsErr;
+  }
+
+  const dayAssignmentIds = (dayAssignments ?? [])
+    .map((row: any) => String(row?.id || '').trim())
+    .filter(Boolean);
+
+  const usedByProductId = new Map<string, number>();
+
+  if (dayAssignmentIds.length > 0) {
+    const {
+      data: dayDeliveries,
+      error: dayDeliveriesErr,
+    } = await sb
+      .from('deliveries')
+      .select('id,status')
+      .in('assignment_id', dayAssignmentIds);
+
+    if (dayDeliveriesErr) {
+      throw dayDeliveriesErr;
+    }
+
+    const deliveredIds = (dayDeliveries ?? [])
+      .filter((row: any) => isDeliveredStatus(row?.status))
+      .map((row: any) => String(row?.id || '').trim())
+      .filter(Boolean);
+
+    if (deliveredIds.length > 0) {
+      const {
+        data: dayItems,
+        error: dayItemsErr,
+      } = await sb
+        .from('delivery_items')
+        .select('delivery_id,product_id,qty_assigned,qty_real')
+        .in('delivery_id', deliveredIds)
+        .in('product_id', uniqueProductIds);
+
+      if (dayItemsErr) {
+        throw dayItemsErr;
+      }
+
+      for (const row of dayItems ?? []) {
+        const productId = String((row as any)?.product_id || '').trim();
+
+        if (!productId) continue;
+
+        const qty = Math.max(
+          0,
+          toInt(
+            (row as any)?.qty_real ??
+              (row as any)?.qty_assigned,
+          ),
+        );
+
+        if (qty <= 0) continue;
+
+        usedByProductId.set(
+          productId,
+          (usedByProductId.get(productId) ?? 0) + qty,
+        );
+      }
+    }
+  }
+
+  /*
+   * =========================================================
    * DRIVER STOCK EXISTENTE
    * =========================================================
    */
@@ -917,14 +1003,8 @@ async function ensureDriverStockRows(
    * =========================================================
    */
 
-  for (
-    const productId of
-      uniqueProductIds
-  ) {
-    const product =
-      productById.get(
-        productId,
-      );
+  for (const productId of uniqueProductIds) {
+    const product = productById.get(productId);
 
     if (!product) {
       throw new Error(
@@ -932,8 +1012,7 @@ async function ensureDriverStockRows(
       );
     }
 
-    const productKey =
-      toKey(product);
+    const productKey = toKey(product);
 
     if (!productKey) {
       throw new Error(
@@ -942,162 +1021,94 @@ async function ensureDriverStockRows(
     }
 
     /*
-     * Total acumulado real de salidas del día.
+     * Cargado real HOY.
+     *
+     * Importante: si hoy no hubo salida para este producto,
+     * assigned_qty debe ser 0. No conservamos el valor histórico.
      */
-    const outputQty =
-      Math.max(
-        0,
-        toInt(
-          qtyByKey.get(
-            productKey,
-          ) ?? 0,
-        ),
-      );
+    const assignedToday = Math.max(
+      0,
+      toInt(qtyByKey.get(productKey) ?? 0),
+    );
+
+    /*
+     * Usado real HOY ANTES de registrar la venta nueva.
+     */
+    const usedToday = Math.max(
+      0,
+      toInt(usedByProductId.get(productId) ?? 0),
+    );
 
     const existingStock =
-      existingStockByProductId.get(
-        productId,
-      );
+      existingStockByProductId.get(productId);
 
-    /*
-     * =======================================================
-     * FILA YA EXISTENTE
-     * =======================================================
-     */
+    const nowIso = new Date().toISOString();
 
     if (existingStock) {
-      /*
-       * Si global-outputs encontró el producto,
-       * actualizamos assigned_qty con el acumulado REAL.
-       *
-       * used_qty NO se toca.
-       *
-       * available_qty tampoco se toca porque es generado.
-       */
-      if (outputQty > 0) {
-        const {
-          error: updateStockErr,
-        } = await sb
-          .from(
-            'driver_stock',
-          )
-          .update({
-            assigned_qty:
-              outputQty,
+      const {
+        error: updateStockErr,
+      } = await sb
+        .from('driver_stock')
+        .update({
+          assigned_qty: assignedToday,
+          used_qty: usedToday,
+          updated_at: nowIso,
+        })
+        .eq('driver_id', params.driverId)
+        .eq('product_id', productId);
 
-            updated_at:
-              new Date()
-                .toISOString(),
-          })
-          .eq(
-            'driver_id',
-            params.driverId,
-          )
-          .eq(
-            'product_id',
-            productId,
-          );
-
-        if (updateStockErr) {
-          throw updateStockErr;
-        }
-
-        console.log(
-          '[driver-sales] driver_stock sincronizado',
-          {
-            driverId:
-              params.driverId,
-
-            productId,
-
-            productKey,
-
-            assignedBefore:
-              existingStock.assigned_qty,
-
-            assignedNow:
-              outputQty,
-
-            usedQty:
-              existingStock.used_qty,
-
-            availableNow:
-              outputQty -
-              toInt(
-                existingStock.used_qty,
-              ),
-          },
-        );
+      if (updateStockErr) {
+        throw updateStockErr;
       }
 
-      /*
-       * Si global-outputs no encontró este producto,
-       * NO ponemos assigned_qty en cero.
-       *
-       * Conservamos el registro anterior para compatibilidad
-       * con datos históricos.
-       */
+      console.log(
+        '[driver-sales] driver_stock diario sincronizado',
+        {
+          driverId: params.driverId,
+          productId,
+          productKey,
+          assignedBefore: existingStock.assigned_qty,
+          usedBefore: existingStock.used_qty,
+          assignedToday,
+          usedToday,
+          availableBeforeSale: Math.max(
+            0,
+            assignedToday - usedToday,
+          ),
+        },
+      );
+
       continue;
     }
-
-    /*
-     * =======================================================
-     * FILA NUEVA
-     * =======================================================
-     */
 
     const {
       error: insertStockErr,
     } = await sb
-      .from(
-        'driver_stock',
-      )
+      .from('driver_stock')
       .insert({
-        driver_id:
-          params.driverId,
-
-        product_id:
-          productId,
-
-        assigned_qty:
-          outputQty,
-
-        used_qty:
-          0,
-
-        updated_at:
-          new Date()
-            .toISOString(),
+        driver_id: params.driverId,
+        product_id: productId,
+        assigned_qty: assignedToday,
+        used_qty: usedToday,
+        updated_at: nowIso,
       });
 
     if (insertStockErr) {
       /*
-       * Si dos procesos intentaron crearla simultáneamente,
-       * hacemos una sincronización final.
+       * Si dos solicitudes intentaron crear la misma fila a la vez,
+       * hacemos una actualización final con el snapshot de HOY.
        */
       const {
-        error:
-          retryUpdateErr,
+        error: retryUpdateErr,
       } = await sb
-        .from(
-          'driver_stock',
-        )
+        .from('driver_stock')
         .update({
-          assigned_qty:
-            outputQty,
-
-          updated_at:
-            new Date()
-              .toISOString(),
+          assigned_qty: assignedToday,
+          used_qty: usedToday,
+          updated_at: nowIso,
         })
-        .eq(
-          'driver_id',
-          params.driverId,
-        )
-        .eq(
-          'product_id',
-          productId,
-        );
+        .eq('driver_id', params.driverId)
+        .eq('product_id', productId);
 
       if (retryUpdateErr) {
         throw insertStockErr;
@@ -1105,20 +1116,21 @@ async function ensureDriverStockRows(
     }
 
     console.log(
-      '[driver-sales] driver_stock creado',
+      '[driver-sales] driver_stock diario creado',
       {
-        driverId:
-          params.driverId,
-
+        driverId: params.driverId,
         productId,
-
         productKey,
-
-        assignedQty:
-          outputQty,
+        assignedToday,
+        usedToday,
+        availableBeforeSale: Math.max(
+          0,
+          assignedToday - usedToday,
+        ),
       },
     );
   }
+
 }
 
 /**

@@ -358,21 +358,28 @@ export async function GET(req: Request) {
 
     /*
      * =========================================================
-     * ASIGNACIÓN DEL DÍA
+     * ASIGNACIONES DEL DÍA
+     *
+     * Un chofer puede tener más de una asignación en la misma
+     * fecha. Para calcular lo usado HOY consideramos todas.
      * =========================================================
      */
 
     const {
-      data: assignment,
-      error: assignmentErr,
+      data: assignments,
+      error: assignmentsErr,
     } = await sb
       .from('assignments')
-      .select('id,driver_id,work_date,status')
+      .select('id,driver_id,work_date,status,created_at')
       .eq('driver_id', driverId)
       .eq('work_date', workDate)
-      .maybeSingle();
+      .order('created_at', { ascending: true });
 
-    if (assignmentErr) throw assignmentErr;
+    if (assignmentsErr) throw assignmentsErr;
+
+    const assignmentIds = (assignments ?? [])
+      .map((row: any) => String(row?.id || '').trim())
+      .filter(Boolean);
 
     /*
      * =========================================================
@@ -489,52 +496,49 @@ export async function GET(req: Request) {
 
     /*
      * =========================================================
-     * ENTREGADO DEL DÍA
+     * USADO / ENTREGADO DEL DÍA
      *
-     * Esto se conserva como respaldo en caso de que todavía no
-     * exista driver_stock para algún producto.
+     * Fuente de verdad para used_qty:
+     * SOLO entregas confirmadas/finalizadas pertenecientes a
+     * asignaciones del chofer con work_date = HOY.
+     *
+     * NO usamos driver_stock.used_qty porque driver_stock no
+     * tiene work_date y puede contener consumo de días anteriores.
      * =========================================================
      */
 
-    const deliveredByKey =
-      new Map<string, number>();
+    const deliveredByKey = new Map<string, number>();
 
-    if (assignment?.id) {
+    if (assignmentIds.length > 0) {
       const {
         data: deliveries,
         error: deliveriesErr,
       } = await sb
         .from('deliveries')
-        .select('id,status')
-        .eq('assignment_id', assignment.id);
+        .select('id,assignment_id,status')
+        .in('assignment_id', assignmentIds);
 
       if (deliveriesErr) {
         throw deliveriesErr;
       }
 
-      const deliveryStatusById =
-        new Map<string, string>();
-
-      const deliveryIds: string[] = [];
+      const deliveryStatusById = new Map<string, string>();
+      const deliveredDeliveryIds: string[] = [];
 
       for (const d of deliveries ?? []) {
-        const id = String(
-          (d as any).id || '',
-        ).trim();
+        const id = String((d as any)?.id || '').trim();
+        const status = String((d as any)?.status || 'PENDIENTE');
 
         if (!id) continue;
 
-        deliveryIds.push(id);
+        deliveryStatusById.set(id, status);
 
-        deliveryStatusById.set(
-          id,
-          String(
-            (d as any).status || 'PENDIENTE',
-          ),
-        );
+        if (isDeliveredStatus(status)) {
+          deliveredDeliveryIds.push(id);
+        }
       }
 
-      if (deliveryIds.length > 0) {
+      if (deliveredDeliveryIds.length > 0) {
         const {
           data: items,
           error: itemsErr,
@@ -555,7 +559,7 @@ export async function GET(req: Request) {
             )
           `,
           )
-          .in('delivery_id', deliveryIds);
+          .in('delivery_id', deliveredDeliveryIds);
 
         if (itemsErr) {
           throw itemsErr;
@@ -563,41 +567,39 @@ export async function GET(req: Request) {
 
         for (const raw of items ?? []) {
           const item = raw as any;
+          const deliveryId = String(item?.delivery_id || '').trim();
 
-          const deliveryId = String(
-            item.delivery_id || '',
-          ).trim();
+          if (!deliveryId) continue;
 
-          const status =
-            deliveryStatusById.get(
-              deliveryId,
-            ) || '';
+          const status = deliveryStatusById.get(deliveryId) || '';
 
           if (!isDeliveredStatus(status)) {
             continue;
           }
 
-          const p = item.products;
+          const product = item?.products;
 
-          if (!p) continue;
+          if (!product) continue;
 
           const key = buildProductKey({
-            nombre: p.nombre,
-            ice_type: p.ice_type,
-            kg_por_unidad:
-              p.kg_por_unidad,
-            kind: p.kind,
+            nombre: product.nombre,
+            ice_type: product.ice_type,
+            kg_por_unidad: product.kg_por_unidad,
+            kind: product.kind,
           });
 
           if (!key) continue;
 
+          const qty = Math.max(
+            0,
+            toInt(item.qty_real ?? item.qty_assigned),
+          );
+
+          if (qty <= 0) continue;
+
           deliveredByKey.set(
             key,
-            (deliveredByKey.get(key) ?? 0) +
-              toInt(
-                item.qty_real ??
-                  item.qty_assigned,
-              ),
+            (deliveredByKey.get(key) ?? 0) + qty,
           );
         }
       }
@@ -891,22 +893,19 @@ export async function GET(req: Request) {
 
     /*
      * =========================================================
-     * CONSTRUCCIÓN FINAL DEL STOCK
-     *
-     * REGLA:
+     * CONSTRUCCIÓN FINAL DEL STOCK DEL DÍA
      *
      * CARGADO:
-     *   salidas reales del inventario
+     *   salidas reales de HOY
      *
      * USADO:
-     *   driver_stock.used_qty
+     *   entregas/ventas confirmadas de HOY
      *
      * DISPONIBLE:
      *   cargado - usado
      *
-     * Si global-outputs todavía no encuentra ninguna salida para
-     * ese producto, se permite driver_stock como fallback para no
-     * romper datos antiguos.
+     * driver_stock se conserva únicamente como diagnóstico.
+     * No participa en estos cálculos porque no tiene work_date.
      * =========================================================
      */
 
@@ -934,108 +933,31 @@ export async function GET(req: Request) {
           });
 
         /*
-         * Total real acumulado de salidas:
-         *
-         * salida 1 + salida 2 + salida 3 + salida 4...
+         * Cargado HOY: suma real de todas las salidas de inventario
+         * del chofer para la fecha actual.
          */
-        const inventoryOutputQty =
-          Math.max(
-            0,
-            outputsByKey.get(
-              productKey,
-            ) ?? 0,
-          );
+        const assignedQty = Math.max(
+          0,
+          outputsByKey.get(productKey) ?? 0,
+        );
 
         /*
-         * Consumo calculado por entregas, utilizado como respaldo.
+         * Usado HOY: suma de entregas/ventas ya finalizadas hoy.
+         * No se usa driver_stock.used_qty porque esa tabla no
+         * distingue fecha.
          */
-        const deliveredFallbackQty =
-          Math.max(
-            0,
-            deliveredByKey.get(
-              productKey,
-            ) ?? 0,
-          );
+        const usedQty = Math.max(
+          0,
+          deliveredByKey.get(productKey) ?? 0,
+        );
 
-        const driverStock =
-          driverStockByProductId.get(
-            row.product_id,
-          );
-
-        /*
-         * =====================================================
-         * FIX MULTIPLES SALIDAS
-         * =====================================================
-         *
-         * ANTES:
-         *
-         * Si existía driver_stock:
-         *
-         * assigned = driver_stock.assigned_qty
-         *
-         * Eso provocaba que una segunda salida en Firebase
-         * no aumentara el stock del chofer.
-         *
-         * AHORA:
-         *
-         * Si global-outputs encontró salidas reales del día,
-         * siempre usamos el total acumulado de esas salidas.
-         *
-         * driver_stock.assigned_qty queda únicamente como
-         * respaldo para datos antiguos.
-         */
-
-        const assignedQty =
-          inventoryOutputQty > 0
-            ? inventoryOutputQty
-            : Math.max(
-                0,
-                toInt(
-                  driverStock
-                    ?.assigned_qty,
-                ),
-              );
-
-        /*
-         * Para lo consumido sí mantenemos driver_stock porque
-         * las ventas del chofer actualizan used_qty.
-         *
-         * Si todavía no existe la fila, utilizamos las entregas
-         * confirmadas como fallback.
-         */
-        const usedQty = driverStock
-          ? Math.max(
-              0,
-              toInt(
-                driverStock.used_qty,
-              ),
-            )
-          : deliveredFallbackQty;
-
-        /*
-         * Nunca usamos directamente:
-         *
-         * driver_stock.available_qty
-         *
-         * porque puede ser exactamente el dato obsoleto que quedó
-         * después de la primera salida.
-         *
-         * El disponible se recalcula siempre.
-         */
-        const availableQty =
-          Math.max(
-            0,
-            assignedQty - usedQty,
-          );
+        const availableQty = Math.max(
+          0,
+          assignedQty - usedQty,
+        );
 
         const stockSource =
-          inventoryOutputQty > 0
-            ? driverStock
-              ? 'inventory_outputs+driver_stock_usage'
-              : 'inventory_outputs'
-            : driverStock
-              ? 'driver_stock_fallback'
-              : 'delivery_fallback';
+          'inventory_outputs_today+deliveries_today';
 
         /*
          * =====================================================
@@ -1182,7 +1104,10 @@ export async function GET(req: Request) {
         workDate,
 
         assignment_id:
-          assignment?.id ?? null,
+          assignmentIds[0] ?? null,
+
+        assignment_ids:
+          assignmentIds,
 
         driver_id:
           driverId,
@@ -1207,6 +1132,10 @@ export async function GET(req: Request) {
             deliveredByKey.entries(),
           ),
 
+        /*
+         * Solo diagnóstico histórico. Estos valores NO se usan
+         * para calcular cargado/usado/disponible en la respuesta.
+         */
         driverStockByProductId:
           Object.fromEntries(
             Array.from(
