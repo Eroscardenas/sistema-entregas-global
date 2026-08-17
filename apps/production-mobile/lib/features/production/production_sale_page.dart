@@ -1,6 +1,7 @@
 import 'dart:convert';
 
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:http/http.dart' as http;
 import 'package:mobile/services/printer_service.dart';
 
@@ -15,14 +16,14 @@ class ProductionSalePage extends StatefulWidget {
   final ProductionSaleMode initialMode;
 
   const ProductionSalePage({
-    super.key,
+super.key,
     required this.employeeId,
     required this.employeeName,
-    this.initialMode = ProductionSaleMode.customer,
+this.initialMode = ProductionSaleMode.customer,
   });
 
   @override
-  State<ProductionSalePage> createState() => _ProductionSalePageState();
+State<ProductionSalePage> createState() => _ProductionSalePageState();
 }
 
 class _ProductionSalePageState extends State<ProductionSalePage> {
@@ -42,31 +43,32 @@ class _ProductionSalePageState extends State<ProductionSalePage> {
   static const Duration _requestTimeout = Duration(seconds: 25);
 
   final TextEditingController _customerSearchCtrl =
-      TextEditingController();
+TextEditingController();
 
   final TextEditingController _publicCustomerNameCtrl =
-      TextEditingController();
+TextEditingController();
 
-  bool _loadingCustomers = false;
-  bool _loadingProducts = false;
-  bool _saving = false;
+bool _loadingCustomers = false;
+bool _loadingProducts = false;
+bool _saving = false;
 
-  String? _error;
+String? _error;
 
   late ProductionSaleMode _mode;
 
-  Map<String, dynamic>? _selectedCustomer;
+Map<String, dynamic>? _selectedCustomer;
 
-  List<Map<String, dynamic>> _customers = [];
-  List<Map<String, dynamic>> _products = [];
+List<Map<String, dynamic>> _customers = [];
+List<Map<String, dynamic>> _products = [];
 
   final Map<String, int> _quantityByProduct = {};
+  final Map<String, TextEditingController> _quantityControllers = {};
 
-  String _paymentMethod = 'EFECTIVO';
+String _paymentMethod = 'EFECTIVO';
 
   @override
   void initState() {
-    super.initState();
+super.initState();
     _mode = widget.initialMode;
 
     if (_mode == ProductionSaleMode.public) {
@@ -78,11 +80,16 @@ class _ProductionSalePageState extends State<ProductionSalePage> {
   void dispose() {
     _customerSearchCtrl.dispose();
     _publicCustomerNameCtrl.dispose();
-    super.dispose();
+
+    for (final controller in _quantityControllers.values) {
+      controller.dispose();
+    }
+
+super.dispose();
   }
 
-  double get _total {
-    double result = 0;
+double get _total {
+double result = 0;
 
     for (final product in _products) {
       final productId = _productId(product);
@@ -95,14 +102,14 @@ class _ProductionSalePageState extends State<ProductionSalePage> {
     return result;
   }
 
-  int get _totalQuantity {
+int get _totalQuantity {
     return _quantityByProduct.values.fold(
       0,
       (total, quantity) => total + quantity,
     );
   }
 
-  bool get _canSubmit {
+bool get _canSubmit {
     if (_saving || _loadingProducts || _totalQuantity <= 0) {
       return false;
     }
@@ -114,7 +121,7 @@ class _ProductionSalePageState extends State<ProductionSalePage> {
     return true;
   }
 
-  String _productId(Map<String, dynamic> product) {
+String _productId(Map<String, dynamic> product) {
     return (product['product_id'] ??
             product['id'] ??
             product['inventory_product_setting_id'] ??
@@ -122,11 +129,11 @@ class _ProductionSalePageState extends State<ProductionSalePage> {
         .toString();
   }
 
-  String _money(num value) {
+String _money(num value) {
     return '\$${value.toStringAsFixed(2)}';
   }
 
-  Future<Map<String, dynamic>> _readJson(http.Response response) async {
+Future<Map<String, dynamic>> _readJson(http.Response response) async {
     final body = response.body.trim();
     final contentType = response.headers['content-type'] ?? '';
 
@@ -163,11 +170,16 @@ class _ProductionSalePageState extends State<ProductionSalePage> {
 
   void _clearSaleSelection() {
     _quantityByProduct.clear();
+
+    for (final controller in _quantityControllers.values) {
+      controller.clear();
+    }
+
     _paymentMethod = 'EFECTIVO';
     _error = null;
   }
 
-  Future<void> _changeMode(ProductionSaleMode mode) async {
+Future<void> _changeMode(ProductionSaleMode mode) async {
     if (_saving || _mode == mode) return;
 
     setState(() {
@@ -183,7 +195,7 @@ class _ProductionSalePageState extends State<ProductionSalePage> {
     }
   }
 
-  Future<void> _searchCustomers() async {
+Future<void> _searchCustomers() async {
     final query = _customerSearchCtrl.text.trim();
 
     if (query.length < 2) {
@@ -243,8 +255,8 @@ class _ProductionSalePageState extends State<ProductionSalePage> {
     }
   }
 
-  Future<void> _selectCustomer(
-    Map<String, dynamic> customer,
+Future<void> _selectCustomer(
+Map<String, dynamic> customer,
   ) async {
     setState(() {
       _selectedCustomer = customer;
@@ -309,7 +321,7 @@ class _ProductionSalePageState extends State<ProductionSalePage> {
     }
   }
 
-  Future<void> _loadPublicProducts() async {
+Future<void> _loadPublicProducts() async {
     setState(() {
       _loadingProducts = true;
       _products = [];
@@ -379,7 +391,7 @@ class _ProductionSalePageState extends State<ProductionSalePage> {
     });
   }
 
-  Future<void> _refreshProducts() async {
+Future<void> _refreshProducts() async {
     if (_mode == ProductionSaleMode.public) {
       await _loadPublicProducts();
       return;
@@ -392,9 +404,63 @@ class _ProductionSalePageState extends State<ProductionSalePage> {
     }
   }
 
+TextEditingController _quantityControllerFor(
+Map<String, dynamic> product,
+  ) {
+    final productId = _productId(product);
+
+    return _quantityControllers.putIfAbsent(
+      productId,
+      () => TextEditingController(
+        text: (_quantityByProduct[productId] ?? 0) > 0
+            ? (_quantityByProduct[productId] ?? 0).toString()
+            : '',
+      ),
+    );
+  }
+
+  void _setQuantityFromInput(
+Map<String, dynamic> product,
+String value,
+  ) {
+    final productId = _productId(product);
+    final available = NumberParser.toInt(product['available_qty']);
+
+    if (productId.isEmpty) return;
+
+    final parsed = int.tryParse(value.trim()) ?? 0;
+    final nextQuantity = parsed.clamp(0, available).toInt();
+
+    if (parsed > available) {
+      final controller = _quantityControllerFor(product);
+      final corrected = available > 0 ? available.toString() : '';
+
+      controller.value = TextEditingValue(
+        text: corrected,
+        selection: TextSelection.collapsed(
+          offset: corrected.length,
+        ),
+      );
+
+      _showMessage(
+        available > 0
+            ? 'Solo hay $available bolsas disponibles.'
+            : 'Este producto no tiene stock disponible.',
+      );
+    }
+
+    setState(() {
+      if (nextQuantity <= 0) {
+        _quantityByProduct.remove(productId);
+      } else {
+        _quantityByProduct[productId] = nextQuantity;
+      }
+    });
+  }
+
   void _setQuantity(
-    Map<String, dynamic> product,
-    int quantity,
+Map<String, dynamic> product,
+int quantity,
   ) {
     final productId = _productId(product);
     final available = NumberParser.toInt(product['available_qty']);
@@ -420,7 +486,7 @@ class _ProductionSalePageState extends State<ProductionSalePage> {
     });
   }
 
-  List<Map<String, dynamic>> _buildItems() {
+List<Map<String, dynamic>> _buildItems() {
     final items = <Map<String, dynamic>>[];
 
     for (final entry in _quantityByProduct.entries) {
@@ -463,7 +529,7 @@ class _ProductionSalePageState extends State<ProductionSalePage> {
     return items;
   }
 
-  Future<void> _registerSale() async {
+Future<void> _registerSale() async {
     if (!_canSubmit) return;
 
     if (_mode == ProductionSaleMode.customer &&
@@ -525,7 +591,7 @@ class _ProductionSalePageState extends State<ProductionSalePage> {
     try {
       final response = await http
           .post(
-            Uri.parse('$_apiBase/api/production-sales'),
+Uri.parse('$_apiBase/api/production-sales'),
             headers: {
               'Content-Type': 'application/json',
             },
@@ -546,7 +612,7 @@ class _ProductionSalePageState extends State<ProductionSalePage> {
       if (!mounted) return;
 
       await Navigator.of(context).push(
-        MaterialPageRoute(
+MaterialPageRoute(
           builder: (_) => ProductionSaleSuccessPage(
             result: result,
           ),
@@ -555,7 +621,7 @@ class _ProductionSalePageState extends State<ProductionSalePage> {
 
       if (!mounted) return;
 
-      Navigator.of(context).pop(true);
+Navigator.of(context).pop(true);
     } catch (error) {
       if (!mounted) return;
 
@@ -577,27 +643,27 @@ class _ProductionSalePageState extends State<ProductionSalePage> {
   }
 
   void _showMessage(String message) {
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(
+ScaffoldMessenger.of(context).showSnackBar(
+SnackBar(
         content: Text(message),
       ),
     );
   }
 
-  Color _stockColor(int available) {
+Color _stockColor(int available) {
     if (available <= 0) return _danger;
     if (available <= 5) return _warning;
     return _green;
   }
 
-  String _stockLabel(int available) {
+String _stockLabel(int available) {
     if (available <= 0) return 'Sin stock';
     if (available <= 5) return 'Stock bajo';
     return 'Disponible';
   }
 
   @override
-  Widget build(BuildContext context) {
+Widget build(BuildContext context) {
     return Scaffold(
       backgroundColor: _navy,
       appBar: AppBar(
@@ -606,7 +672,7 @@ class _ProductionSalePageState extends State<ProductionSalePage> {
         elevation: 0,
         title: const Text('Nueva venta'),
         actions: [
-          IconButton(
+IconButton(
             tooltip: 'Actualizar inventario',
             onPressed: _loadingProducts || _saving
                 ? null
@@ -651,7 +717,7 @@ class _ProductionSalePageState extends State<ProductionSalePage> {
               ],
               if (_error != null && _error!.trim().isNotEmpty) ...[
                 const SizedBox(height: 14),
-                _ErrorCard(
+_ErrorCard(
                   message: _error!,
                 ),
               ],
@@ -662,11 +728,11 @@ class _ProductionSalePageState extends State<ProductionSalePage> {
     );
   }
 
-  Widget _buildEmployeeCard() {
+Widget _buildEmployeeCard() {
     return _GlassCard(
       child: Row(
         children: [
-          Container(
+Container(
             height: 52,
             width: 52,
             decoration: BoxDecoration(
@@ -674,13 +740,13 @@ class _ProductionSalePageState extends State<ProductionSalePage> {
               borderRadius: BorderRadius.circular(16),
             ),
             child: const Icon(
-              Icons.factory_outlined,
+Icons.factory_outlined,
               color: _accent,
               size: 29,
             ),
           ),
           const SizedBox(width: 13),
-          Expanded(
+Expanded(
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
@@ -693,7 +759,7 @@ class _ProductionSalePageState extends State<ProductionSalePage> {
                   ),
                 ),
                 const SizedBox(height: 4),
-                Text(
+Text(
                   widget.employeeName,
                   style: TextStyle(
                     color: Colors.white.withValues(alpha: 0.70),
@@ -708,7 +774,7 @@ class _ProductionSalePageState extends State<ProductionSalePage> {
     );
   }
 
-  Widget _buildSaleModeCard() {
+Widget _buildSaleModeCard() {
     return _GlassCard(
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
@@ -722,9 +788,9 @@ class _ProductionSalePageState extends State<ProductionSalePage> {
             ),
           ),
           const SizedBox(height: 12),
-          Row(
+Row(
             children: [
-              Expanded(
+Expanded(
                 child: _ModeButton(
                   selected: _mode == ProductionSaleMode.customer,
                   icon: Icons.storefront_outlined,
@@ -735,7 +801,7 @@ class _ProductionSalePageState extends State<ProductionSalePage> {
                 ),
               ),
               const SizedBox(width: 10),
-              Expanded(
+Expanded(
                 child: _ModeButton(
                   selected: _mode == ProductionSaleMode.public,
                   icon: Icons.shopping_cart_checkout,
@@ -752,7 +818,7 @@ class _ProductionSalePageState extends State<ProductionSalePage> {
     );
   }
 
-  Widget _buildCustomerSection() {
+Widget _buildCustomerSection() {
     return _GlassCard(
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
@@ -766,7 +832,7 @@ class _ProductionSalePageState extends State<ProductionSalePage> {
             ),
           ),
           const SizedBox(height: 5),
-          Text(
+Text(
             'Se aplicará el precio especial configurado para el cliente.',
             style: TextStyle(
               color: Colors.white.withValues(alpha: 0.65),
@@ -775,7 +841,7 @@ class _ProductionSalePageState extends State<ProductionSalePage> {
             ),
           ),
           const SizedBox(height: 13),
-          TextField(
+TextField(
             controller: _customerSearchCtrl,
             enabled: !_saving,
             style: const TextStyle(
@@ -789,7 +855,7 @@ class _ProductionSalePageState extends State<ProductionSalePage> {
                 color: Colors.white.withValues(alpha: 0.42),
               ),
               prefixIcon: const Icon(
-                Icons.search,
+Icons.search,
                 color: Colors.white70,
               ),
               filled: true,
@@ -812,7 +878,7 @@ class _ProductionSalePageState extends State<ProductionSalePage> {
             },
           ),
           const SizedBox(height: 11),
-          SizedBox(
+SizedBox(
             width: double.infinity,
             child: ElevatedButton.icon(
               onPressed: _loadingCustomers || _saving
@@ -843,7 +909,7 @@ class _ProductionSalePageState extends State<ProductionSalePage> {
           ),
           if (_selectedCustomer != null) ...[
             const SizedBox(height: 13),
-            _SelectedCustomerCard(
+_SelectedCustomerCard(
               name: (_selectedCustomer?['nombre'] ?? 'Cliente')
                   .toString(),
               onClear: _saving
@@ -865,7 +931,7 @@ class _ProductionSalePageState extends State<ProductionSalePage> {
                 leading: const CircleAvatar(
                   backgroundColor: Color(0x224DADFF),
                   child: Icon(
-                    Icons.storefront_outlined,
+Icons.storefront_outlined,
                     color: _accent,
                   ),
                 ),
@@ -886,7 +952,7 @@ class _ProductionSalePageState extends State<ProductionSalePage> {
                   ),
                 ),
                 trailing: const Icon(
-                  Icons.chevron_right,
+Icons.chevron_right,
                   color: Colors.white70,
                 ),
                 onTap: _saving
@@ -902,7 +968,7 @@ class _ProductionSalePageState extends State<ProductionSalePage> {
     );
   }
 
-  Widget _buildPublicCustomerSection() {
+Widget _buildPublicCustomerSection() {
     return _GlassCard(
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
@@ -916,7 +982,7 @@ class _ProductionSalePageState extends State<ProductionSalePage> {
             ),
           ),
           const SizedBox(height: 5),
-          Text(
+Text(
             'Se utilizarán los precios generales configurados.',
             style: TextStyle(
               color: Colors.white.withValues(alpha: 0.65),
@@ -924,7 +990,7 @@ class _ProductionSalePageState extends State<ProductionSalePage> {
             ),
           ),
           const SizedBox(height: 13),
-          TextField(
+TextField(
             controller: _publicCustomerNameCtrl,
             enabled: !_saving,
             textCapitalization: TextCapitalization.words,
@@ -942,7 +1008,7 @@ class _ProductionSalePageState extends State<ProductionSalePage> {
                 color: Colors.white.withValues(alpha: 0.38),
               ),
               prefixIcon: const Icon(
-                Icons.person_outline,
+Icons.person_outline,
                 color: Colors.white70,
               ),
               filled: true,
@@ -966,7 +1032,7 @@ class _ProductionSalePageState extends State<ProductionSalePage> {
     );
   }
 
-  Widget _buildProductsSection() {
+Widget _buildProductsSection() {
     if (_loadingProducts) {
       return const _GlassCard(
         child: Padding(
@@ -974,11 +1040,11 @@ class _ProductionSalePageState extends State<ProductionSalePage> {
           child: Center(
             child: Column(
               children: [
-                CircularProgressIndicator(
+CircularProgressIndicator(
                   color: _accent,
                 ),
-                SizedBox(height: 12),
-                Text(
+SizedBox(height: 12),
+Text(
                   'Consultando inventario real...',
                   style: TextStyle(
                     color: Colors.white70,
@@ -1023,7 +1089,7 @@ class _ProductionSalePageState extends State<ProductionSalePage> {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Row(
+Row(
             children: [
               const Expanded(
                 child: Text(
@@ -1035,7 +1101,7 @@ class _ProductionSalePageState extends State<ProductionSalePage> {
                   ),
                 ),
               ),
-              Text(
+Text(
                 '$_totalQuantity unidades',
                 style: TextStyle(
                   color: Colors.white.withValues(alpha: 0.68),
@@ -1052,7 +1118,7 @@ class _ProductionSalePageState extends State<ProductionSalePage> {
     );
   }
 
-  Widget _buildProductCard(Map<String, dynamic> product) {
+Widget _buildProductCard(Map<String, dynamic> product) {
     final productId = _productId(product);
     final quantity = _quantityByProduct[productId] ?? 0;
     final available = NumberParser.toInt(product['available_qty']);
@@ -1079,9 +1145,9 @@ class _ProductionSalePageState extends State<ProductionSalePage> {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Row(
+Row(
             children: [
-              Expanded(
+Expanded(
                 child: Text(
                   (product['nombre'] ?? 'Producto').toString(),
                   style: const TextStyle(
@@ -1091,7 +1157,7 @@ class _ProductionSalePageState extends State<ProductionSalePage> {
                   ),
                 ),
               ),
-              Container(
+Container(
                 padding: const EdgeInsets.symmetric(
                   horizontal: 9,
                   vertical: 5,
@@ -1115,15 +1181,15 @@ class _ProductionSalePageState extends State<ProductionSalePage> {
             ],
           ),
           const SizedBox(height: 7),
-          Wrap(
+Wrap(
             spacing: 7,
             runSpacing: 7,
             children: [
-              _ProductBadge(
+_ProductBadge(
                 icon: Icons.inventory_2_outlined,
                 label: 'Stock: $available',
               ),
-              _ProductBadge(
+_ProductBadge(
                 icon: Icons.sell_outlined,
                 label: _money(price),
               ),
@@ -1141,55 +1207,93 @@ class _ProductionSalePageState extends State<ProductionSalePage> {
             ],
           ),
           const SizedBox(height: 11),
-          Row(
+TextField(
+            controller: _quantityControllerFor(product),
+            enabled: !_saving && available > 0,
+            keyboardType: TextInputType.number,
+            inputFormatters: [
+FilteringTextInputFormatter.digitsOnly,
+            ],
+            textInputAction: TextInputAction.done,
+            textAlign: TextAlign.center,
+            style: const TextStyle(
+              color: Colors.white,
+              fontSize: 20,
+              fontWeight: FontWeight.w900,
+            ),
+            decoration: InputDecoration(
+              labelText: '¿Cuántas bolsas?',
+              labelStyle: TextStyle(
+                color: Colors.white.withValues(alpha: 0.70),
+                fontWeight: FontWeight.w700,
+              ),
+              hintText: available > 0
+                  ? 'Escribe la cantidad'
+                  : 'Sin stock',
+              hintStyle: TextStyle(
+                color: Colors.white.withValues(alpha: 0.38),
+              ),
+              helperText: 'Máximo disponible: $available',
+              helperStyle: TextStyle(
+                color: Colors.white.withValues(alpha: 0.55),
+                fontWeight: FontWeight.w600,
+              ),
+              prefixIcon: const Icon(
+Icons.shopping_bag_outlined,
+                color: Colors.white70,
+              ),
+              filled: true,
+              fillColor: Colors.white.withValues(alpha: 0.08),
+              enabledBorder: OutlineInputBorder(
+                borderRadius: BorderRadius.circular(15),
+                borderSide: BorderSide(
+                  color: Colors.white.withValues(alpha: 0.16),
+                ),
+              ),
+              focusedBorder: OutlineInputBorder(
+                borderRadius: BorderRadius.circular(15),
+                borderSide: const BorderSide(
+                  color: _accent,
+                  width: 1.5,
+                ),
+              ),
+              disabledBorder: OutlineInputBorder(
+                borderRadius: BorderRadius.circular(15),
+                borderSide: BorderSide(
+                  color: Colors.white.withValues(alpha: 0.08),
+                ),
+              ),
+            ),
+            onTap: () {
+              final controller = _quantityControllerFor(product);
+              controller.selection = TextSelection(
+                baseOffset: 0,
+                extentOffset: controller.text.length,
+              );
+            },
+            onChanged: (value) {
+              _setQuantityFromInput(product, value);
+            },
+          ),
+          const SizedBox(height: 8),
+Row(
             children: [
-              IconButton(
-                onPressed: quantity <= 0 || _saving
-                    ? null
-                    : () {
-                        _setQuantity(product, quantity - 1);
-                      },
-                icon: const Icon(
-                  Icons.remove_circle_outline,
-                ),
-                color: Colors.white,
-                disabledColor: Colors.white24,
-              ),
-              Expanded(
-                child: Column(
-                  children: [
-                    Text(
-                      '$quantity',
-                      style: const TextStyle(
-                        color: Colors.white,
-                        fontSize: 23,
-                        fontWeight: FontWeight.w900,
-                      ),
-                    ),
-                    Text(
-                      _money(quantity * price),
-                      style: TextStyle(
-                        color: Colors.white.withValues(alpha: 0.58),
-                        fontSize: 11.5,
-                        fontWeight: FontWeight.w700,
-                      ),
-                    ),
-                  ],
+Text(
+                'Cantidad: $quantity',
+                style: TextStyle(
+                  color: Colors.white.withValues(alpha: 0.62),
+                  fontSize: 11.5,
+                  fontWeight: FontWeight.w700,
                 ),
               ),
-              IconButton(
-                onPressed: quantity >= available ||
-                        available <= 0 ||
-                        _saving
-                    ? null
-                    : () {
-                        _setQuantity(product, quantity + 1);
-                      },
-                icon: const Icon(
-                  Icons.add_circle_outline,
+              const Spacer(),
+Text(
+                'Subtotal: ${_money(quantity * price)}',
+                style: const TextStyle(
+                  color: Colors.white,
+                  fontSize: 12.5,
+                  fontWeight: FontWeight.w900,
                 ),
-                color: Colors.white,
-                disabledColor: Colors.white24,
               ),
             ],
           ),
@@ -1198,7 +1302,7 @@ class _ProductionSalePageState extends State<ProductionSalePage> {
     );
   }
 
-  Widget _buildPaymentSection() {
+Widget _buildPaymentSection() {
     return _GlassCard(
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
@@ -1212,7 +1316,7 @@ class _ProductionSalePageState extends State<ProductionSalePage> {
             ),
           ),
           const SizedBox(height: 6),
-          RadioListTile<String>(
+RadioListTile<String>(
             value: 'EFECTIVO',
             groupValue: _paymentMethod,
             activeColor: _accent,
@@ -1232,7 +1336,7 @@ class _ProductionSalePageState extends State<ProductionSalePage> {
                     });
                   },
           ),
-          RadioListTile<String>(
+RadioListTile<String>(
             value: 'CREDITO',
             groupValue: _paymentMethod,
             activeColor: _accent,
@@ -1256,7 +1360,7 @@ class _ProductionSalePageState extends State<ProductionSalePage> {
             color: Colors.white24,
             height: 24,
           ),
-          Row(
+Row(
             children: [
               const Expanded(
                 child: Text(
@@ -1268,7 +1372,7 @@ class _ProductionSalePageState extends State<ProductionSalePage> {
                   ),
                 ),
               ),
-              Text(
+Text(
                 _money(_total),
                 style: const TextStyle(
                   color: Colors.white,
@@ -1279,7 +1383,7 @@ class _ProductionSalePageState extends State<ProductionSalePage> {
             ],
           ),
           const SizedBox(height: 15),
-          SizedBox(
+SizedBox(
             width: double.infinity,
             child: ElevatedButton.icon(
               onPressed: _canSubmit ? _registerSale : null,
@@ -1305,9 +1409,9 @@ class _ProductionSalePageState extends State<ProductionSalePage> {
                 backgroundColor: _wine,
                 foregroundColor: Colors.white,
                 disabledBackgroundColor:
-                    Colors.white.withValues(alpha: 0.12),
+Colors.white.withValues(alpha: 0.12),
                 disabledForegroundColor:
-                    Colors.white.withValues(alpha: 0.38),
+Colors.white.withValues(alpha: 0.38),
                 padding: const EdgeInsets.symmetric(
                   vertical: 15,
                 ),
@@ -1318,7 +1422,7 @@ class _ProductionSalePageState extends State<ProductionSalePage> {
             ),
           ),
           const SizedBox(height: 9),
-          Text(
+Text(
             'Al confirmar se validará nuevamente el inventario y '
             'se registrará la salida real en el sistema de Inventario.',
             textAlign: TextAlign.center,
@@ -1356,7 +1460,7 @@ class ProductionSaleResult {
   });
 
   factory ProductionSaleResult.fromJson(
-    Map<String, dynamic> json,
+Map<String, dynamic> json,
   ) {
     final rawItems = json['items'];
 
@@ -1373,13 +1477,13 @@ class ProductionSaleResult {
       createdAt: DateTime.tryParse(
             (json['created_at'] ?? '').toString(),
           ) ??
-          DateTime.now(),
+DateTime.now(),
       items: rawItems is List
           ? rawItems
               .whereType<Map>()
               .map(
                 (item) => ProductionSaleResultItem.fromJson(
-                  Map<String, dynamic>.from(item),
+Map<String, dynamic>.from(item),
                 ),
               )
               .toList()
@@ -1402,7 +1506,7 @@ class ProductionSaleResultItem {
   });
 
   factory ProductionSaleResultItem.fromJson(
-    Map<String, dynamic> json,
+Map<String, dynamic> json,
   ) {
     final quantity = NumberParser.toInt(
       json['quantity'] ?? json['qty'],
@@ -1431,26 +1535,26 @@ class ProductionSaleSuccessPage extends StatefulWidget {
   final ProductionSaleResult result;
 
   const ProductionSaleSuccessPage({
-    super.key,
+super.key,
     required this.result,
   });
 
   @override
-  State<ProductionSaleSuccessPage> createState() =>
-      _ProductionSaleSuccessPageState();
+State<ProductionSaleSuccessPage> createState() =>
+_ProductionSaleSuccessPageState();
 }
 
 class _ProductionSaleSuccessPageState
     extends State<ProductionSaleSuccessPage> {
-  bool _printing = false;
+bool _printing = false;
 
-  ProductionSaleResult get result => widget.result;
+ProductionSaleResult get result => widget.result;
 
-  String _money(num value) {
+String _money(num value) {
     return '\$${value.toStringAsFixed(2)}';
   }
 
-  Future<void> _printTicket() async {
+Future<void> _printTicket() async {
     if (_printing) return;
 
     setState(() {
@@ -1465,8 +1569,8 @@ class _ProductionSaleSuccessPageState
       if (!connected) {
         if (!mounted) return;
 
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
+ScaffoldMessenger.of(context).showSnackBar(
+SnackBar(
             content: Text(
               printer.lastError ??
                   'No hay impresora conectada. Conecta la impresora '
@@ -1503,8 +1607,8 @@ class _ProductionSaleSuccessPageState
 
       if (!mounted) return;
 
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
+ScaffoldMessenger.of(context).showSnackBar(
+SnackBar(
           content: Text(
             printed
                 ? 'Ticket enviado a la impresora.'
@@ -1519,8 +1623,8 @@ class _ProductionSaleSuccessPageState
     } catch (error) {
       if (!mounted) return;
 
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
+ScaffoldMessenger.of(context).showSnackBar(
+SnackBar(
           content: Text(
             error
                 .toString()
@@ -1540,7 +1644,7 @@ class _ProductionSaleSuccessPageState
   }
 
   @override
-  Widget build(BuildContext context) {
+Widget build(BuildContext context) {
     return Scaffold(
       backgroundColor: const Color(0xFFF4F7FB),
       appBar: AppBar(
@@ -1557,7 +1661,7 @@ class _ProductionSaleSuccessPageState
               ),
               child: Column(
                 children: [
-                  Container(
+Container(
                     height: 82,
                     width: 82,
                     decoration: BoxDecoration(
@@ -1566,7 +1670,7 @@ class _ProductionSaleSuccessPageState
                       shape: BoxShape.circle,
                     ),
                     child: const Icon(
-                      Icons.check_circle,
+Icons.check_circle,
                       size: 54,
                       color: Color(0xFF10B981),
                     ),
@@ -1582,7 +1686,7 @@ class _ProductionSaleSuccessPageState
                     ),
                   ),
                   const SizedBox(height: 18),
-                  Container(
+Container(
                     width: double.infinity,
                     padding: const EdgeInsets.all(19),
                     decoration: BoxDecoration(
@@ -1594,23 +1698,23 @@ class _ProductionSaleSuccessPageState
                     ),
                     child: Column(
                       children: [
-                        _ResultRow(
+_ResultRow(
                           label: 'Folio',
                           value: result.folio,
                         ),
-                        _ResultRow(
+_ResultRow(
                           label: 'Cliente',
                           value: result.customerName,
                         ),
-                        _ResultRow(
+_ResultRow(
                           label: 'Atendió',
                           value: result.employeeName,
                         ),
-                        _ResultRow(
+_ResultRow(
                           label: 'Pago',
                           value: result.paymentMethod,
                         ),
-                        _ResultRow(
+_ResultRow(
                           label: 'Total',
                           value: _money(result.total),
                           emphasized: true,
@@ -1619,7 +1723,7 @@ class _ProductionSaleSuccessPageState
                     ),
                   ),
                   const SizedBox(height: 17),
-                  SizedBox(
+SizedBox(
                     width: double.infinity,
                     child: FilledButton.icon(
                       onPressed:
@@ -1634,7 +1738,7 @@ class _ProductionSaleSuccessPageState
                               ),
                             )
                           : const Icon(
-                              Icons.print_outlined,
+Icons.print_outlined,
                             ),
                       label: Text(
                         _printing
@@ -1649,16 +1753,16 @@ class _ProductionSaleSuccessPageState
                     ),
                   ),
                   const SizedBox(height: 11),
-                  SizedBox(
+SizedBox(
                     width: double.infinity,
                     child: OutlinedButton.icon(
                       onPressed: _printing
                           ? null
                           : () {
-                              Navigator.of(context).pop();
+Navigator.of(context).pop();
                             },
                       icon: const Icon(
-                        Icons.add_shopping_cart,
+Icons.add_shopping_cart,
                       ),
                       label: const Text('Terminar'),
                       style: OutlinedButton.styleFrom(
@@ -1719,7 +1823,7 @@ class _GlassCard extends StatelessWidget {
   });
 
   @override
-  Widget build(BuildContext context) {
+Widget build(BuildContext context) {
     return Container(
       width: double.infinity,
       padding: const EdgeInsets.all(15),
@@ -1749,7 +1853,7 @@ class _ModeButton extends StatelessWidget {
   });
 
   @override
-  Widget build(BuildContext context) {
+Widget build(BuildContext context) {
     return Material(
       color: selected
           ? const Color(0xFF4DADFF)
@@ -1773,12 +1877,12 @@ class _ModeButton extends StatelessWidget {
           ),
           child: Column(
             children: [
-              Icon(
+Icon(
                 icon,
                 color: Colors.white,
               ),
               const SizedBox(height: 6),
-              Text(
+Text(
                 label,
                 textAlign: TextAlign.center,
                 style: const TextStyle(
@@ -1804,7 +1908,7 @@ class _SelectedCustomerCard extends StatelessWidget {
   });
 
   @override
-  Widget build(BuildContext context) {
+Widget build(BuildContext context) {
     return Container(
       width: double.infinity,
       padding: const EdgeInsets.all(12),
@@ -1820,11 +1924,11 @@ class _SelectedCustomerCard extends StatelessWidget {
       child: Row(
         children: [
           const Icon(
-            Icons.check_circle_outline,
+Icons.check_circle_outline,
             color: Color(0xFF10B981),
           ),
           const SizedBox(width: 9),
-          Expanded(
+Expanded(
             child: Text(
               name,
               style: const TextStyle(
@@ -1833,10 +1937,10 @@ class _SelectedCustomerCard extends StatelessWidget {
               ),
             ),
           ),
-          IconButton(
+IconButton(
             onPressed: onClear,
             icon: const Icon(
-              Icons.close,
+Icons.close,
               color: Colors.white70,
             ),
           ),
@@ -1854,11 +1958,11 @@ class _ProductBadge extends StatelessWidget {
   const _ProductBadge({
     required this.icon,
     required this.label,
-    this.accent = const Color(0xFF4DADFF),
+this.accent = const Color(0xFF4DADFF),
   });
 
   @override
-  Widget build(BuildContext context) {
+Widget build(BuildContext context) {
     return Container(
       padding: const EdgeInsets.symmetric(
         horizontal: 8,
@@ -1871,13 +1975,13 @@ class _ProductBadge extends StatelessWidget {
       child: Row(
         mainAxisSize: MainAxisSize.min,
         children: [
-          Icon(
+Icon(
             icon,
             size: 13,
             color: accent,
           ),
           const SizedBox(width: 4),
-          Text(
+Text(
             label,
             style: TextStyle(
               color: accent,
@@ -1899,7 +2003,7 @@ class _ErrorCard extends StatelessWidget {
   });
 
   @override
-  Widget build(BuildContext context) {
+Widget build(BuildContext context) {
     return Container(
       width: double.infinity,
       padding: const EdgeInsets.all(13),
@@ -1916,11 +2020,11 @@ class _ErrorCard extends StatelessWidget {
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           const Icon(
-            Icons.error_outline,
+Icons.error_outline,
             color: Color(0xFFFFB4B4),
           ),
           const SizedBox(width: 10),
-          Expanded(
+Expanded(
             child: Text(
               message,
               style: const TextStyle(
@@ -1944,11 +2048,11 @@ class _ResultRow extends StatelessWidget {
   const _ResultRow({
     required this.label,
     required this.value,
-    this.emphasized = false,
+this.emphasized = false,
   });
 
   @override
-  Widget build(BuildContext context) {
+Widget build(BuildContext context) {
     return Padding(
       padding: const EdgeInsets.symmetric(
         vertical: 7,
@@ -1956,7 +2060,7 @@ class _ResultRow extends StatelessWidget {
       child: Row(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          SizedBox(
+SizedBox(
             width: 84,
             child: Text(
               label,
@@ -1966,7 +2070,7 @@ class _ResultRow extends StatelessWidget {
               ),
             ),
           ),
-          Expanded(
+Expanded(
             child: Text(
               value,
               textAlign: TextAlign.right,
