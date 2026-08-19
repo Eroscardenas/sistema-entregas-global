@@ -175,11 +175,20 @@ function readStockNumber(value: unknown): number {
     typeof value === 'number' ||
     typeof value === 'string'
   ) {
-    return Math.max(0, Math.trunc(toNumber(value)));
+    return Math.max(
+      0,
+      Math.trunc(toNumber(value)),
+    );
   }
 
-  if (value && typeof value === 'object') {
-    const row = value as Record<string, unknown>;
+  if (
+    value &&
+    typeof value === 'object'
+  ) {
+    const row = value as Record<
+      string,
+      unknown
+    >;
 
     return Math.max(
       0,
@@ -215,7 +224,10 @@ function updateStockValue(
     typeof originalValue === 'object'
   ) {
     const objectValue = {
-      ...(originalValue as Record<string, unknown>),
+      ...(originalValue as Record<
+        string,
+        unknown
+      >),
     };
 
     if ('stockActual' in objectValue) {
@@ -240,12 +252,17 @@ function findIceStockEntry(
   stockContainer: Record<string, unknown>,
   requestedIceType: string,
 ) {
-  const wanted = normalizeIceType(requestedIceType);
+  const wanted = normalizeIceType(
+    requestedIceType,
+  );
 
-  for (const [key, value] of Object.entries(
-    stockContainer,
-  )) {
-    if (normalizeIceType(key) === wanted) {
+  for (
+    const [key, value] of
+      Object.entries(stockContainer)
+  ) {
+    if (
+      normalizeIceType(key) === wanted
+    ) {
       return {
         key,
         value,
@@ -265,12 +282,15 @@ async function generateFolio() {
   ];
 
   for (const rpcName of rpcAttempts) {
-    const { data, error } = await sb.rpc(rpcName);
+    const { data, error } =
+      await sb.rpc(rpcName);
 
     if (!error) {
       const folio = clean(data);
 
-      if (folio) return folio;
+      if (folio) {
+        return folio;
+      }
     }
   }
 
@@ -286,14 +306,17 @@ async function resolveSaleItems(params: {
 
   const productIds = Array.from(
     new Set(
-      params.items.map((item) => item.productId),
+      params.items.map(
+        (item) => item.productId,
+      ),
     ),
   );
 
   const settingIds = Array.from(
     new Set(
       params.items.map(
-        (item) => item.inventoryProductSettingId,
+        (item) =>
+          item.inventoryProductSettingId,
       ),
     ),
   );
@@ -342,10 +365,12 @@ async function resolveSaleItems(params: {
   }
 
   const products =
-    (productsResult.data ?? []) as CatalogProduct[];
+    (productsResult.data ??
+      []) as CatalogProduct[];
 
   const settings =
-    (settingsResult.data ?? []) as InventorySetting[];
+    (settingsResult.data ??
+      []) as InventorySetting[];
 
   const productById = new Map(
     products.map((product) => [
@@ -361,15 +386,11 @@ async function resolveSaleItems(params: {
     ]),
   );
 
-  const overrideBySettingId = new Map<
-    string,
-    number | null
-  >();
+  const overrideBySettingId =
+    new Map<string, number | null>();
 
-  const overrideByProductId = new Map<
-    string,
-    number | null
-  >();
+  const overrideByProductId =
+    new Map<string, number | null>();
 
   if (
     params.saleType === 'CUSTOMER' &&
@@ -380,7 +401,9 @@ async function resolveSaleItems(params: {
       legacyOverridesResult,
     ] = await Promise.all([
       sb
-        .from('customer_inventory_products')
+        .from(
+          'customer_inventory_products',
+        )
         .select(
           `
           inventory_product_setting_id,
@@ -388,7 +411,10 @@ async function resolveSaleItems(params: {
           activo
         `,
         )
-        .eq('customer_id', params.customerId)
+        .eq(
+          'customer_id',
+          params.customerId,
+        )
         .eq('activo', true)
         .in(
           'inventory_product_setting_id',
@@ -404,9 +430,15 @@ async function resolveSaleItems(params: {
           activo
         `,
         )
-        .eq('customer_id', params.customerId)
+        .eq(
+          'customer_id',
+          params.customerId,
+        )
         .eq('activo', true)
-        .in('product_id', productIds),
+        .in(
+          'product_id',
+          productIds,
+        ),
     ]);
 
     if (newOverridesResult.error) {
@@ -417,43 +449,61 @@ async function resolveSaleItems(params: {
       throw legacyOverridesResult.error;
     }
 
-    for (const row of newOverridesResult.data ?? []) {
+    for (
+      const row of
+        newOverridesResult.data ?? []
+    ) {
       overrideBySettingId.set(
         clean(
           (
-            row as Record<string, unknown>
+            row as Record<
+              string,
+              unknown
+            >
           ).inventory_product_setting_id,
         ),
         nullableNumber(
           (
-            row as Record<string, unknown>
+            row as Record<
+              string,
+              unknown
+            >
           ).precio_override,
         ),
       );
     }
 
     for (
-      const row of legacyOverridesResult.data ?? []
+      const row of
+        legacyOverridesResult.data ?? []
     ) {
       overrideByProductId.set(
         clean(
-          (row as Record<string, unknown>)
-            .product_id,
+          (
+            row as Record<
+              string,
+              unknown
+            >
+          ).product_id,
         ),
         nullableNumber(
-          (row as Record<string, unknown>)
-            .precio_override,
+          (
+            row as Record<
+              string,
+              unknown
+            >
+          ).precio_override,
         ),
       );
     }
   }
 
-  const resolvedItems: ResolvedSaleItem[] = [];
+  const resolvedItems:
+    ResolvedSaleItem[] = [];
 
   for (const item of params.items) {
-    const catalogProduct = productById.get(
-      item.productId,
-    );
+    const catalogProduct =
+      productById.get(item.productId);
 
     if (!catalogProduct) {
       throw new Error(
@@ -461,15 +511,21 @@ async function resolveSaleItems(params: {
       );
     }
 
-    if (catalogProduct.activo === false) {
+    if (
+      catalogProduct.activo === false
+    ) {
       throw new Error(
-        `El producto ${catalogProduct.nombre ?? item.productId} está inactivo.`,
+        `El producto ${
+          catalogProduct.nombre ??
+          item.productId
+        } está inactivo.`,
       );
     }
 
-    const setting = settingById.get(
-      item.inventoryProductSettingId,
-    );
+    const setting =
+      settingById.get(
+        item.inventoryProductSettingId,
+      );
 
     if (!setting) {
       throw new Error(
@@ -479,87 +535,135 @@ async function resolveSaleItems(params: {
 
     if (setting.activo === false) {
       throw new Error(
-        `La configuración de ${setting.nombre_comercial ?? catalogProduct.nombre} está inactiva.`,
+        `La configuración de ${
+          setting.nombre_comercial ??
+          catalogProduct.nombre
+        } está inactiva.`,
       );
     }
 
     const inventory =
-      await findProductionInventoryProduct({
-        codigo:
-          setting.firebase_bolsa_vacia_codigo ??
-          item.inventoryCode,
-        tipoHielo:
-          setting.firebase_tipo_hielo ??
-          item.iceType,
-        pesoKg: setting.peso_kg,
-      });
+      await findProductionInventoryProduct(
+        {
+          codigo:
+            setting.firebase_bolsa_vacia_codigo ??
+            item.inventoryCode,
+
+          tipoHielo:
+            setting.firebase_tipo_hielo ??
+            item.iceType,
+
+          pesoKg:
+            setting.peso_kg,
+        },
+      );
 
     if (!inventory) {
       throw new Error(
-        `No se encontró el inventario real de ${setting.nombre_comercial ?? catalogProduct.nombre}.`,
+        `No se encontró el inventario real de ${
+          setting.nombre_comercial ??
+          catalogProduct.nombre
+        }.`,
       );
     }
 
-    if (inventory.availableQty < item.quantity) {
+    if (
+      inventory.availableQty <
+      item.quantity
+    ) {
       throw new Error(
-        `Stock insuficiente de ${setting.nombre_comercial ?? catalogProduct.nombre}. Disponible: ${inventory.availableQty}.`,
+        `Stock insuficiente de ${
+          setting.nombre_comercial ??
+          catalogProduct.nombre
+        }. Disponible: ${
+          inventory.availableQty
+        }.`,
       );
     }
 
     const newOverride =
-      overrideBySettingId.get(setting.id) ?? null;
+      overrideBySettingId.get(
+        setting.id,
+      ) ?? null;
 
     const legacyOverride =
       overrideByProductId.get(
         catalogProduct.id,
       ) ?? null;
 
-    const settingBase = toNumber(
-      setting.precio_base,
-    );
+    const settingBase =
+      toNumber(
+        setting.precio_base,
+      );
 
-    const productBase = toNumber(
-      catalogProduct.precio_base,
-    );
+    const productBase =
+      toNumber(
+        catalogProduct.precio_base,
+      );
 
     const unitPrice =
       newOverride ??
       legacyOverride ??
-      (settingBase > 0
-        ? settingBase
-        : productBase);
+      (
+        settingBase > 0
+          ? settingBase
+          : productBase
+      );
 
     if (unitPrice < 0) {
       throw new Error(
-        `Precio inválido para ${setting.nombre_comercial ?? catalogProduct.nombre}.`,
+        `Precio inválido para ${
+          setting.nombre_comercial ??
+          catalogProduct.nombre
+        }.`,
       );
     }
 
-    let priceSource: ResolvedSaleItem['priceSource'];
+    let priceSource:
+      ResolvedSaleItem['priceSource'];
 
     if (newOverride !== null) {
       priceSource =
         'CUSTOMER_INVENTORY_OVERRIDE';
-    } else if (legacyOverride !== null) {
+    } else if (
+      legacyOverride !== null
+    ) {
       priceSource =
         'CUSTOMER_PRODUCT_OVERRIDE';
-    } else if (settingBase > 0) {
-      priceSource = 'INVENTORY_SETTING_BASE';
+    } else if (
+      settingBase > 0
+    ) {
+      priceSource =
+        'INVENTORY_SETTING_BASE';
     } else {
-      priceSource = 'PRODUCT_BASE';
+      priceSource =
+        'PRODUCT_BASE';
     }
 
     resolvedItems.push({
-      productId: catalogProduct.id,
-      inventoryProductSettingId: setting.id,
+      productId:
+        catalogProduct.id,
+
+      inventoryProductSettingId:
+        setting.id,
+
       productName:
-        clean(setting.nombre_comercial) ||
-        clean(catalogProduct.nombre) ||
+        clean(
+          setting.nombre_comercial,
+        ) ||
+        clean(
+          catalogProduct.nombre,
+        ) ||
         inventory.nombreComercial,
 
-      quantity: item.quantity,
+      quantity:
+        item.quantity,
+
       unitPrice,
-      subtotal: item.quantity * unitPrice,
+
+      subtotal:
+        item.quantity *
+        unitPrice,
 
       inventory,
       setting,
@@ -582,18 +686,26 @@ async function decrementInventory(params: {
   total: number;
   items: ResolvedSaleItem[];
 }) {
-  const db = getInventoryFirestoreAdmin();
+  const db =
+    getInventoryFirestoreAdmin();
 
   await db.runTransaction(
     async (
-      transaction: firestore.Transaction,
+      transaction:
+        firestore.Transaction,
     ) => {
-      const documentSnapshots = new Map<
-        string,
-        firestore.DocumentSnapshot
-      >();
+      /*
+       * Leemos cada documento una sola vez.
+       */
+      const documentSnapshots =
+        new Map<
+          string,
+          firestore.DocumentSnapshot
+        >();
 
-      for (const item of params.items) {
+      for (
+        const item of params.items
+      ) {
         if (
           documentSnapshots.has(
             item.inventory.documentId,
@@ -604,10 +716,14 @@ async function decrementInventory(params: {
 
         const reference = db
           .collection('productos')
-          .doc(item.inventory.documentId);
+          .doc(
+            item.inventory.documentId,
+          );
 
         const snapshot =
-          await transaction.get(reference);
+          await transaction.get(
+            reference,
+          );
 
         if (!snapshot.exists) {
           throw new Error(
@@ -621,46 +737,92 @@ async function decrementInventory(params: {
         );
       }
 
-      const quantitiesByDocumentAndType = new Map<
-        string,
-        number
-      >();
+      /*
+       * Agrupamos por:
+       *
+       * documento + KIND + tipo de hielo
+       *
+       * Esto es importante porque:
+       *
+       * BARRA física:
+       *   kind = BARRA
+       *   stock = cuartosDisponibles
+       *
+       * Bolsa 1/4 barra:
+       *   kind = BOLSA
+       *   tipoHielo = BARRA
+       *   stock = stockPorHielo.BARRA
+       */
+      const quantitiesByInventory =
+        new Map<
+          string,
+          {
+            documentId: string;
+            kind: string;
+            iceType: string;
+            quantity: number;
+          }
+        >();
 
-      for (const item of params.items) {
-        const key = [
-          item.inventory.documentId,
+      for (
+        const item of params.items
+      ) {
+        const documentId =
+          item.inventory.documentId;
+
+        const kind =
+          normalize(
+            item.inventory.kind,
+          );
+
+        const iceType =
           normalizeIceType(
             item.inventory.tipoHielo,
-          ),
+          );
+
+        const key = [
+          documentId,
+          kind,
+          iceType,
         ].join('__');
 
-        quantitiesByDocumentAndType.set(
+        const previous =
+          quantitiesByInventory.get(
+            key,
+          );
+
+        quantitiesByInventory.set(
           key,
-          (quantitiesByDocumentAndType.get(key) ??
-            0) + item.quantity,
+          {
+            documentId,
+            kind,
+            iceType,
+            quantity:
+              (
+                previous?.quantity ??
+                0
+              ) +
+              item.quantity,
+          },
         );
       }
 
+      /*
+       * Aplicar descuento real.
+       */
       for (
-        const [
-          key,
+        const {
+          documentId,
+          kind,
+          iceType,
           quantity,
-        ] of quantitiesByDocumentAndType
+        } of
+          quantitiesByInventory.values()
       ) {
-        const separatorIndex =
-          key.lastIndexOf('__');
-
-        const documentId = key.slice(
-          0,
-          separatorIndex,
-        );
-
-        const iceType = key.slice(
-          separatorIndex + 2,
-        );
-
         const snapshot =
-          documentSnapshots.get(documentId);
+          documentSnapshots.get(
+            documentId,
+          );
 
         if (!snapshot) {
           throw new Error(
@@ -669,40 +831,85 @@ async function decrementInventory(params: {
         }
 
         const data =
-          snapshot.data() as Record<string, any>;
+          snapshot.data() as Record<
+            string,
+            any
+          >;
 
-        const reference = snapshot.ref;
+        const reference =
+          snapshot.ref;
 
-        if (iceType === 'BARRA') {
-          const current = Math.max(
-            0,
-            Math.trunc(
-              toNumber(
-                data.cuartosDisponibles ??
-                  data.cuartos_disponibles ??
-                  data.stockActual ??
-                  0,
+        /*
+         * =================================
+         * BARRA FÍSICA
+         * =================================
+         *
+         * Sólo entra aquí cuando el
+         * inventario realmente fue
+         * clasificado como kind=BARRA.
+         *
+         * NO entran las bolsas BVxxx
+         * cuyo contenido sea BARRA.
+         */
+        if (kind === 'BARRA') {
+          const current =
+            Math.max(
+              0,
+              Math.trunc(
+                toNumber(
+                  data.cuartosDisponibles ??
+                    data.cuartos_disponibles ??
+                    data.stockActual ??
+                    data.stock ??
+                    0,
+                ),
               ),
-            ),
-          );
+            );
 
-          if (current < quantity) {
+          if (
+            current <
+            quantity
+          ) {
             throw new Error(
               `Stock insuficiente de barra. Disponible: ${current}.`,
             );
           }
 
-          const next = current - quantity;
+          const next =
+            current -
+            quantity;
 
-          transaction.update(reference, {
-            cuartosDisponibles: next,
-            updatedAt:
-              inventoryFirebaseAdmin.firestore.FieldValue.serverTimestamp(),
-          });
+          transaction.update(
+            reference,
+            {
+              cuartosDisponibles:
+                next,
+
+              updatedAt:
+                inventoryFirebaseAdmin.firestore.FieldValue.serverTimestamp(),
+            },
+          );
 
           continue;
         }
 
+        /*
+         * =================================
+         * BOLSAS LLENAS
+         * =================================
+         *
+         * Incluye también:
+         *
+         * tipoHielo = BARRA
+         * kind = BOLSA
+         *
+         * Ejemplo:
+         * Bolsa genérica 1/4 barra
+         *
+         * Su stock vive en:
+         *
+         * stockPorHielo.BARRA
+         */
         const stockContainer =
           data.stockPorHielo ??
           data.stock_por_hielo ??
@@ -710,12 +917,14 @@ async function decrementInventory(params: {
 
         if (
           stockContainer &&
-          typeof stockContainer === 'object'
+          typeof stockContainer ===
+            'object'
         ) {
-          const stockEntry = findIceStockEntry(
-            stockContainer,
-            iceType,
-          );
+          const stockEntry =
+            findIceStockEntry(
+              stockContainer,
+              iceType,
+            );
 
           if (!stockEntry) {
             throw new Error(
@@ -723,217 +932,338 @@ async function decrementInventory(params: {
             );
           }
 
-          const current = readStockNumber(
-            stockEntry.value,
-          );
+          const current =
+            readStockNumber(
+              stockEntry.value,
+            );
 
-          if (current < quantity) {
+          if (
+            current <
+            quantity
+          ) {
             throw new Error(
               `Stock insuficiente de ${iceType}. Disponible: ${current}.`,
             );
           }
 
-          const next = current - quantity;
+          const next =
+            current -
+            quantity;
 
           const nextContainer = {
             ...stockContainer,
-            [stockEntry.key]: updateStockValue(
-              stockEntry.value,
-              next,
-            ),
+
+            [stockEntry.key]:
+              updateStockValue(
+                stockEntry.value,
+                next,
+              ),
           };
 
-          transaction.update(reference, {
-            stockPorHielo: nextContainer,
-            updatedAt:
-              inventoryFirebaseAdmin.firestore.FieldValue.serverTimestamp(),
-          });
+          transaction.update(
+            reference,
+            {
+              stockPorHielo:
+                nextContainer,
+
+              updatedAt:
+                inventoryFirebaseAdmin.firestore.FieldValue.serverTimestamp(),
+            },
+          );
 
           continue;
         }
 
-        const current = Math.max(
-          0,
-          Math.trunc(
-            toNumber(
-              data.stockActual ??
-                data.stock_actual ??
-                data.stock ??
-                0,
+        /*
+         * Fallback para documentos viejos
+         * que todavía tengan stock directo.
+         */
+        const current =
+          Math.max(
+            0,
+            Math.trunc(
+              toNumber(
+                data.stockActual ??
+                  data.stock_actual ??
+                  data.stock ??
+                  0,
+              ),
             ),
-          ),
-        );
+          );
 
-        if (current < quantity) {
+        if (
+          current <
+          quantity
+        ) {
           throw new Error(
             `Stock insuficiente. Disponible: ${current}.`,
           );
         }
 
-        transaction.update(reference, {
-          stockActual: current - quantity,
-          updatedAt:
-            inventoryFirebaseAdmin.firestore.FieldValue.serverTimestamp(),
-        });
+        transaction.update(
+          reference,
+          {
+            stockActual:
+              current -
+              quantity,
+
+            updatedAt:
+              inventoryFirebaseAdmin.firestore.FieldValue.serverTimestamp(),
+          },
+        );
       }
 
+      /*
+       * =================================
+       * MOVIMIENTO DE INVENTARIO
+       * =================================
+       */
       const movementRef = db
         .collection('movimientos')
         .doc();
 
-      transaction.set(movementRef, {
-        tipo: 'SALIDA',
-        subtipo: 'VENTA_PUBLICO',
-        salidaSubtipo: 'VENTA_PUBLICO',
-        salidaDestino: 'PUBLICO',
+      transaction.set(
+        movementRef,
+        {
+          tipo: 'SALIDA',
 
-        origen: 'PRODUCCION',
-        fuente: 'PRODUCTION_TABLET',
+          subtipo:
+            'VENTA_PUBLICO',
 
-        afectaStock: true,
-        batch: true,
+          salidaSubtipo:
+            'VENTA_PUBLICO',
 
-        ventaId: params.saleId,
-        folio: params.folio,
+          salidaDestino:
+            'PUBLICO',
 
-        empleadoId: params.employeeId,
-        empleadoCodigo: params.employeeId,
-        empleadoNombre: params.employeeName,
+          origen:
+            'PRODUCCION',
 
-        clienteNombre: params.customerName,
-        destinatario: params.customerName,
+          fuente:
+            'PRODUCTION_TABLET',
 
-        tipoVenta: params.saleType,
-        metodoPago: params.paymentMethod,
+          afectaStock:
+            true,
 
-        total: params.total,
+          batch:
+            true,
 
-        cantidad: params.items.reduce(
-          (total, item) =>
-            total + item.quantity,
-          0,
-        ),
+          ventaId:
+            params.saleId,
 
-        items: params.items.map((item) => ({
-          productId: item.productId,
+          folio:
+            params.folio,
 
-          inventoryProductSettingId:
-            item.inventoryProductSettingId,
+          empleadoId:
+            params.employeeId,
 
-          inventoryDocumentId:
-            item.inventory.documentId,
+          empleadoCodigo:
+            params.employeeId,
 
-          inventoryKey:
-            item.inventory.inventoryKey,
+          empleadoNombre:
+            params.employeeName,
 
-          productKey:
-            item.inventory.productKey,
+          clienteNombre:
+            params.customerName,
 
-          productoCodigo:
-            item.inventory.codigo,
+          destinatario:
+            params.customerName,
 
-          bolsaVaciaCodigo:
-            item.inventory.bolsaVaciaCodigo,
+          tipoVenta:
+            params.saleType,
 
-          productoNombre: item.productName,
+          metodoPago:
+            params.paymentMethod,
 
-          tipoHielo:
-            item.inventory.tipoHielo,
+          total:
+            params.total,
 
-          pesoKg:
-            item.inventory.pesoKg,
+          cantidad:
+            params.items.reduce(
+              (
+                total,
+                item,
+              ) =>
+                total +
+                item.quantity,
+              0,
+            ),
 
-          cantidad: item.quantity,
-          delta: -item.quantity,
+          items:
+            params.items.map(
+              (item) => ({
+                productId:
+                  item.productId,
 
-          precioUnitario: item.unitPrice,
-          subtotal: item.subtotal,
-        })),
+                inventoryProductSettingId:
+                  item.inventoryProductSettingId,
 
-        fecha:
-          inventoryFirebaseAdmin.firestore.FieldValue.serverTimestamp(),
+                inventoryDocumentId:
+                  item.inventory.documentId,
 
-        createdAt:
-          inventoryFirebaseAdmin.firestore.FieldValue.serverTimestamp(),
+                inventoryKey:
+                  item.inventory.inventoryKey,
 
-        updatedAt:
-          inventoryFirebaseAdmin.firestore.FieldValue.serverTimestamp(),
-      });
+                productKey:
+                  item.inventory.productKey,
+
+                inventoryKind:
+                  item.inventory.kind,
+
+                productoCodigo:
+                  item.inventory.codigo,
+
+                bolsaVaciaCodigo:
+                  item.inventory
+                    .bolsaVaciaCodigo,
+
+                productoNombre:
+                  item.productName,
+
+                tipoHielo:
+                  item.inventory.tipoHielo,
+
+                pesoKg:
+                  item.inventory.pesoKg,
+
+                cantidad:
+                  item.quantity,
+
+                delta:
+                  -item.quantity,
+
+                precioUnitario:
+                  item.unitPrice,
+
+                subtotal:
+                  item.subtotal,
+              }),
+            ),
+
+          fecha:
+            inventoryFirebaseAdmin.firestore.FieldValue.serverTimestamp(),
+
+          createdAt:
+            inventoryFirebaseAdmin.firestore.FieldValue.serverTimestamp(),
+
+          updatedAt:
+            inventoryFirebaseAdmin.firestore.FieldValue.serverTimestamp(),
+        },
+      );
     },
   );
 }
 
-async function rollbackSupabaseSale(params: {
-  saleId: string;
-}) {
-  const sb = getAdminSupabase();
+async function rollbackSupabaseSale(
+  params: {
+    saleId: string;
+  },
+) {
+  const sb =
+    getAdminSupabase();
 
   await sb
     .from('delivery_items')
     .delete()
-    .eq('delivery_id', params.saleId);
+    .eq(
+      'delivery_id',
+      params.saleId,
+    );
 
   await sb
     .from('deliveries')
     .delete()
-    .eq('id', params.saleId);
+    .eq(
+      'id',
+      params.saleId,
+    );
 }
 
 export async function OPTIONS() {
-  return new Response(null, {
-    status: 204,
-  });
+  return new Response(
+    null,
+    {
+      status: 204,
+    },
+  );
 }
 
-export async function POST(req: Request) {
-  let createdSaleId: string | null = null;
+export async function POST(
+  req: Request,
+) {
+  let createdSaleId:
+    string | null = null;
 
   try {
-    const sb = getAdminSupabase();
+    const sb =
+      getAdminSupabase();
 
-    const body = await req
-      .json()
-      .catch(() => ({}));
+    const body =
+      await req
+        .json()
+        .catch(() => ({}));
 
-    const employeeId = clean(
-      body?.employee_id,
-    );
+    const employeeId =
+      clean(
+        body?.employee_id,
+      );
 
     const employeeName =
-      clean(body?.employee_name) ||
+      clean(
+        body?.employee_name,
+      ) ||
       employeeId;
 
-    const saleType = normalize(
-      body?.sale_type || 'PUBLIC',
-    ) as SaleType;
+    const saleType =
+      normalize(
+        body?.sale_type ||
+          'PUBLIC',
+      ) as SaleType;
 
     const customerId =
-      saleType === 'CUSTOMER'
-        ? clean(body?.customer_id)
+      saleType ===
+      'CUSTOMER'
+        ? clean(
+            body?.customer_id,
+          )
         : null;
 
     const customerName =
-      clean(body?.customer_name) ||
-      (saleType === 'PUBLIC'
-        ? 'Público general'
-        : 'Cliente');
+      clean(
+        body?.customer_name,
+      ) ||
+      (
+        saleType ===
+        'PUBLIC'
+          ? 'Público general'
+          : 'Cliente'
+      );
 
-    const paymentMethod = normalize(
-      body?.payment_method || 'EFECTIVO',
-    );
+    const paymentMethod =
+      normalize(
+        body?.payment_method ||
+          'EFECTIVO',
+      );
 
-    const rawItems: RawSaleItem[] =
-      Array.isArray(body?.items)
+    const rawItems:
+      RawSaleItem[] =
+      Array.isArray(
+        body?.items,
+      )
         ? body.items
         : [];
 
     if (!employeeId) {
-      return bad('Falta employee_id.');
+      return bad(
+        'Falta employee_id.',
+      );
     }
 
     if (
-      saleType !== 'CUSTOMER' &&
-      saleType !== 'PUBLIC'
+      saleType !==
+        'CUSTOMER' &&
+      saleType !==
+        'PUBLIC'
     ) {
       return bad(
         'sale_type debe ser CUSTOMER o PUBLIC.',
@@ -941,7 +1271,8 @@ export async function POST(req: Request) {
     }
 
     if (
-      saleType === 'CUSTOMER' &&
+      saleType ===
+        'CUSTOMER' &&
       !customerId
     ) {
       return bad(
@@ -949,64 +1280,105 @@ export async function POST(req: Request) {
       );
     }
 
-    if (!isValidPaymentMethod(paymentMethod)) {
+    if (
+      !isValidPaymentMethod(
+        paymentMethod,
+      )
+    ) {
       return bad(
         'Método de pago inválido.',
       );
     }
 
-    if (rawItems.length === 0) {
+    if (
+      rawItems.length === 0
+    ) {
       return bad(
         'Agrega al menos un producto.',
       );
     }
 
-    const cleanItems: CleanSaleItem[] =
-      rawItems.map((item) => ({
-        productId: clean(item.product_id),
+    const cleanItems:
+      CleanSaleItem[] =
+      rawItems.map(
+        (item) => ({
+          productId:
+            clean(
+              item.product_id,
+            ),
 
-        inventoryProductSettingId: clean(
-          item.inventory_product_setting_id,
-        ),
+          inventoryProductSettingId:
+            clean(
+              item.inventory_product_setting_id,
+            ),
 
-        inventoryCode: clean(
-          item.inventory_code,
-        ).toUpperCase(),
+          inventoryCode:
+            clean(
+              item.inventory_code,
+            ).toUpperCase(),
 
-        iceType: normalizeIceType(
-          item.ice_type,
-        ),
+          iceType:
+            normalizeIceType(
+              item.ice_type,
+            ),
 
-        quantity: toPositiveInteger(
-          item.quantity,
-        ),
-      }));
+          quantity:
+            toPositiveInteger(
+              item.quantity,
+            ),
+        }),
+      );
 
-    for (const item of cleanItems) {
-      if (!item.productId) {
-        return bad('Producto inválido.');
+    for (
+      const item of
+        cleanItems
+    ) {
+      if (
+        !item.productId
+      ) {
+        return bad(
+          'Producto inválido.',
+        );
       }
 
-      if (!item.inventoryProductSettingId) {
+      if (
+        !item.inventoryProductSettingId
+      ) {
         return bad(
           'Falta inventory_product_setting_id.',
         );
       }
 
-      if (item.quantity <= 0) {
-        return bad('Cantidad inválida.');
+      if (
+        item.quantity <= 0
+      ) {
+        return bad(
+          'Cantidad inválida.',
+        );
       }
     }
 
-    if (saleType === 'CUSTOMER') {
-      const { data: customer, error } =
-        await sb
-          .from('customers')
-          .select('id,nombre,activo')
-          .eq('id', customerId)
-          .maybeSingle();
+    if (
+      saleType ===
+      'CUSTOMER'
+    ) {
+      const {
+        data: customer,
+        error,
+      } = await sb
+        .from('customers')
+        .select(
+          'id,nombre,activo',
+        )
+        .eq(
+          'id',
+          customerId,
+        )
+        .maybeSingle();
 
-      if (error) throw error;
+      if (error) {
+        throw error;
+      }
 
       if (!customer) {
         return bad(
@@ -1015,7 +1387,10 @@ export async function POST(req: Request) {
         );
       }
 
-      if (customer.activo === false) {
+      if (
+        customer.activo ===
+        false
+      ) {
         return bad(
           'El cliente está inactivo.',
         );
@@ -1026,122 +1401,180 @@ export async function POST(req: Request) {
       await resolveSaleItems({
         saleType,
         customerId,
-        items: cleanItems,
+        items:
+          cleanItems,
       });
 
-    const total = resolvedItems.reduce(
-      (sum, item) => sum + item.subtotal,
-      0,
-    );
-
-    const totalQuantity =
+    const total =
       resolvedItems.reduce(
-        (sum, item) =>
-          sum + item.quantity,
+        (
+          sum,
+          item,
+        ) =>
+          sum +
+          item.subtotal,
         0,
       );
 
-    const folio = await generateFolio();
+    const totalQuantity =
+      resolvedItems.reduce(
+        (
+          sum,
+          item,
+        ) =>
+          sum +
+          item.quantity,
+        0,
+      );
 
-    const nowIso = new Date().toISOString();
+    const folio =
+      await generateFolio();
 
-    const { data: saleRow, error: saleError } =
-      await sb
-        .from('deliveries')
-        .insert({
-          folio,
+    const nowIso =
+      new Date().toISOString();
 
-          assignment_id: null,
-          route_id: null,
-          order_id: null,
+    const {
+      data: saleRow,
+      error: saleError,
+    } = await sb
+      .from('deliveries')
+      .insert({
+        folio,
 
-          customer_id:
-            saleType === 'CUSTOMER'
-              ? customerId
-              : null,
+        assignment_id:
+          null,
 
-          customer_nombre_snapshot:
-            customerName,
+        route_id:
+          null,
 
-          status: 'ENTREGADA',
-          delivered_at: nowIso,
+        order_id:
+          null,
 
-          total_expected: total,
-          total_real: total,
+        customer_id:
+          saleType ===
+          'CUSTOMER'
+            ? customerId
+            : null,
 
-          priority: 1,
+        customer_nombre_snapshot:
+          customerName,
 
-          payment_method:
-            paymentMethod,
+        status:
+          'ENTREGADA',
 
-          delivery_type:
-            'production_sale',
+        delivered_at:
+          nowIso,
 
-          affects_progress: false,
-          affects_stock: true,
-          created_by_driver: false,
+        total_expected:
+          total,
 
-          production_employee_id:
-            employeeId,
+        total_real:
+          total,
 
-          production_employee_name:
-            employeeName,
+        priority:
+          1,
 
-          created_at: nowIso,
-          updated_at: nowIso,
-        })
-        .select('id,folio')
-        .single();
+        payment_method:
+          paymentMethod,
+
+        delivery_type:
+          'production_sale',
+
+        affects_progress:
+          false,
+
+        affects_stock:
+          true,
+
+        created_by_driver:
+          false,
+
+        production_employee_id:
+          employeeId,
+
+        production_employee_name:
+          employeeName,
+
+        created_at:
+          nowIso,
+
+        updated_at:
+          nowIso,
+      })
+      .select(
+        'id,folio',
+      )
+      .single();
 
     if (saleError) {
       throw saleError;
     }
 
-    createdSaleId = clean(saleRow.id);
+    createdSaleId =
+      clean(
+        saleRow.id,
+      );
 
-const itemsCreatedAt =
-  new Date().toISOString();
+    const itemsCreatedAt =
+      new Date().toISOString();
 
-const deliveryItems = resolvedItems.map(
-  (item) => ({
-    delivery_id: createdSaleId,
+    const deliveryItems =
+      resolvedItems.map(
+        (item) => ({
+          delivery_id:
+            createdSaleId,
 
-    product_id: item.productId,
+          product_id:
+            item.productId,
 
-    qty_assigned: item.quantity,
-    qty_real: item.quantity,
+          qty_assigned:
+            item.quantity,
 
-    precio_aplicado:
-      item.unitPrice,
+          qty_real:
+            item.quantity,
 
+          precio_aplicado:
+            item.unitPrice,
 
-    created_at:
-      itemsCreatedAt,
+          created_at:
+            itemsCreatedAt,
 
-    updated_at:
-      itemsCreatedAt,
-  }),
-);
+          updated_at:
+            itemsCreatedAt,
+        }),
+      );
 
-    const { error: itemsError } = await sb
-      .from('delivery_items')
-      .insert(deliveryItems);
+    const {
+      error: itemsError,
+    } = await sb
+      .from(
+        'delivery_items',
+      )
+      .insert(
+        deliveryItems,
+      );
 
     if (itemsError) {
       await rollbackSupabaseSale({
-        saleId: createdSaleId,
+        saleId:
+          createdSaleId,
       });
 
-      createdSaleId = null;
+      createdSaleId =
+        null;
 
       throw itemsError;
     }
 
     try {
       await decrementInventory({
-        saleId: createdSaleId,
+        saleId:
+          createdSaleId,
+
         folio:
-          clean(saleRow.folio) ||
+          clean(
+            saleRow.folio,
+          ) ||
           folio,
 
         employeeId,
@@ -1152,14 +1585,20 @@ const deliveryItems = resolvedItems.map(
         paymentMethod,
 
         total,
-        items: resolvedItems,
+
+        items:
+          resolvedItems,
       });
-    } catch (inventoryError) {
+    } catch (
+      inventoryError
+    ) {
       await rollbackSupabaseSale({
-        saleId: createdSaleId,
+        saleId:
+          createdSaleId,
       });
 
-      createdSaleId = null;
+      createdSaleId =
+        null;
 
       throw inventoryError;
     }
@@ -1167,96 +1606,128 @@ const deliveryItems = resolvedItems.map(
     return NextResponse.json({
       ok: true,
 
-      sale_id: createdSaleId,
-      delivery_id: createdSaleId,
+      sale_id:
+        createdSaleId,
+
+      delivery_id:
+        createdSaleId,
 
       folio:
-        clean(saleRow.folio) ||
+        clean(
+          saleRow.folio,
+        ) ||
         folio,
 
-      sale_type: saleType,
+      sale_type:
+        saleType,
 
-      customer_id: customerId,
-      customer_name: customerName,
+      customer_id:
+        customerId,
 
-      employee_id: employeeId,
-      employee_name: employeeName,
+      customer_name:
+        customerName,
 
-      payment_method: paymentMethod,
+      employee_id:
+        employeeId,
 
-      total_quantity: totalQuantity,
+      employee_name:
+        employeeName,
+
+      payment_method:
+        paymentMethod,
+
+      total_quantity:
+        totalQuantity,
+
       total,
 
-      status: 'ENTREGADA',
+      status:
+        'ENTREGADA',
 
       created_at:
         new Date().toISOString(),
 
-      items: resolvedItems.map(
-        (item) => ({
-          product_id:
-            item.productId,
+      items:
+        resolvedItems.map(
+          (item) => ({
+            product_id:
+              item.productId,
 
-          inventory_product_setting_id:
-            item.inventoryProductSettingId,
+            inventory_product_setting_id:
+              item.inventoryProductSettingId,
 
-          name:
-            item.productName,
+            name:
+              item.productName,
 
-          nombre:
-            item.productName,
+            nombre:
+              item.productName,
 
-          quantity:
-            item.quantity,
+            quantity:
+              item.quantity,
 
-          qty:
-            item.quantity,
+            qty:
+              item.quantity,
 
-          unit_price:
-            item.unitPrice,
+            unit_price:
+              item.unitPrice,
 
-          precio:
-            item.unitPrice,
+            precio:
+              item.unitPrice,
 
-          subtotal:
-            item.subtotal,
+            subtotal:
+              item.subtotal,
 
-          price_source:
-            item.priceSource,
+            price_source:
+              item.priceSource,
 
-          inventory_document_id:
-            item.inventory.documentId,
+            inventory_document_id:
+              item.inventory.documentId,
 
-          inventory_key:
-            item.inventory.inventoryKey,
+            inventory_key:
+              item.inventory.inventoryKey,
 
-          product_key:
-            item.inventory.productKey,
+            product_key:
+              item.inventory.productKey,
 
-          available_before:
-            item.inventory.availableQty,
+            inventory_kind:
+              item.inventory.kind,
 
-          available_after:
-            item.inventory.availableQty -
-            item.quantity,
-        }),
-      ),
+            ice_type:
+              item.inventory.tipoHielo,
+
+            available_before:
+              item.inventory.availableQty,
+
+            available_after:
+              item.inventory.availableQty -
+              item.quantity,
+          }),
+        ),
     });
-  } catch (error: unknown) {
+  } catch (
+    error: unknown
+  ) {
     console.error(
       '[production-sales] error:',
       error,
     );
 
-    if (createdSaleId) {
+    if (
+      createdSaleId
+    ) {
       await rollbackSupabaseSale({
-        saleId: createdSaleId,
-      }).catch((rollbackError) => {
-        console.error(
-          '[production-sales] rollback error:',
+        saleId:
+          createdSaleId,
+      }).catch(
+        (
           rollbackError,
-        );
-      });
+        ) => {
+          console.error(
+            '[production-sales] rollback error:',
+            rollbackError,
+          );
+        },
+      );
     }
 
     const message =
@@ -1267,7 +1738,8 @@ const deliveryItems = resolvedItems.map(
     return NextResponse.json(
       {
         ok: false,
-        error: message,
+        error:
+          message,
       },
       {
         status: 400,
