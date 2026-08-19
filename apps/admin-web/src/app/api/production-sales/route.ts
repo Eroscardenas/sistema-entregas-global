@@ -6,8 +6,10 @@ import {
   getInventoryFirestoreAdmin,
   inventoryFirebaseAdmin,
 } from '@/lib/server/inventoryFirebaseAdmin';
+
 import {
   findProductionInventoryProduct,
+  getProductionInventoryProducts,
   type ProductionInventoryProduct,
 } from '@/lib/services/production/production.inventory.service';
 
@@ -121,15 +123,25 @@ function toNumber(value: unknown): number {
   }
 
   const parsed = Number(value);
-  return Number.isFinite(parsed) ? parsed : 0;
+
+  return Number.isFinite(parsed)
+    ? parsed
+    : 0;
 }
 
 function toPositiveInteger(value: unknown): number {
-  const parsed = Math.trunc(toNumber(value));
-  return parsed > 0 ? parsed : 0;
+  const parsed = Math.trunc(
+    toNumber(value),
+  );
+
+  return parsed > 0
+    ? parsed
+    : 0;
 }
 
-function nullableNumber(value: unknown): number | null {
+function nullableNumber(
+  value: unknown,
+): number | null {
   if (
     value === null ||
     value === undefined ||
@@ -139,10 +151,15 @@ function nullableNumber(value: unknown): number | null {
   }
 
   const parsed = Number(value);
-  return Number.isFinite(parsed) ? parsed : null;
+
+  return Number.isFinite(parsed)
+    ? parsed
+    : null;
 }
 
-function isValidPaymentMethod(value: string) {
+function isValidPaymentMethod(
+  value: string,
+) {
   return [
     'EFECTIVO',
     'TRANSFERENCIA',
@@ -154,30 +171,45 @@ function buildFallbackFolio() {
   const now = new Date();
 
   const y = now.getFullYear();
-  const m = String(now.getMonth() + 1).padStart(2, '0');
-  const d = String(now.getDate()).padStart(2, '0');
+
+  const m = String(
+    now.getMonth() + 1,
+  ).padStart(2, '0');
+
+  const d = String(
+    now.getDate(),
+  ).padStart(2, '0');
 
   const time = [
     now.getHours(),
     now.getMinutes(),
     now.getSeconds(),
   ]
-    .map((value) => String(value).padStart(2, '0'))
+    .map((value) =>
+      String(value).padStart(2, '0'),
+    )
     .join('');
 
-  const random = Math.floor(Math.random() * 900 + 100);
+  const random =
+    Math.floor(
+      Math.random() * 900 + 100,
+    );
 
   return `GI-PRO-${y}${m}${d}-${time}${random}`;
 }
 
-function readStockNumber(value: unknown): number {
+function readStockNumber(
+  value: unknown,
+): number {
   if (
     typeof value === 'number' ||
     typeof value === 'string'
   ) {
     return Math.max(
       0,
-      Math.trunc(toNumber(value)),
+      Math.trunc(
+        toNumber(value),
+      ),
     );
   }
 
@@ -185,10 +217,11 @@ function readStockNumber(value: unknown): number {
     value &&
     typeof value === 'object'
   ) {
-    const row = value as Record<
-      string,
-      unknown
-    >;
+    const row =
+      value as Record<
+        string,
+        unknown
+      >;
 
     return Math.max(
       0,
@@ -230,16 +263,29 @@ function updateStockValue(
       >),
     };
 
-    if ('stockActual' in objectValue) {
-      objectValue.stockActual = newStock;
-    } else if ('stock' in objectValue) {
-      objectValue.stock = newStock;
-    } else if ('cantidad' in objectValue) {
-      objectValue.cantidad = newStock;
-    } else if ('disponible' in objectValue) {
-      objectValue.disponible = newStock;
+    if (
+      'stockActual' in objectValue
+    ) {
+      objectValue.stockActual =
+        newStock;
+    } else if (
+      'stock' in objectValue
+    ) {
+      objectValue.stock =
+        newStock;
+    } else if (
+      'cantidad' in objectValue
+    ) {
+      objectValue.cantidad =
+        newStock;
+    } else if (
+      'disponible' in objectValue
+    ) {
+      objectValue.disponible =
+        newStock;
     } else {
-      objectValue.stockActual = newStock;
+      objectValue.stockActual =
+        newStock;
     }
 
     return objectValue;
@@ -249,19 +295,26 @@ function updateStockValue(
 }
 
 function findIceStockEntry(
-  stockContainer: Record<string, unknown>,
+  stockContainer:
+    Record<string, unknown>,
   requestedIceType: string,
 ) {
-  const wanted = normalizeIceType(
-    requestedIceType,
-  );
+  const wanted =
+    normalizeIceType(
+      requestedIceType,
+    );
 
   for (
-    const [key, value] of
-      Object.entries(stockContainer)
+    const [
+      key,
+      value,
+    ] of Object.entries(
+      stockContainer,
+    )
   ) {
     if (
-      normalizeIceType(key) === wanted
+      normalizeIceType(key) ===
+      wanted
     ) {
       return {
         key,
@@ -274,19 +327,28 @@ function findIceStockEntry(
 }
 
 async function generateFolio() {
-  const sb = getAdminSupabase();
+  const sb =
+    getAdminSupabase();
 
   const rpcAttempts = [
     'generate_delivery_folio',
     'generate_production_sale_folio',
   ];
 
-  for (const rpcName of rpcAttempts) {
-    const { data, error } =
-      await sb.rpc(rpcName);
+  for (
+    const rpcName of
+      rpcAttempts
+  ) {
+    const {
+      data,
+      error,
+    } = await sb.rpc(
+      rpcName,
+    );
 
     if (!error) {
-      const folio = clean(data);
+      const folio =
+        clean(data);
 
       if (folio) {
         return folio;
@@ -297,29 +359,50 @@ async function generateFolio() {
   return buildFallbackFolio();
 }
 
-async function resolveSaleItems(params: {
-  saleType: SaleType;
-  customerId: string | null;
-  items: CleanSaleItem[];
-}): Promise<ResolvedSaleItem[]> {
-  const sb = getAdminSupabase();
+/*
+ * =====================================================
+ * RESOLVER PRODUCTOS DE LA VENTA
+ * =====================================================
+ *
+ * inventoryProducts ya viene precargado.
+ *
+ * Por lo tanto esta función NO vuelve a descargar
+ * la colección productos de Firebase por cada item.
+ */
+async function resolveSaleItems(
+  params: {
+    saleType: SaleType;
+    customerId: string | null;
+    items: CleanSaleItem[];
 
-  const productIds = Array.from(
-    new Set(
-      params.items.map(
-        (item) => item.productId,
-      ),
-    ),
-  );
+    inventoryProducts:
+      ProductionInventoryProduct[];
+  },
+): Promise<
+  ResolvedSaleItem[]
+> {
+  const sb =
+    getAdminSupabase();
 
-  const settingIds = Array.from(
-    new Set(
-      params.items.map(
-        (item) =>
-          item.inventoryProductSettingId,
+  const productIds =
+    Array.from(
+      new Set(
+        params.items.map(
+          (item) =>
+            item.productId,
+        ),
       ),
-    ),
-  );
+    );
+
+  const settingIds =
+    Array.from(
+      new Set(
+        params.items.map(
+          (item) =>
+            item.inventoryProductSettingId,
+        ),
+      ),
+    );
 
   const [
     productsResult,
@@ -338,10 +421,15 @@ async function resolveSaleItems(params: {
         kg_por_unidad
       `,
       )
-      .in('id', productIds),
+      .in(
+        'id',
+        productIds,
+      ),
 
     sb
-      .from('inventory_product_settings')
+      .from(
+        'inventory_product_settings',
+      )
       .select(
         `
         id,
@@ -353,47 +441,71 @@ async function resolveSaleItems(params: {
         activo
       `,
       )
-      .in('id', settingIds),
+      .in(
+        'id',
+        settingIds,
+      ),
   ]);
 
-  if (productsResult.error) {
+  if (
+    productsResult.error
+  ) {
     throw productsResult.error;
   }
 
-  if (settingsResult.error) {
+  if (
+    settingsResult.error
+  ) {
     throw settingsResult.error;
   }
 
   const products =
-    (productsResult.data ??
-      []) as CatalogProduct[];
+    (
+      productsResult.data ??
+      []
+    ) as CatalogProduct[];
 
   const settings =
-    (settingsResult.data ??
-      []) as InventorySetting[];
+    (
+      settingsResult.data ??
+      []
+    ) as InventorySetting[];
 
-  const productById = new Map(
-    products.map((product) => [
-      clean(product.id),
-      product,
-    ]),
-  );
+  const productById =
+    new Map(
+      products.map(
+        (product) => [
+          clean(product.id),
+          product,
+        ],
+      ),
+    );
 
-  const settingById = new Map(
-    settings.map((setting) => [
-      clean(setting.id),
-      setting,
-    ]),
-  );
+  const settingById =
+    new Map(
+      settings.map(
+        (setting) => [
+          clean(setting.id),
+          setting,
+        ],
+      ),
+    );
 
   const overrideBySettingId =
-    new Map<string, number | null>();
+    new Map<
+      string,
+      number | null
+    >();
 
   const overrideByProductId =
-    new Map<string, number | null>();
+    new Map<
+      string,
+      number | null
+    >();
 
   if (
-    params.saleType === 'CUSTOMER' &&
+    params.saleType ===
+      'CUSTOMER' &&
     params.customerId
   ) {
     const [
@@ -415,14 +527,19 @@ async function resolveSaleItems(params: {
           'customer_id',
           params.customerId,
         )
-        .eq('activo', true)
+        .eq(
+          'activo',
+          true,
+        )
         .in(
           'inventory_product_setting_id',
           settingIds,
         ),
 
       sb
-        .from('customer_products')
+        .from(
+          'customer_products',
+        )
         .select(
           `
           product_id,
@@ -434,24 +551,32 @@ async function resolveSaleItems(params: {
           'customer_id',
           params.customerId,
         )
-        .eq('activo', true)
+        .eq(
+          'activo',
+          true,
+        )
         .in(
           'product_id',
           productIds,
         ),
     ]);
 
-    if (newOverridesResult.error) {
+    if (
+      newOverridesResult.error
+    ) {
       throw newOverridesResult.error;
     }
 
-    if (legacyOverridesResult.error) {
+    if (
+      legacyOverridesResult.error
+    ) {
       throw legacyOverridesResult.error;
     }
 
     for (
       const row of
-        newOverridesResult.data ?? []
+        newOverridesResult.data ??
+        []
     ) {
       overrideBySettingId.set(
         clean(
@@ -462,6 +587,7 @@ async function resolveSaleItems(params: {
             >
           ).inventory_product_setting_id,
         ),
+
         nullableNumber(
           (
             row as Record<
@@ -475,7 +601,8 @@ async function resolveSaleItems(params: {
 
     for (
       const row of
-        legacyOverridesResult.data ?? []
+        legacyOverridesResult.data ??
+        []
     ) {
       overrideByProductId.set(
         clean(
@@ -486,6 +613,7 @@ async function resolveSaleItems(params: {
             >
           ).product_id,
         ),
+
         nullableNumber(
           (
             row as Record<
@@ -501,9 +629,14 @@ async function resolveSaleItems(params: {
   const resolvedItems:
     ResolvedSaleItem[] = [];
 
-  for (const item of params.items) {
+  for (
+    const item of
+      params.items
+  ) {
     const catalogProduct =
-      productById.get(item.productId);
+      productById.get(
+        item.productId,
+      );
 
     if (!catalogProduct) {
       throw new Error(
@@ -512,7 +645,8 @@ async function resolveSaleItems(params: {
     }
 
     if (
-      catalogProduct.activo === false
+      catalogProduct.activo ===
+      false
     ) {
       throw new Error(
         `El producto ${
@@ -533,7 +667,10 @@ async function resolveSaleItems(params: {
       );
     }
 
-    if (setting.activo === false) {
+    if (
+      setting.activo ===
+      false
+    ) {
       throw new Error(
         `La configuración de ${
           setting.nombre_comercial ??
@@ -542,6 +679,14 @@ async function resolveSaleItems(params: {
       );
     }
 
+    /*
+     * IMPORTANTE:
+     *
+     * PASAMOS inventoryProducts COMO TERCER PARÁMETRO.
+     *
+     * findProductionInventoryProduct ya NO consulta
+     * nuevamente toda la colección.
+     */
     const inventory =
       await findProductionInventoryProduct(
         {
@@ -556,6 +701,10 @@ async function resolveSaleItems(params: {
           pesoKg:
             setting.peso_kg,
         },
+
+        undefined,
+
+        params.inventoryProducts,
       );
 
     if (!inventory) {
@@ -610,7 +759,9 @@ async function resolveSaleItems(params: {
           : productBase
       );
 
-    if (unitPrice < 0) {
+    if (
+      unitPrice < 0
+    ) {
       throw new Error(
         `Precio inválido para ${
           setting.nombre_comercial ??
@@ -622,7 +773,9 @@ async function resolveSaleItems(params: {
     let priceSource:
       ResolvedSaleItem['priceSource'];
 
-    if (newOverride !== null) {
+    if (
+      newOverride !== null
+    ) {
       priceSource =
         'CUSTOMER_INVENTORY_OVERRIDE';
     } else if (
@@ -675,17 +828,30 @@ async function resolveSaleItems(params: {
   return resolvedItems;
 }
 
-async function decrementInventory(params: {
-  saleId: string;
-  folio: string;
-  employeeId: string;
-  employeeName: string;
-  customerName: string;
-  saleType: SaleType;
-  paymentMethod: string;
-  total: number;
-  items: ResolvedSaleItem[];
-}) {
+/*
+ * =====================================================
+ * DESCONTAR INVENTARIO
+ * =====================================================
+ */
+async function decrementInventory(
+  params: {
+    saleId: string;
+    folio: string;
+
+    employeeId: string;
+    employeeName: string;
+
+    customerName: string;
+
+    saleType: SaleType;
+    paymentMethod: string;
+
+    total: number;
+
+    items:
+      ResolvedSaleItem[];
+  },
+) {
   const db =
     getInventoryFirestoreAdmin();
 
@@ -695,7 +861,11 @@ async function decrementInventory(params: {
         firestore.Transaction,
     ) => {
       /*
-       * Leemos cada documento una sola vez.
+       * Aquí sí necesitamos leer los documentos
+       * que vamos a modificar.
+       *
+       * Solamente se lee cada documentId involucrado
+       * en la venta UNA vez.
        */
       const documentSnapshots =
         new Map<
@@ -704,7 +874,8 @@ async function decrementInventory(params: {
         >();
 
       for (
-        const item of params.items
+        const item of
+          params.items
       ) {
         if (
           documentSnapshots.has(
@@ -714,18 +885,23 @@ async function decrementInventory(params: {
           continue;
         }
 
-        const reference = db
-          .collection('productos')
-          .doc(
-            item.inventory.documentId,
-          );
+        const reference =
+          db
+            .collection(
+              'productos',
+            )
+            .doc(
+              item.inventory.documentId,
+            );
 
         const snapshot =
           await transaction.get(
             reference,
           );
 
-        if (!snapshot.exists) {
+        if (
+          !snapshot.exists
+        ) {
           throw new Error(
             `Producto de inventario ${item.inventory.documentId} no encontrado.`,
           );
@@ -738,20 +914,16 @@ async function decrementInventory(params: {
       }
 
       /*
-       * Agrupamos por:
+       * Agrupamos por documento + kind + tipo.
        *
-       * documento + KIND + tipo de hielo
+       * Esto mantiene separados:
        *
-       * Esto es importante porque:
-       *
-       * BARRA física:
+       * BARRA física
        *   kind = BARRA
-       *   stock = cuartosDisponibles
        *
-       * Bolsa 1/4 barra:
+       * bolsa 1/4 barra
        *   kind = BOLSA
        *   tipoHielo = BARRA
-       *   stock = stockPorHielo.BARRA
        */
       const quantitiesByInventory =
         new Map<
@@ -765,7 +937,8 @@ async function decrementInventory(params: {
         >();
 
       for (
-        const item of params.items
+        const item of
+          params.items
       ) {
         const documentId =
           item.inventory.documentId;
@@ -797,6 +970,7 @@ async function decrementInventory(params: {
             documentId,
             kind,
             iceType,
+
             quantity:
               (
                 previous?.quantity ??
@@ -807,9 +981,6 @@ async function decrementInventory(params: {
         );
       }
 
-      /*
-       * Aplicar descuento real.
-       */
       for (
         const {
           documentId,
@@ -840,18 +1011,14 @@ async function decrementInventory(params: {
           snapshot.ref;
 
         /*
-         * =================================
+         * ============================================
          * BARRA FÍSICA
-         * =================================
-         *
-         * Sólo entra aquí cuando el
-         * inventario realmente fue
-         * clasificado como kind=BARRA.
-         *
-         * NO entran las bolsas BVxxx
-         * cuyo contenido sea BARRA.
+         * ============================================
          */
-        if (kind === 'BARRA') {
+        if (
+          kind ===
+          'BARRA'
+        ) {
           const current =
             Math.max(
               0,
@@ -886,7 +1053,10 @@ async function decrementInventory(params: {
                 next,
 
               updatedAt:
-                inventoryFirebaseAdmin.firestore.FieldValue.serverTimestamp(),
+                inventoryFirebaseAdmin
+                  .firestore
+                  .FieldValue
+                  .serverTimestamp(),
             },
           );
 
@@ -894,21 +1064,11 @@ async function decrementInventory(params: {
         }
 
         /*
-         * =================================
-         * BOLSAS LLENAS
-         * =================================
+         * ============================================
+         * BOLSA
          *
-         * Incluye también:
-         *
-         * tipoHielo = BARRA
-         * kind = BOLSA
-         *
-         * Ejemplo:
-         * Bolsa genérica 1/4 barra
-         *
-         * Su stock vive en:
-         *
-         * stockPorHielo.BARRA
+         * También incluye una bolsa que contiene BARRA.
+         * ============================================
          */
         const stockContainer =
           data.stockPorHielo ??
@@ -926,7 +1086,9 @@ async function decrementInventory(params: {
               iceType,
             );
 
-          if (!stockEntry) {
+          if (
+            !stockEntry
+          ) {
             throw new Error(
               `No existe stockPorHielo.${iceType} en ${documentId}.`,
             );
@@ -967,7 +1129,10 @@ async function decrementInventory(params: {
                 nextContainer,
 
               updatedAt:
-                inventoryFirebaseAdmin.firestore.FieldValue.serverTimestamp(),
+                inventoryFirebaseAdmin
+                  .firestore
+                  .FieldValue
+                  .serverTimestamp(),
             },
           );
 
@@ -975,8 +1140,7 @@ async function decrementInventory(params: {
         }
 
         /*
-         * Fallback para documentos viejos
-         * que todavía tengan stock directo.
+         * Fallback para documentos antiguos.
          */
         const current =
           Math.max(
@@ -1008,24 +1172,31 @@ async function decrementInventory(params: {
               quantity,
 
             updatedAt:
-              inventoryFirebaseAdmin.firestore.FieldValue.serverTimestamp(),
+              inventoryFirebaseAdmin
+                .firestore
+                .FieldValue
+                .serverTimestamp(),
           },
         );
       }
 
       /*
-       * =================================
-       * MOVIMIENTO DE INVENTARIO
-       * =================================
+       * ============================================
+       * MOVIMIENTO
+       * ============================================
        */
-      const movementRef = db
-        .collection('movimientos')
-        .doc();
+      const movementRef =
+        db
+          .collection(
+            'movimientos',
+          )
+          .doc();
 
       transaction.set(
         movementRef,
         {
-          tipo: 'SALIDA',
+          tipo:
+            'SALIDA',
 
           subtipo:
             'VENTA_PUBLICO',
@@ -1141,13 +1312,22 @@ async function decrementInventory(params: {
             ),
 
           fecha:
-            inventoryFirebaseAdmin.firestore.FieldValue.serverTimestamp(),
+            inventoryFirebaseAdmin
+              .firestore
+              .FieldValue
+              .serverTimestamp(),
 
           createdAt:
-            inventoryFirebaseAdmin.firestore.FieldValue.serverTimestamp(),
+            inventoryFirebaseAdmin
+              .firestore
+              .FieldValue
+              .serverTimestamp(),
 
           updatedAt:
-            inventoryFirebaseAdmin.firestore.FieldValue.serverTimestamp(),
+            inventoryFirebaseAdmin
+              .firestore
+              .FieldValue
+              .serverTimestamp(),
         },
       );
     },
@@ -1163,7 +1343,9 @@ async function rollbackSupabaseSale(
     getAdminSupabase();
 
   await sb
-    .from('delivery_items')
+    .from(
+      'delivery_items',
+    )
     .delete()
     .eq(
       'delivery_id',
@@ -1171,7 +1353,9 @@ async function rollbackSupabaseSale(
     );
 
   await sb
-    .from('deliveries')
+    .from(
+      'deliveries',
+    )
     .delete()
     .eq(
       'id',
@@ -1192,7 +1376,8 @@ export async function POST(
   req: Request,
 ) {
   let createdSaleId:
-    string | null = null;
+    string | null =
+    null;
 
   try {
     const sb =
@@ -1201,7 +1386,9 @@ export async function POST(
     const body =
       await req
         .json()
-        .catch(() => ({}));
+        .catch(
+          () => ({}),
+        );
 
     const employeeId =
       clean(
@@ -1253,7 +1440,9 @@ export async function POST(
         ? body.items
         : [];
 
-    if (!employeeId) {
+    if (
+      !employeeId
+    ) {
       return bad(
         'Falta employee_id.',
       );
@@ -1291,7 +1480,8 @@ export async function POST(
     }
 
     if (
-      rawItems.length === 0
+      rawItems.length ===
+      0
     ) {
       return bad(
         'Agrega al menos un producto.',
@@ -1350,7 +1540,8 @@ export async function POST(
       }
 
       if (
-        item.quantity <= 0
+        item.quantity <=
+        0
       ) {
         return bad(
           'Cantidad inválida.',
@@ -1365,16 +1556,19 @@ export async function POST(
       const {
         data: customer,
         error,
-      } = await sb
-        .from('customers')
-        .select(
-          'id,nombre,activo',
-        )
-        .eq(
-          'id',
-          customerId,
-        )
-        .maybeSingle();
+      } =
+        await sb
+          .from(
+            'customers',
+          )
+          .select(
+            'id,nombre,activo',
+          )
+          .eq(
+            'id',
+            customerId,
+          )
+          .maybeSingle();
 
       if (error) {
         throw error;
@@ -1397,13 +1591,30 @@ export async function POST(
       }
     }
 
+    /*
+     * ==================================================
+     * UNA SOLA LECTURA DE LA COLECCIÓN PRODUCTOS
+     * ==================================================
+     *
+     * Esta lista se reutiliza para TODOS los items
+     * de la venta.
+     */
+    const inventoryProducts =
+      await getProductionInventoryProducts();
+
     const resolvedItems =
-      await resolveSaleItems({
-        saleType,
-        customerId,
-        items:
-          cleanItems,
-      });
+      await resolveSaleItems(
+        {
+          saleType,
+
+          customerId,
+
+          items:
+            cleanItems,
+
+          inventoryProducts,
+        },
+      );
 
     const total =
       resolvedItems.reduce(
@@ -1431,82 +1642,88 @@ export async function POST(
       await generateFolio();
 
     const nowIso =
-      new Date().toISOString();
+      new Date()
+        .toISOString();
 
     const {
       data: saleRow,
       error: saleError,
-    } = await sb
-      .from('deliveries')
-      .insert({
-        folio,
+    } =
+      await sb
+        .from(
+          'deliveries',
+        )
+        .insert({
+          folio,
 
-        assignment_id:
-          null,
+          assignment_id:
+            null,
 
-        route_id:
-          null,
+          route_id:
+            null,
 
-        order_id:
-          null,
+          order_id:
+            null,
 
-        customer_id:
-          saleType ===
-          'CUSTOMER'
-            ? customerId
-            : null,
+          customer_id:
+            saleType ===
+            'CUSTOMER'
+              ? customerId
+              : null,
 
-        customer_nombre_snapshot:
-          customerName,
+          customer_nombre_snapshot:
+            customerName,
 
-        status:
-          'ENTREGADA',
+          status:
+            'ENTREGADA',
 
-        delivered_at:
-          nowIso,
+          delivered_at:
+            nowIso,
 
-        total_expected:
-          total,
+          total_expected:
+            total,
 
-        total_real:
-          total,
+          total_real:
+            total,
 
-        priority:
-          1,
+          priority:
+            1,
 
-        payment_method:
-          paymentMethod,
+          payment_method:
+            paymentMethod,
 
-        delivery_type:
-          'production_sale',
+          delivery_type:
+            'production_sale',
 
-        affects_progress:
-          false,
+          affects_progress:
+            false,
 
-        affects_stock:
-          true,
+          affects_stock:
+            true,
 
-        created_by_driver:
-          false,
+          created_by_driver:
+            false,
 
-        production_employee_id:
-          employeeId,
+          production_employee_id:
+            employeeId,
 
-        production_employee_name:
-          employeeName,
+          production_employee_name:
+            employeeName,
 
-        created_at:
-          nowIso,
+          created_at:
+            nowIso,
 
-        updated_at:
-          nowIso,
-      })
-      .select(
-        'id,folio',
-      )
-      .single();
+          updated_at:
+            nowIso,
+        })
+        .select(
+          'id,folio',
+        )
+        .single();
 
-    if (saleError) {
+    if (
+      saleError
+    ) {
       throw saleError;
     }
 
@@ -1516,7 +1733,8 @@ export async function POST(
       );
 
     const itemsCreatedAt =
-      new Date().toISOString();
+      new Date()
+        .toISOString();
 
     const deliveryItems =
       resolvedItems.map(
@@ -1545,20 +1763,26 @@ export async function POST(
       );
 
     const {
-      error: itemsError,
-    } = await sb
-      .from(
-        'delivery_items',
-      )
-      .insert(
-        deliveryItems,
-      );
+      error:
+        itemsError,
+    } =
+      await sb
+        .from(
+          'delivery_items',
+        )
+        .insert(
+          deliveryItems,
+        );
 
-    if (itemsError) {
-      await rollbackSupabaseSale({
-        saleId:
-          createdSaleId,
-      });
+    if (
+      itemsError
+    ) {
+      await rollbackSupabaseSale(
+        {
+          saleId:
+            createdSaleId,
+        },
+      );
 
       createdSaleId =
         null;
@@ -1567,8 +1791,54 @@ export async function POST(
     }
 
     try {
-      await decrementInventory({
-        saleId:
+      await decrementInventory(
+        {
+          saleId:
+            createdSaleId,
+
+          folio:
+            clean(
+              saleRow.folio,
+            ) ||
+            folio,
+
+          employeeId,
+          employeeName,
+
+          customerName,
+          saleType,
+          paymentMethod,
+
+          total,
+
+          items:
+            resolvedItems,
+        },
+      );
+    } catch (
+      inventoryError
+    ) {
+      await rollbackSupabaseSale(
+        {
+          saleId:
+            createdSaleId,
+        },
+      );
+
+      createdSaleId =
+        null;
+
+      throw inventoryError;
+    }
+
+    return NextResponse.json(
+      {
+        ok: true,
+
+        sale_id:
+          createdSaleId,
+
+        delivery_id:
           createdSaleId,
 
         folio:
@@ -1577,133 +1847,94 @@ export async function POST(
           ) ||
           folio,
 
-        employeeId,
-        employeeName,
+        sale_type:
+          saleType,
 
-        customerName,
-        saleType,
-        paymentMethod,
+        customer_id:
+          customerId,
+
+        customer_name:
+          customerName,
+
+        employee_id:
+          employeeId,
+
+        employee_name:
+          employeeName,
+
+        payment_method:
+          paymentMethod,
+
+        total_quantity:
+          totalQuantity,
 
         total,
 
+        status:
+          'ENTREGADA',
+
+        created_at:
+          new Date()
+            .toISOString(),
+
         items:
-          resolvedItems,
-      });
-    } catch (
-      inventoryError
-    ) {
-      await rollbackSupabaseSale({
-        saleId:
-          createdSaleId,
-      });
+          resolvedItems.map(
+            (item) => ({
+              product_id:
+                item.productId,
 
-      createdSaleId =
-        null;
+              inventory_product_setting_id:
+                item.inventoryProductSettingId,
 
-      throw inventoryError;
-    }
+              name:
+                item.productName,
 
-    return NextResponse.json({
-      ok: true,
+              nombre:
+                item.productName,
 
-      sale_id:
-        createdSaleId,
+              quantity:
+                item.quantity,
 
-      delivery_id:
-        createdSaleId,
+              qty:
+                item.quantity,
 
-      folio:
-        clean(
-          saleRow.folio,
-        ) ||
-        folio,
+              unit_price:
+                item.unitPrice,
 
-      sale_type:
-        saleType,
+              precio:
+                item.unitPrice,
 
-      customer_id:
-        customerId,
+              subtotal:
+                item.subtotal,
 
-      customer_name:
-        customerName,
+              price_source:
+                item.priceSource,
 
-      employee_id:
-        employeeId,
+              inventory_document_id:
+                item.inventory.documentId,
 
-      employee_name:
-        employeeName,
+              inventory_key:
+                item.inventory.inventoryKey,
 
-      payment_method:
-        paymentMethod,
+              product_key:
+                item.inventory.productKey,
 
-      total_quantity:
-        totalQuantity,
+              inventory_kind:
+                item.inventory.kind,
 
-      total,
+              ice_type:
+                item.inventory.tipoHielo,
 
-      status:
-        'ENTREGADA',
+              available_before:
+                item.inventory.availableQty,
 
-      created_at:
-        new Date().toISOString(),
-
-      items:
-        resolvedItems.map(
-          (item) => ({
-            product_id:
-              item.productId,
-
-            inventory_product_setting_id:
-              item.inventoryProductSettingId,
-
-            name:
-              item.productName,
-
-            nombre:
-              item.productName,
-
-            quantity:
-              item.quantity,
-
-            qty:
-              item.quantity,
-
-            unit_price:
-              item.unitPrice,
-
-            precio:
-              item.unitPrice,
-
-            subtotal:
-              item.subtotal,
-
-            price_source:
-              item.priceSource,
-
-            inventory_document_id:
-              item.inventory.documentId,
-
-            inventory_key:
-              item.inventory.inventoryKey,
-
-            product_key:
-              item.inventory.productKey,
-
-            inventory_kind:
-              item.inventory.kind,
-
-            ice_type:
-              item.inventory.tipoHielo,
-
-            available_before:
-              item.inventory.availableQty,
-
-            available_after:
-              item.inventory.availableQty -
-              item.quantity,
-          }),
-        ),
-    });
+              available_after:
+                item.inventory.availableQty -
+                item.quantity,
+            }),
+          ),
+      },
+    );
   } catch (
     error: unknown
   ) {
@@ -1715,10 +1946,12 @@ export async function POST(
     if (
       createdSaleId
     ) {
-      await rollbackSupabaseSale({
-        saleId:
-          createdSaleId,
-      }).catch(
+      await rollbackSupabaseSale(
+        {
+          saleId:
+            createdSaleId,
+        },
+      ).catch(
         (
           rollbackError,
         ) => {

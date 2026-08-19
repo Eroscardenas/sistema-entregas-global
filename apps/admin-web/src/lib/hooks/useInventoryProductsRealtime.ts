@@ -3,15 +3,7 @@
 import { useEffect, useMemo, useState } from 'react';
 import {
   collection,
-  limit as qLimit,
   onSnapshot,
-  orderBy,
-  query,
-  type DocumentData,
-  type FirestoreError,
-  type QueryDocumentSnapshot,
-  type QuerySnapshot,
-  type Unsubscribe,
 } from 'firebase/firestore';
 
 import { inventoryDb } from '@/lib/firebase/inventory.client';
@@ -20,78 +12,102 @@ import { getDisplayName } from '@/lib/utils/inventory-product-label';
 export type InventoryProductRealtime = {
   bolsaVaciaCodigo: string;
   bolsaVaciaNombre: string;
+
   tipoHielo: string;
   pesoKg: number;
+
   stockActual: number;
+
   displayName: string;
+
   esMaquila: boolean;
-};
-
-type Movimiento = {
-  id: string;
-  tipo?: string;
-  subtipo?: string;
-
-  bolsaVaciaCodigo?: string;
-  productoCodigo?: string;
-  productoNombre?: string;
-
-  tipoHielo?: string;
-  tipoHieloContenido?: string;
-  tipoProducto?: string;
-
-  cantidad?: number;
-  deltaPrincipal?: number;
-  principalAnterior?: number;
-  principalNuevo?: number;
-
-  stockHieloNuevo?: number;
-  stockNuevo?: number;
-
-  afectaStock?: boolean;
-
-  fecha?: unknown;
-  createdAt?: unknown;
-
-  [key: string]: unknown;
 };
 
 type FirebaseProductData = {
   codigo?: unknown;
   nombre?: unknown;
+
   pesoKg?: unknown;
+  peso_kg?: unknown;
+  kgPorUnidad?: unknown;
+  kg_por_unidad?: unknown;
+
+  tipo?: unknown;
+  kind?: unknown;
+
+  tipoHielo?: unknown;
+  tipo_hielo?: unknown;
+
   stockPorHielo?: unknown;
+  stock_por_hielo?: unknown;
+
+  cuartosDisponibles?: unknown;
+  cuartos_disponibles?: unknown;
+
+  stockActual?: unknown;
+  stock_actual?: unknown;
+  stock?: unknown;
+
+  activo?: unknown;
+  isActive?: unknown;
+
+  status?: unknown;
+  estado?: unknown;
 
   [key: string]: unknown;
 };
 
-function safeInt0(v: unknown, fallback = 0) {
-  const n = Number(v);
+function safeInt0(
+  value: unknown,
+  fallback = 0,
+) {
+  const n = Number(value);
 
   if (!Number.isFinite(n)) {
     return fallback;
   }
 
-  const i = Math.floor(n);
+  const integer =
+    Math.floor(n);
 
-  return i < 0 ? fallback : i;
+  return integer < 0
+    ? fallback
+    : integer;
 }
 
-function normalizeText(v: unknown) {
-  return String(v ?? '')
+function safeNumber(
+  value: unknown,
+  fallback = 0,
+) {
+  const n = Number(value);
+
+  return Number.isFinite(n)
+    ? n
+    : fallback;
+}
+
+function normalizeText(
+  value: unknown,
+) {
+  return String(value ?? '')
     .trim()
     .toUpperCase();
 }
 
-function normalizeCode(v: unknown) {
-  return String(v ?? '')
+function normalizeCode(
+  value: unknown,
+) {
+  return String(value ?? '')
     .trim()
     .toUpperCase();
 }
 
 function isRecord(
-  value: unknown
-): value is Record<string, unknown> {
+  value: unknown,
+): value is Record<
+  string,
+  unknown
+> {
   return (
     typeof value === 'object' &&
     value !== null &&
@@ -99,44 +115,234 @@ function isRecord(
   );
 }
 
+function normalizeIceType(
+  value: unknown,
+) {
+  const text =
+    normalizeText(value);
+
+  if (
+    text.includes('BARRA')
+  ) {
+    return 'BARRA';
+  }
+
+  if (
+    text.includes('GOURMET')
+  ) {
+    return 'GOURMET';
+  }
+
+  if (
+    text.includes('ENFRIAR')
+  ) {
+    return 'ENFRIAR';
+  }
+
+  if (
+    text.includes('FRAP')
+  ) {
+    return 'FRAP';
+  }
+
+  if (
+    text.includes('ROLITO')
+  ) {
+    return 'ROLITO';
+  }
+
+  if (
+    text.includes('NORMAL')
+  ) {
+    return 'ROLITO';
+  }
+
+  return text;
+}
+
+function isActiveProduct(
+  data: FirebaseProductData,
+) {
+  if (
+    data.activo === false
+  ) {
+    return false;
+  }
+
+  if (
+    data.isActive === false
+  ) {
+    return false;
+  }
+
+  const status =
+    normalizeText(
+      data.status ??
+        data.estado ??
+        'ACTIVO',
+    );
+
+  if (
+    status === 'INACTIVO' ||
+    status === 'ELIMINADO' ||
+    status === 'ARCHIVADO'
+  ) {
+    return false;
+  }
+
+  return true;
+}
+
 /**
- * Una bolsa se considera MAQUILA cuando el nombre
- * registrado en Firebase contiene la palabra "MAQUILA".
+ * MAQUILA se identifica por el nombre real
+ * de la bolsa registrada en Firebase.
  *
  * Ejemplo:
- * "Bolsa vacía 5kg rolito para maquila"
+ *
+ * Bolsa vacía 5kg rolito para maquila
  */
-function isMaquilaProduct(nombre: unknown) {
-  return normalizeText(nombre).includes('MAQUILA');
+function isMaquilaProduct(
+  nombre: unknown,
+) {
+  return normalizeText(
+    nombre,
+  ).includes(
+    'MAQUILA',
+  );
+}
+
+function extractKgFromText(
+  value: unknown,
+): number {
+  const text =
+    String(
+      value ?? '',
+    );
+
+  const match =
+    text.match(
+      /(\d+(?:[.,]\d+)?)\s*kg/i,
+    );
+
+  if (!match?.[1]) {
+    return 0;
+  }
+
+  const n =
+    Number(
+      match[1].replace(
+        ',',
+        '.',
+      ),
+    );
+
+  return Number.isFinite(n)
+    ? n
+    : 0;
+}
+
+function resolveWeightKg(
+  data: FirebaseProductData,
+) {
+  const directCandidates = [
+    data.pesoKg,
+    data.peso_kg,
+    data.kgPorUnidad,
+    data.kg_por_unidad,
+  ];
+
+  for (
+    const candidate of
+      directCandidates
+  ) {
+    const value =
+      safeNumber(
+        candidate,
+        0,
+      );
+
+    if (value > 0) {
+      return value;
+    }
+  }
+
+  const fromName =
+    extractKgFromText(
+      data.nombre,
+    );
+
+  if (
+    fromName > 0
+  ) {
+    return fromName;
+  }
+
+  return 0;
+}
+
+function readStockNumber(
+  value: unknown,
+) {
+  if (
+    typeof value ===
+      'number' ||
+    typeof value ===
+      'string'
+  ) {
+    return safeInt0(
+      value,
+      0,
+    );
+  }
+
+  if (
+    isRecord(value)
+  ) {
+    return safeInt0(
+      value.stockActual ??
+        value.stock ??
+        value.cantidad ??
+        value.disponible ??
+        value.actual ??
+        value.total,
+      0,
+    );
+  }
+
+  return 0;
 }
 
 function buildDisplayName(
   tipoHielo: string,
   pesoKg: number,
-  esMaquila = false
+  esMaquila = false,
 ) {
-  const tipo = normalizeText(tipoHielo);
+  const tipo =
+    normalizeIceType(
+      tipoHielo,
+    );
 
-  if (tipo === 'BARRA') {
+  if (
+    tipo === 'BARRA'
+  ) {
     return 'BARRA';
   }
 
-  const baseName = getDisplayName(
-    tipo,
-    pesoKg
-  );
+  const baseName =
+    getDisplayName(
+      tipo,
+      pesoKg,
+    );
 
   if (!esMaquila) {
     return baseName;
   }
 
-  /*
-   * Evitamos duplicar la palabra si por algún motivo
-   * getDisplayName ya la incluyera en el futuro.
-   */
   if (
-    normalizeText(baseName).includes(
-      'MAQUILA'
+    normalizeText(
+      baseName,
+    ).includes(
+      'MAQUILA',
     )
   ) {
     return baseName;
@@ -146,313 +352,338 @@ function buildDisplayName(
 }
 
 /**
- * La identidad REAL se mantiene por:
+ * No agrupamos únicamente por tipo + peso.
  *
- * BV + tipo de hielo + peso.
- *
- * Es importante NO quitar el BV porque:
+ * El BV forma parte de la identidad porque:
  *
  * ROLITO 5 KG normal
- * y
  * ROLITO 5 KG MAQUILA
  *
- * pueden compartir tipo y peso, pero usan
- * bolsas/inventarios diferentes.
+ * pueden tener el mismo peso y contenido,
+ * pero inventarios distintos.
  */
 function buildKey(
   bolsaVaciaCodigo: string,
   tipoHielo: string,
-  pesoKg: number
+  pesoKg: number,
 ) {
-  return `${normalizeCode(
-    bolsaVaciaCodigo
-  )}__${normalizeText(
-    tipoHielo
-  )}__${safeInt0(pesoKg, 0)}`;
-}
+  return [
+    normalizeCode(
+      bolsaVaciaCodigo,
+    ),
 
-function extractKgFromNombre(
-  nombre: unknown
-): number | null {
-  const value = String(nombre ?? '');
+    normalizeIceType(
+      tipoHielo,
+    ),
 
-  const match = value.match(
-    /(\d+(?:[.,]\d+)?)\s*kg/i
-  );
-
-  if (!match) {
-    return null;
-  }
-
-  const n = Number(
-    match[1].replace(',', '.')
-  );
-
-  return Number.isFinite(n)
-    ? n
-    : null;
+    String(
+      safeNumber(
+        pesoKg,
+        0,
+      ),
+    ),
+  ].join('__');
 }
 
 /**
- * Obtiene stock FINAL únicamente cuando el movimiento
- * realmente trae información suficiente para calcularlo.
+ * Determina si el documento representa
+ * una barra física.
  *
- * Ya no usamos `deltaPrincipal` o `cantidad` directamente
- * como si fueran stock final, porque eso puede generar
- * productos/barra con stocks falsos.
+ * Una BVxxx con stockPorHielo.BARRA
+ * NO es barra física.
  */
-function getMovementFinalStock(
-  movimiento: Movimiento
-): number | null {
-  const principalNuevo = Number(
-    movimiento.principalNuevo
-  );
-
-  if (
-    Number.isFinite(principalNuevo)
-  ) {
-    return Math.max(
-      0,
-      Math.floor(principalNuevo)
+function isPhysicalBar(
+  data: FirebaseProductData,
+) {
+  const codigo =
+    normalizeCode(
+      data.codigo,
     );
-  }
 
-  const stockHieloNuevo = Number(
-    movimiento.stockHieloNuevo
-  );
-
-  if (
-    Number.isFinite(stockHieloNuevo)
-  ) {
-    return Math.max(
-      0,
-      Math.floor(stockHieloNuevo)
+  const tipo =
+    normalizeText(
+      data.tipo,
     );
-  }
 
-  const stockNuevo = Number(
-    movimiento.stockNuevo
-  );
-
-  if (
-    Number.isFinite(stockNuevo)
-  ) {
-    return Math.max(
-      0,
-      Math.floor(stockNuevo)
+  const kind =
+    normalizeText(
+      data.kind,
     );
-  }
 
-  /*
-   * Si tenemos anterior + delta,
-   * entonces sí podemos calcular
-   * correctamente el resultado.
-   */
-  const principalAnterior = Number(
-    movimiento.principalAnterior
+  return (
+    codigo.startsWith(
+      'BR',
+    ) ||
+    tipo === 'BARRA' ||
+    kind === 'BARRA'
   );
-
-  const deltaPrincipal = Number(
-    movimiento.deltaPrincipal
-  );
-
-  if (
-    Number.isFinite(
-      principalAnterior
-    ) &&
-    Number.isFinite(
-      deltaPrincipal
-    )
-  ) {
-    return Math.max(
-      0,
-      Math.floor(
-        principalAnterior +
-          deltaPrincipal
-      )
-    );
-  }
-
-  return null;
 }
 
 export function useInventoryProductsRealtime() {
   const [
     baseRows,
     setBaseRows,
-  ] = useState<
-    InventoryProductRealtime[]
-  >([]);
+  ] =
+    useState<
+      InventoryProductRealtime[]
+    >([]);
 
   const [
     loadingProducts,
     setLoadingProducts,
-  ] = useState(true);
-
-  const [
-    movimientos,
-    setMovimientos,
-  ] = useState<Movimiento[]>([]);
-
-  const [
-    loadingMovs,
-    setLoadingMovs,
-  ] = useState(true);
+  ] =
+    useState(true);
 
   /*
-   * ========================================
-   * PRODUCTOS FIREBASE EN TIEMPO REAL
-   * ========================================
+   * ==================================================
+   * ÚNICO LISTENER FIREBASE
+   * ==================================================
+   *
+   * Ya NO escuchamos `movimientos`.
+   *
+   * Antes se descargaban hasta 1,500 movimientos
+   * cada vez que se montaba este hook solamente
+   * para intentar reconstruir BARRA.
+   *
+   * El stock actual debe salir de `productos`.
    */
   useEffect(() => {
-    const ref = collection(
-      inventoryDb,
-      'productos'
-    );
+    const ref =
+      collection(
+        inventoryDb,
+        'productos',
+      );
 
-    const unsubscribe = onSnapshot(
-      ref,
+    const unsubscribe =
+      onSnapshot(
+        ref,
 
-      (snapshot) => {
-        const map = new Map<
-          string,
-          InventoryProductRealtime
-        >();
+        (snapshot) => {
+          const map =
+            new Map<
+              string,
+              InventoryProductRealtime
+            >();
 
-        snapshot.docs.forEach(
-          (doc) => {
+          for (
+            const document of
+              snapshot.docs
+          ) {
             const data =
-              doc.data() as FirebaseProductData;
+              document.data() as
+                FirebaseProductData;
 
-            const bolsaVaciaCodigo =
+            if (
+              !isActiveProduct(
+                data,
+              )
+            ) {
+              continue;
+            }
+
+            const codigo =
               normalizeCode(
-                data.codigo
+                data.codigo ??
+                  document.id,
               );
 
-            const bolsaVaciaNombre =
+            if (!codigo) {
+              continue;
+            }
+
+            const nombre =
               String(
-                data.nombre ?? ''
+                data.nombre ??
+                  '',
               ).trim();
 
             const pesoKg =
-              safeInt0(
-                data.pesoKg,
-                0
+              resolveWeightKg(
+                data,
               );
 
-            const stockPorHielo =
-              data.stockPorHielo;
-
-            /*
-             * El nombre de la bolsa es
-             * el que nos permite distinguir
-             * MAQUILA del producto normal.
-             */
             const esMaquila =
               isMaquilaProduct(
-                bolsaVaciaNombre
+                nombre,
               );
 
-            if (!bolsaVaciaCodigo) {
-              return;
+            /*
+             * ==========================================
+             * BARRA FÍSICA
+             * ==========================================
+             *
+             * Si existe como documento BRxxx / kind BARRA,
+             * su existencia está en cuartosDisponibles.
+             */
+            if (
+              isPhysicalBar(
+                data,
+              )
+            ) {
+              const stockActual =
+                safeInt0(
+                  data.cuartosDisponibles ??
+                    data.cuartos_disponibles ??
+                    data.stockActual ??
+                    data.stock_actual ??
+                    data.stock,
+                  0,
+                );
+
+              /*
+               * Conservamos el registro aunque esté en 0.
+               * El hook comercial decidirá si debe mostrarse.
+               */
+              const key =
+                buildKey(
+                  codigo,
+                  'BARRA',
+                  pesoKg,
+                );
+
+              map.set(
+                key,
+                {
+                  bolsaVaciaCodigo:
+                    codigo,
+
+                  bolsaVaciaNombre:
+                    nombre,
+
+                  tipoHielo:
+                    'BARRA',
+
+                  pesoKg,
+
+                  stockActual,
+
+                  displayName:
+                    'BARRA',
+
+                  esMaquila:
+                    false,
+                },
+              );
+
+              continue;
             }
 
-            if (
-              !pesoKg ||
-              pesoKg <= 0
-            ) {
-              return;
-            }
+            /*
+             * ==========================================
+             * BOLSAS
+             * ==========================================
+             *
+             * Aquí entran:
+             *
+             * ROLITO
+             * FRAP
+             * GOURMET
+             * ENFRIAR
+             * BARRA dentro de BVxxx
+             *
+             * incluyendo MAQUILA.
+             */
+            const stockPorHielo =
+              data.stockPorHielo ??
+              data.stock_por_hielo;
 
             if (
               !isRecord(
-                stockPorHielo
+                stockPorHielo,
               )
             ) {
-              return;
+              continue;
             }
 
-            Object.entries(
-              stockPorHielo
-            ).forEach(
-              ([
-                tipoHielo,
-                stockData,
-              ]) => {
-                const tipo =
-                  normalizeText(
-                    tipoHielo
-                  );
+            if (
+              pesoKg <= 0
+            ) {
+              continue;
+            }
 
-                if (!tipo) {
-                  return;
-                }
-
-                let stockActual = 0;
-
-                if (
-                  isRecord(
-                    stockData
-                  )
-                ) {
-                  stockActual =
-                    safeInt0(
-                      stockData.stockActual,
-                      0
-                    );
-                }
-
-                const key =
-                  buildKey(
-                    bolsaVaciaCodigo,
-                    tipo,
-                    pesoKg
-                  );
-
-                map.set(
-                  key,
-                  {
-                    bolsaVaciaCodigo,
-                    bolsaVaciaNombre,
-                    tipoHielo:
-                      tipo,
-                    pesoKg,
-                    stockActual,
-
-                    esMaquila,
-
-                    displayName:
-                      buildDisplayName(
-                        tipo,
-                        pesoKg,
-                        esMaquila
-                      ),
-                  }
+            for (
+              const [
+                rawTipoHielo,
+                rawStock,
+              ] of Object.entries(
+                stockPorHielo,
+              )
+            ) {
+              const tipoHielo =
+                normalizeIceType(
+                  rawTipoHielo,
                 );
+
+              if (
+                !tipoHielo
+              ) {
+                continue;
               }
-            );
+
+              const stockActual =
+                readStockNumber(
+                  rawStock,
+                );
+
+              const key =
+                buildKey(
+                  codigo,
+                  tipoHielo,
+                  pesoKg,
+                );
+
+              map.set(
+                key,
+                {
+                  bolsaVaciaCodigo:
+                    codigo,
+
+                  bolsaVaciaNombre:
+                    nombre,
+
+                  tipoHielo,
+
+                  pesoKg,
+
+                  stockActual,
+
+                  esMaquila,
+
+                  displayName:
+                    buildDisplayName(
+                      tipoHielo,
+                      pesoKg,
+                      esMaquila,
+                    ),
+                },
+              );
+            }
           }
-        );
 
-        setBaseRows(
-          Array.from(
-            map.values()
-          )
-        );
+          setBaseRows(
+            Array.from(
+              map.values(),
+            ),
+          );
 
-        setLoadingProducts(false);
-      },
+          setLoadingProducts(
+            false,
+          );
+        },
 
-      (error) => {
-        console.error(
-          'Error leyendo productos del inventario en tiempo real:',
-          error
-        );
+        (error) => {
+          console.error(
+            'Error leyendo productos del inventario en tiempo real:',
+            error,
+          );
 
-        setBaseRows([]);
-        setLoadingProducts(false);
-      }
-    );
+          setBaseRows([]);
+
+          setLoadingProducts(
+            false,
+          );
+        },
+      );
 
     return () => {
       unsubscribe();
@@ -460,444 +691,41 @@ export function useInventoryProductsRealtime() {
   }, []);
 
   /*
-   * ========================================
-   * MOVIMIENTOS FIREBASE
-   *
-   * Se usan únicamente como respaldo para
-   * BARRA cuando Firebase no la expone en
-   * stockPorHielo.
-   * ========================================
-   */
-  useEffect(() => {
-    const MOVS =
-      'movimientos';
-
-    let unsub:
-      | Unsubscribe
-      | null = null;
-
-    let cancelled = false;
-
-    const toRow = (
-      d: QueryDocumentSnapshot<DocumentData>
-    ): Movimiento => {
-      return {
-        id: d.id,
-        ...(
-          d.data() as Record<
-            string,
-            unknown
-          >
-        ),
-      } as Movimiento;
-    };
-
-    const subscribe = (
-      field:
-        | 'fecha'
-        | 'createdAt'
-    ) => {
-      setLoadingMovs(true);
-
-      const qy = query(
-        collection(
-          inventoryDb,
-          MOVS
-        ),
-        orderBy(
-          field,
-          'desc'
-        ),
-        qLimit(1500)
-      );
-
-      unsub = onSnapshot(
-        qy,
-
-        (
-          snap: QuerySnapshot<DocumentData>
-        ) => {
-          if (cancelled) {
-            return;
-          }
-
-          setMovimientos(
-            snap.docs.map(
-              (d) =>
-                toRow(d)
-            )
-          );
-
-          setLoadingMovs(false);
-        },
-
-        (
-          err: FirestoreError
-        ) => {
-          if (cancelled) {
-            return;
-          }
-
-          /*
-           * Algunas instalaciones viejas
-           * manejan fecha y otras createdAt.
-           */
-          if (
-            field ===
-            'fecha'
-          ) {
-            try {
-              if (unsub) {
-                unsub();
-              }
-            } catch {
-              // Ignorar cleanup fallido.
-            }
-
-            subscribe(
-              'createdAt'
-            );
-
-            return;
-          }
-
-          console.error(
-            'Error leyendo movimientos realtime:',
-            err
-          );
-
-          setMovimientos([]);
-          setLoadingMovs(false);
-        }
-      );
-    };
-
-    subscribe('fecha');
-
-    return () => {
-      cancelled = true;
-
-      try {
-        if (unsub) {
-          unsub();
-        }
-      } catch {
-        // Ignorar cleanup fallido.
-      }
-    };
-  }, []);
-
-  /*
-   * ========================================
-   * INFORMACIÓN POR BV
-   * ========================================
-   */
-
-  const bolsaInfoByBV =
-    useMemo(() => {
-      const map = new Map<
-        string,
-        {
-          pesoKg: number;
-          nombre: string;
-          esMaquila: boolean;
-        }
-      >();
-
-      for (
-        const row of
-          baseRows ?? []
-      ) {
-        const codigo =
-          normalizeCode(
-            row.bolsaVaciaCodigo
-          );
-
-        if (!codigo) {
-          continue;
-        }
-
-        if (
-          !map.has(codigo)
-        ) {
-          map.set(
-            codigo,
-            {
-              pesoKg:
-                safeInt0(
-                  row.pesoKg,
-                  0
-                ),
-
-              nombre:
-                row.bolsaVaciaNombre ??
-                '',
-
-              esMaquila:
-                Boolean(
-                  row.esMaquila
-                ),
-            }
-          );
-        }
-      }
-
-      return map;
-    }, [baseRows]);
-
-  /*
-   * ========================================
-   * FALLBACK DE BARRA
-   * ========================================
-   */
-
-  const barraFallbackRows =
-    useMemo(() => {
-      const out = new Map<
-        string,
-        InventoryProductRealtime
-      >();
-
-      /*
-       * movimientos viene ordenado
-       * descendente, así que el primer
-       * movimiento válido de cada llave
-       * es el más reciente.
-       */
-      for (
-        const m of
-          movimientos ?? []
-      ) {
-        const tipo =
-          normalizeText(
-            m.tipo
-          );
-
-        const tipoProducto =
-          normalizeText(
-            m.tipoProducto
-          );
-
-        const tipoHielo =
-          normalizeText(
-            m.tipoHielo ??
-              m.tipoHieloContenido
-          );
-
-        if (
-          tipoProducto &&
-          tipoProducto !==
-            'BOLSA'
-        ) {
-          continue;
-        }
-
-        if (
-          tipoHielo !==
-          'BARRA'
-        ) {
-          continue;
-        }
-
-        if (
-          tipo !==
-          'LLENADO_BOLSA'
-        ) {
-          continue;
-        }
-
-        let bvCodigo =
-          normalizeCode(
-            m.bolsaVaciaCodigo
-          );
-
-        /*
-         * Hay movimientos antiguos donde
-         * el BV quedó en productoCodigo.
-         */
-        if (
-          !/^BV/.test(
-            bvCodigo
-          )
-        ) {
-          const productoCodigo =
-            normalizeCode(
-              m.productoCodigo
-            );
-
-          if (
-            /^BV/.test(
-              productoCodigo
-            )
-          ) {
-            bvCodigo =
-              productoCodigo;
-          }
-        }
-
-        if (
-          !/^BV/.test(
-            bvCodigo
-          )
-        ) {
-          continue;
-        }
-
-        const bolsaInfo =
-          bolsaInfoByBV.get(
-            bvCodigo
-          );
-
-        let pesoKg =
-          safeInt0(
-            bolsaInfo?.pesoKg,
-            0
-          );
-
-        if (!pesoKg) {
-          const kgFromNombre =
-            extractKgFromNombre(
-              m.productoNombre
-            );
-
-          pesoKg =
-            safeInt0(
-              kgFromNombre,
-              0
-            );
-        }
-
-        if (
-          !pesoKg ||
-          pesoKg <= 0
-        ) {
-          continue;
-        }
-
-        const key =
-          buildKey(
-            bvCodigo,
-            'BARRA',
-            pesoKg
-          );
-
-        /*
-         * Ya encontramos un movimiento
-         * más reciente para esta llave.
-         */
-        if (
-          out.has(key)
-        ) {
-          continue;
-        }
-
-        const stockActual =
-          getMovementFinalStock(
-            m
-          );
-
-        /*
-         * Si el movimiento no trae manera
-         * segura de determinar stock final,
-         * no inventamos uno.
-         */
-        if (
-          stockActual ===
-          null
-        ) {
-          continue;
-        }
-
-        const movimientoNombre =
-          String(
-            m.productoNombre ??
-              ''
-          ).trim();
-
-        const bolsaVaciaNombre =
-          bolsaInfo?.nombre ||
-          movimientoNombre;
-
-        const esMaquila =
-          bolsaInfo?.esMaquila ??
-          isMaquilaProduct(
-            bolsaVaciaNombre
-          );
-
-        out.set(
-          key,
-          {
-            bolsaVaciaCodigo:
-              bvCodigo,
-
-            bolsaVaciaNombre,
-
-            tipoHielo:
-              'BARRA',
-
-            pesoKg,
-
-            stockActual:
-              safeInt0(
-                stockActual,
-                0
-              ),
-
-            esMaquila,
-
-            displayName:
-              'BARRA',
-          }
-        );
-      }
-
-      return out;
-    }, [
-      movimientos,
-      bolsaInfoByBV,
-    ]);
-
-  /*
-   * ========================================
+   * ==================================================
    * CATÁLOGO FINAL
-   * ========================================
+   * ==================================================
    */
-
   const products =
     useMemo(() => {
-      const map = new Map<
-        string,
-        InventoryProductRealtime
-      >();
+      const map =
+        new Map<
+          string,
+          InventoryProductRealtime
+        >();
 
-      /*
-       * Fuente principal:
-       * colección productos.
-       */
       for (
         const row of
-          baseRows ?? []
+          baseRows
       ) {
         const bolsaVaciaCodigo =
           normalizeCode(
-            row.bolsaVaciaCodigo
+            row.bolsaVaciaCodigo,
           );
 
         const tipoHielo =
-          normalizeText(
-            row.tipoHielo
+          normalizeIceType(
+            row.tipoHielo,
           );
 
         const pesoKg =
-          safeInt0(
+          safeNumber(
             row.pesoKg,
-            0
+            0,
           );
 
         if (
           !bolsaVaciaCodigo ||
-          !tipoHielo ||
-          pesoKg <= 0
+          !tipoHielo
         ) {
           continue;
         }
@@ -906,15 +734,15 @@ export function useInventoryProductsRealtime() {
           buildKey(
             bolsaVaciaCodigo,
             tipoHielo,
-            pesoKg
+            pesoKg,
           );
 
         const esMaquila =
           Boolean(
-            row.esMaquila
+            row.esMaquila,
           ) ||
           isMaquilaProduct(
-            row.bolsaVaciaNombre
+            row.bolsaVaciaNombre,
           );
 
         map.set(
@@ -927,7 +755,7 @@ export function useInventoryProductsRealtime() {
             bolsaVaciaNombre:
               String(
                 row.bolsaVaciaNombre ??
-                  ''
+                  '',
               ).trim(),
 
             tipoHielo,
@@ -937,7 +765,7 @@ export function useInventoryProductsRealtime() {
             stockActual:
               safeInt0(
                 row.stockActual,
-                0
+                0,
               ),
 
             esMaquila,
@@ -946,79 +774,30 @@ export function useInventoryProductsRealtime() {
               buildDisplayName(
                 tipoHielo,
                 pesoKg,
-                esMaquila
+                esMaquila,
               ),
-          }
-        );
-      }
-
-      /*
-       * Agregar únicamente las barras
-       * que NO vinieron ya directamente
-       * desde productos.
-       */
-      for (
-        const [
-          key,
-          row,
-        ] of
-          barraFallbackRows.entries()
-      ) {
-        if (
-          map.has(key)
-        ) {
-          continue;
-        }
-
-        map.set(
-          key,
-          {
-            ...row,
-
-            bolsaVaciaCodigo:
-              normalizeCode(
-                row.bolsaVaciaCodigo
-              ),
-
-            tipoHielo:
-              'BARRA',
-
-            pesoKg:
-              safeInt0(
-                row.pesoKg,
-                0
-              ),
-
-            stockActual:
-              safeInt0(
-                row.stockActual,
-                0
-              ),
-
-            displayName:
-              'BARRA',
-          }
+          },
         );
       }
 
       return Array.from(
-        map.values()
+        map.values(),
       ).sort(
         (a, b) => {
           /*
-           * Barra primero.
+           * BARRA primero.
            */
           const aBarra =
-            normalizeText(
-              a.tipoHielo
+            normalizeIceType(
+              a.tipoHielo,
             ) ===
             'BARRA'
               ? 0
               : 1;
 
           const bBarra =
-            normalizeText(
-              b.tipoHielo
+            normalizeIceType(
+              b.tipoHielo,
             ) ===
             'BARRA'
               ? 0
@@ -1035,16 +814,16 @@ export function useInventoryProductsRealtime() {
           }
 
           /*
-           * Tipo de hielo.
+           * Tipo.
            */
           const byTipo =
-            normalizeText(
-              a.tipoHielo
+            normalizeIceType(
+              a.tipoHielo,
             ).localeCompare(
-              normalizeText(
-                b.tipoHielo
+              normalizeIceType(
+                b.tipoHielo,
               ),
-              'es-MX'
+              'es-MX',
             );
 
           if (
@@ -1067,14 +846,14 @@ export function useInventoryProductsRealtime() {
           }
 
           /*
-           * Normal primero, maquila después.
+           * Normal antes de maquila.
            */
           const byMaquila =
             Number(
-              a.esMaquila
+              a.esMaquila,
             ) -
             Number(
-              b.esMaquila
+              b.esMaquila,
             );
 
           if (
@@ -1085,12 +864,12 @@ export function useInventoryProductsRealtime() {
           }
 
           /*
-           * Nombre visible.
+           * Nombre.
            */
           const byName =
             a.displayName.localeCompare(
               b.displayName,
-              'es-MX'
+              'es-MX',
             );
 
           if (
@@ -1100,27 +879,26 @@ export function useInventoryProductsRealtime() {
           }
 
           /*
-           * Último desempate por BV.
+           * Desempate final por código.
            */
           return normalizeCode(
-            a.bolsaVaciaCodigo
+            a.bolsaVaciaCodigo,
           ).localeCompare(
             normalizeCode(
-              b.bolsaVaciaCodigo
+              b.bolsaVaciaCodigo,
             ),
-            'es-MX'
+            'es-MX',
           );
-        }
+        },
       );
     }, [
       baseRows,
-      barraFallbackRows,
     ]);
 
   return {
     products,
+
     loading:
-      loadingProducts ||
-      loadingMovs,
+      loadingProducts,
   };
 }
