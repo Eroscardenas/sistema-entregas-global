@@ -174,16 +174,6 @@ function inventoryMatchesSetting(
   return inventoryKey === settingKey;
 }
 
-function hasWord(
-  value: unknown,
-  word: string,
-): boolean {
-  return normalize(value)
-    .split(/[^A-Z0-9]+/)
-    .filter(Boolean)
-    .includes(normalize(word));
-}
-
 function catalogProductMatchesSetting(
   product: SupabaseProduct,
   setting: InventorySetting,
@@ -195,50 +185,10 @@ function catalogProductMatchesSetting(
     setting.firebase_tipo_hielo,
   );
 
-  const productName = normalize(
-    product.nombre,
-  );
-
-  const settingName = normalize(
-    setting.nombre_comercial,
-  );
-
-  /*
-   * La palabra MAQUILA es un diferenciador comercial.
-   *
-   * Ejemplo:
-   *
-   * ROLITO 5 KG
-   *   !=
-   * ROLITO 5 KG MAQUILA
-   *
-   * Aunque ambos tengan:
-   *   tipo = ROLITO
-   *   peso = 5 KG
-   */
-  const settingIsMaquila =
-    hasWord(
-      settingName,
-      'MAQUILA',
-    );
-
-  const productIsMaquila =
-    hasWord(
-      productName,
-      'MAQUILA',
-    );
-
-  if (
-    settingIsMaquila !==
-    productIsMaquila
-  ) {
-    return false;
-  }
-
   if (settingIceType === 'BARRA') {
     return (
       productIceType === 'BARRA' ||
-      productName.includes('BARRA') ||
+      normalize(product.nombre).includes('BARRA') ||
       normalize(product.kind).includes('BARRA')
     );
   }
@@ -253,6 +203,30 @@ function catalogProductMatchesSetting(
       setting.peso_kg,
     );
 
+  /*
+   * IMPORTANTE:
+   *
+   * El producto de catálogo puede ser compartido por varias
+   * configuraciones comerciales.
+   *
+   * Ejemplo:
+   *
+   * ROLITO 5 KG
+   *   setting -> BV004
+   *
+   * ROLITO 5 KG MAQUILA
+   *   setting -> BV008
+   *
+   * Ambos pueden apuntar al mismo product_id de catálogo.
+   *
+   * La identidad real del inventario NO depende de product_id.
+   * Se conserva mediante:
+   *
+   * - inventory_product_setting_id
+   * - firebase_bolsa_vacia_codigo
+   * - firebase_tipo_hielo
+   * - peso_kg
+   */
   return (
     productIceType ===
       settingIceType &&
@@ -274,13 +248,11 @@ function findCatalogProductForSetting(
     );
 
   /*
-   * 1. Coincidencia exacta por nombre comercial.
+   * 1. Si existe producto de catálogo con el mismo nombre
+   *    comercial, se usa primero.
    *
-   * Si el catálogo tiene:
-   *   ROLITO 5 KG
-   *   ROLITO 5 KG MAQUILA
-   *
-   * cada configuración obtiene su producto exacto.
+   * Esto permite que en el futuro exista un product_id
+   * específico para MAQUILA sin cambiar esta lógica.
    */
   if (settingName) {
     const exactNameMatch =
@@ -298,10 +270,15 @@ function findCatalogProductForSetting(
   }
 
   /*
-   * 2. Fallback controlado.
+   * 2. Fallback compatible con la estructura actual.
    *
-   * Se permite tipo + peso, pero respetando
-   * diferenciadores comerciales como MAQUILA.
+   * Si no existe un producto específico de catálogo,
+   * se permite reutilizar el producto genérico por:
+   *
+   *   tipo de hielo + peso
+   *
+   * La diferenciación de inventario se hace después
+   * mediante el setting y el código Firebase.
    */
   return (
     products.find(
