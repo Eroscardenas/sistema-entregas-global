@@ -326,6 +326,143 @@ function findIceStockEntry(
   return null;
 }
 
+
+function compact(
+  value: unknown,
+): string {
+  return normalize(value)
+    .replace(/[^A-Z0-9]+/g, '');
+}
+
+/*
+ * =====================================================
+ * RESOLVER INVENTARIO EXACTO DESDE LA CONFIGURACIÓN
+ * =====================================================
+ *
+ * La identidad física del inventario debe salir de
+ * inventory_product_settings.
+ *
+ * Ejemplo:
+ *
+ * ROLITO 5 KG
+ *   firebase_bolsa_vacia_codigo = BV004
+ *
+ * ROLITO 5 KG MAQUILA
+ *   firebase_bolsa_vacia_codigo = BV008
+ *
+ * Aunque ambos sean ROLITO + 5 KG, NO son el mismo
+ * inventario.
+ */
+async function resolveInventoryFromSetting(
+  params: {
+    setting: InventorySetting;
+    item: CleanSaleItem;
+    inventoryProducts:
+      ProductionInventoryProduct[];
+  },
+): Promise<
+  ProductionInventoryProduct | null
+> {
+  const configuredCode =
+    clean(
+      params.setting
+        .firebase_bolsa_vacia_codigo,
+    ).toUpperCase();
+
+  const configuredIceType =
+    normalizeIceType(
+      params.setting
+        .firebase_tipo_hielo ??
+        params.item.iceType,
+    );
+
+  const configuredWeight =
+    toNumber(
+      params.setting.peso_kg,
+    );
+
+  /*
+   * Si Supabase tiene código Firebase configurado,
+   * hacemos match ESTRICTO por:
+   *
+   * - código de bolsa
+   * - tipo de hielo
+   * - peso
+   *
+   * No se permite resolver solamente por ROLITO + 5 KG.
+   */
+  if (configuredCode) {
+    const wantedCode =
+      compact(configuredCode);
+
+    const exactInventory =
+      params.inventoryProducts.find(
+        (inventory) => {
+          const inventoryCode =
+            compact(
+              inventory.bolsaVaciaCodigo ??
+                inventory.codigo,
+            );
+
+          if (
+            inventoryCode !==
+            wantedCode
+          ) {
+            return false;
+          }
+
+          if (
+            normalizeIceType(
+              inventory.tipoHielo,
+            ) !==
+            configuredIceType
+          ) {
+            return false;
+          }
+
+          if (
+            configuredWeight >
+              0 &&
+            Math.abs(
+              inventory.pesoKg -
+                configuredWeight,
+            ) >
+              0.001
+          ) {
+            return false;
+          }
+
+          return true;
+        },
+      );
+
+    return exactInventory ?? null;
+  }
+
+  /*
+   * Compatibilidad para configuraciones antiguas
+   * que todavía no tengan código Firebase.
+   */
+  return findProductionInventoryProduct(
+    {
+      codigo:
+        params.item.inventoryCode,
+
+      tipoHielo:
+        params.setting
+          .firebase_tipo_hielo ??
+        params.item.iceType,
+
+      pesoKg:
+        params.setting.peso_kg,
+    },
+
+    undefined,
+
+    params.inventoryProducts,
+  );
+}
+
 async function generateFolio() {
   const sb =
     getAdminSupabase();
@@ -682,29 +819,29 @@ async function resolveSaleItems(
     /*
      * IMPORTANTE:
      *
-     * PASAMOS inventoryProducts COMO TERCER PARÁMETRO.
+     * La configuración comercial es la fuente de verdad.
      *
-     * findProductionInventoryProduct ya NO consulta
-     * nuevamente toda la colección.
+     * Si existe firebase_bolsa_vacia_codigo, el inventario
+     * se resuelve de forma estricta por:
+     *
+     * código Firebase + tipo de hielo + peso.
+     *
+     * Esto evita que:
+     *
+     * BV004 = ROLITO 5 KG
+     * BV008 = ROLITO 5 KG MAQUILA
+     *
+     * puedan cruzarse solamente porque ambos son
+     * ROLITO + 5 KG.
      */
     const inventory =
-      await findProductionInventoryProduct(
+      await resolveInventoryFromSetting(
         {
-          codigo:
-            setting.firebase_bolsa_vacia_codigo ??
-            item.inventoryCode,
-
-          tipoHielo:
-            setting.firebase_tipo_hielo ??
-            item.iceType,
-
-          pesoKg:
-            setting.peso_kg,
+          setting,
+          item,
+          inventoryProducts:
+            params.inventoryProducts,
         },
-
-        undefined,
-
-        params.inventoryProducts,
       );
 
     if (!inventory) {
@@ -712,6 +849,42 @@ async function resolveSaleItems(
         `No se encontró el inventario real de ${
           setting.nombre_comercial ??
           catalogProduct.nombre
+        }. Código esperado: ${
+          setting.firebase_bolsa_vacia_codigo ??
+          item.inventoryCode ??
+          'SIN_CODIGO'
+        }.`,
+      );
+    }
+
+    /*
+     * Protección adicional:
+     * si la configuración tiene código Firebase,
+     * verificamos otra vez que el inventario resuelto
+     * pertenezca exactamente a ese código.
+     */
+    const configuredInventoryCode =
+      clean(
+        setting.firebase_bolsa_vacia_codigo,
+      ).toUpperCase();
+
+    if (
+      configuredInventoryCode &&
+      compact(
+        inventory.bolsaVaciaCodigo ??
+          inventory.codigo,
+      ) !==
+        compact(
+          configuredInventoryCode,
+        )
+    ) {
+      throw new Error(
+        `El inventario resuelto no corresponde a ${
+          setting.nombre_comercial ??
+          catalogProduct.nombre
+        }. Esperado: ${configuredInventoryCode}. Recibido: ${
+          inventory.bolsaVaciaCodigo ??
+          inventory.codigo
         }.`,
       );
     }

@@ -174,6 +174,16 @@ function inventoryMatchesSetting(
   return inventoryKey === settingKey;
 }
 
+function hasWord(
+  value: unknown,
+  word: string,
+): boolean {
+  return normalize(value)
+    .split(/[^A-Z0-9]+/)
+    .filter(Boolean)
+    .includes(normalize(word));
+}
+
 function catalogProductMatchesSetting(
   product: SupabaseProduct,
   setting: InventorySetting,
@@ -185,21 +195,122 @@ function catalogProductMatchesSetting(
     setting.firebase_tipo_hielo,
   );
 
+  const productName = normalize(
+    product.nombre,
+  );
+
+  const settingName = normalize(
+    setting.nombre_comercial,
+  );
+
+  /*
+   * La palabra MAQUILA es un diferenciador comercial.
+   *
+   * Ejemplo:
+   *
+   * ROLITO 5 KG
+   *   !=
+   * ROLITO 5 KG MAQUILA
+   *
+   * Aunque ambos tengan:
+   *   tipo = ROLITO
+   *   peso = 5 KG
+   */
+  const settingIsMaquila =
+    hasWord(
+      settingName,
+      'MAQUILA',
+    );
+
+  const productIsMaquila =
+    hasWord(
+      productName,
+      'MAQUILA',
+    );
+
+  if (
+    settingIsMaquila !==
+    productIsMaquila
+  ) {
+    return false;
+  }
+
   if (settingIceType === 'BARRA') {
     return (
       productIceType === 'BARRA' ||
-      normalize(product.nombre).includes('BARRA') ||
+      productName.includes('BARRA') ||
       normalize(product.kind).includes('BARRA')
     );
   }
 
-  const productKg = resolveCatalogProductKg(product);
-  const settingKg = toNumber(setting.peso_kg);
+  const productKg =
+    resolveCatalogProductKg(
+      product,
+    );
+
+  const settingKg =
+    toNumber(
+      setting.peso_kg,
+    );
 
   return (
-    productIceType === settingIceType &&
+    productIceType ===
+      settingIceType &&
     settingKg > 0 &&
-    Math.abs(productKg - settingKg) < 0.001
+    Math.abs(
+      productKg -
+        settingKg,
+    ) < 0.001
+  );
+}
+
+function findCatalogProductForSetting(
+  products: SupabaseProduct[],
+  setting: InventorySetting,
+): SupabaseProduct | null {
+  const settingName =
+    normalize(
+      setting.nombre_comercial,
+    );
+
+  /*
+   * 1. Coincidencia exacta por nombre comercial.
+   *
+   * Si el catálogo tiene:
+   *   ROLITO 5 KG
+   *   ROLITO 5 KG MAQUILA
+   *
+   * cada configuración obtiene su producto exacto.
+   */
+  if (settingName) {
+    const exactNameMatch =
+      products.find(
+        (product) =>
+          normalize(
+            product.nombre,
+          ) ===
+          settingName,
+      );
+
+    if (exactNameMatch) {
+      return exactNameMatch;
+    }
+  }
+
+  /*
+   * 2. Fallback controlado.
+   *
+   * Se permite tipo + peso, pero respetando
+   * diferenciadores comerciales como MAQUILA.
+   */
+  return (
+    products.find(
+      (product) =>
+        catalogProductMatchesSetting(
+          product,
+          setting,
+        ),
+    ) ?? null
   );
 }
 
@@ -421,14 +532,70 @@ export async function GET(req: Request) {
           return null;
         }
 
-        const product = products.find((item) =>
-          catalogProductMatchesSetting(
-            item,
+        const configuredInventoryCode =
+          normalize(
+            setting.firebase_bolsa_vacia_codigo,
+          );
+
+        const resolvedInventoryCode =
+          normalize(
+            inventory.bolsaVaciaCodigo ??
+              inventory.codigo,
+          );
+
+        /*
+         * Protección extra:
+         *
+         * Si la configuración dice BV004,
+         * jamás devolvemos BV008, y viceversa.
+         */
+        if (
+          configuredInventoryCode &&
+          resolvedInventoryCode !==
+            configuredInventoryCode
+        ) {
+          console.error(
+            '[production-sales/products] Inventario resuelto no coincide con setting:',
+            {
+              setting_id:
+                setting.id,
+              nombre_comercial:
+                setting.nombre_comercial,
+              expected_code:
+                configuredInventoryCode,
+              resolved_code:
+                resolvedInventoryCode,
+              inventory_document_id:
+                inventory.documentId,
+            },
+          );
+
+          return null;
+        }
+
+        const product =
+          findCatalogProductForSetting(
+            products,
             setting,
-          ),
-        );
+          );
 
         if (!product) {
+          console.warn(
+            '[production-sales/products] No se encontró producto de catálogo para setting:',
+            {
+              setting_id:
+                setting.id,
+              nombre_comercial:
+                setting.nombre_comercial,
+              firebase_bolsa_vacia_codigo:
+                setting.firebase_bolsa_vacia_codigo,
+              firebase_tipo_hielo:
+                setting.firebase_tipo_hielo,
+              peso_kg:
+                setting.peso_kg,
+            },
+          );
+
           return null;
         }
 
