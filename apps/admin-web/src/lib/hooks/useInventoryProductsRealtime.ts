@@ -140,9 +140,9 @@ function normalizeIceType(
   }
 
   if (
-    text.includes('FRAP')
+    text.includes('FRAPPE')
   ) {
-    return 'FRAP';
+    return 'FRAPPE';
   }
 
   if (

@@ -63,7 +63,7 @@ function normalizeIceType(value: unknown): string {
   if (text.includes('BARRA')) return 'BARRA';
   if (text.includes('GOURMET')) return 'GOURMET';
   if (text.includes('ENFRIAR')) return 'ENFRIAR';
-  if (text.includes('FRAP')) return 'FRAP';
+  if (text.includes('FRAPPE')) return 'FRAPPE';
   if (text.includes('ROLITO')) return 'ROLITO';
   if (text.includes('NORMAL')) return 'ROLITO';
 
@@ -119,7 +119,7 @@ function resolveCatalogProductIceType(
     if (name.includes('BARRA')) iceType = 'BARRA';
     else if (name.includes('GOURMET')) iceType = 'GOURMET';
     else if (name.includes('ENFRIAR')) iceType = 'ENFRIAR';
-    else if (name.includes('FRAP')) iceType = 'FRAP';
+    else if (name.includes('FRAPPE')) iceType = 'FRAPPE';
     else iceType = 'ROLITO';
   }
 

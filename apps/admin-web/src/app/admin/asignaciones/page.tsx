@@ -215,7 +215,7 @@ function normalizeIceTypeForPdf(value?: string | null) {
   if (!t) return "";
   if (t.includes("BARRA")) return "BARRA";
   if (t.includes("GOURMET")) return "GOURMET";
-  if (t.includes("FRAP")) return "FRAP";
+  if (t.includes("FRAPPE")) return "FRAPPE";
   if (t.includes("ENFRIAR")) return "ENFRIAR";
   if (t.includes("ROLITO")) return "ROLITO";
   if (t.includes("NORMAL")) return "ROLITO";
@@ -261,7 +261,7 @@ function buildProductKeyForPdf(input: {
   let type = iceType;
   if (!type) {
     if (name.includes("GOURMET")) type = "GOURMET";
-    else if (name.includes("FRAP")) type = "FRAP";
+    else if (name.includes("FRAPPE")) type = "FRAPPE";
     else if (name.includes("ENFRIAR")) type = "ENFRIAR";
     else if (
       name.includes("ROLITO") ||
@@ -300,8 +300,8 @@ function productSortWeightForPdf(key: string) {
     "ROLITO_3",
     "ROLITO_5",
     "ROLITO_15",
-    "FRAP_5",
-    "FRAP_15",
+    "FRAPPE_5",
+    "FRAPPE_15",
     "BARRA",
     "GOURMET_5",
     "ENFRIAR_5",
@@ -661,12 +661,12 @@ function canonicalInventoryOutputKeyForPdf(
   // Esto evita que FRAP_15 se vuelva ROLITO_15 cuando el label genérico
   // viene como "Bolsa vacía 15KG".
   const rawUnderscoreMatch = raw.match(
-    /^(ROLITO|FRAP|FRAPPE|GOURMET|ENFRIAR)_(\d+(?:\.\d+)?)$/,
+    /^(ROLITO|FRAPPE|FRAPPE|GOURMET|ENFRIAR)_(\d+(?:\.\d+)?)$/,
   );
 
   if (rawUnderscoreMatch) {
     const type =
-      rawUnderscoreMatch[1] === "FRAPPE" ? "FRAP" : rawUnderscoreMatch[1];
+      rawUnderscoreMatch[1] === "FRAPPE" ? "FRAPPE" : rawUnderscoreMatch[1];
     const kg = rawUnderscoreMatch[2].replace(/\.0+$/, "");
     return `${type}_${kg}`;
   }

@@ -8,7 +8,7 @@ export type ProductionInventoryProductKind =
 
 export type ProductionInventoryIceType =
   | 'ROLITO'
-  | 'FRAP'
+  | 'FRAPPE'
   | 'GOURMET'
   | 'ENFRIAR'
   | 'BARRA'
@@ -150,9 +150,9 @@ function normalizeIceType(
   }
 
   if (
-    text.includes('FRAP')
+    text.includes('FRAPPE')
   ) {
-    return 'FRAP';
+    return 'FRAPPE';
   }
 
   if (

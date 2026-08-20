@@ -218,7 +218,7 @@ function normalizeIceType(value: unknown): string {
   if (!s) return '';
   if (s.includes('BARRA')) return 'BARRA';
   if (s.includes('GOURMET')) return 'GOURMET';
-  if (s.includes('FRAP')) return 'FRAPPE';
+  if (s.includes('FRAPPE')) return 'FRAPPE';
   if (s.includes('ENFRIAR')) return 'ENFRIAR';
   if (s.includes('ROLITO')) return 'ROLITO';
   if (s.includes('NORMAL')) return 'ROLITO';
