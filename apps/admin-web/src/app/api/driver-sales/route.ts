@@ -16,9 +16,15 @@ type AssignmentRouteResult = {
 
 type DriverStockRow = {
   product_id: string;
+  inventory_product_setting_id: string | null;
   assigned_qty: number | null;
   used_qty: number | null;
   available_qty: number | null;
+};
+
+type StockIdentityItem = {
+  product_id: string;
+  inventory_product_setting_id: string | null;
 };
 
 export async function OPTIONS() {
@@ -153,6 +159,57 @@ function toKey(product: any) {
   }
 
   return type;
+}
+
+
+function normalizeInventoryCode(value: unknown) {
+  return normalizeText(value)
+    .replace(/[^A-Z0-9]+/g, '_')
+    .replace(/^_+|_+$/g, '');
+}
+
+function buildInventorySettingKey(setting: any, product: any) {
+  const code =
+    normalizeInventoryCode(
+      setting?.firebase_bolsa_vacia_codigo,
+    );
+
+  const legacyKey =
+    toKey({
+      nombre:
+        setting?.nombre_comercial ??
+        product?.nombre,
+
+      ice_type:
+        setting?.firebase_tipo_hielo ??
+        product?.ice_type,
+
+      kg_por_unidad:
+        setting?.peso_kg ??
+        product?.kg_por_unidad,
+
+      kind:
+        product?.kind,
+    });
+
+  if (!code) {
+    return legacyKey;
+  }
+
+  if (legacyKey === 'BARRA') {
+    return `${code}__BARRA`;
+  }
+
+  return legacyKey
+    ? `${code}__${legacyKey.replace('_', '__')}`
+    : code;
+}
+
+function stockIdentityKey(
+  productId: string,
+  settingId: string | null,
+) {
+  return `${productId}__${settingId || 'LEGACY'}`;
 }
 
 /**
@@ -518,7 +575,7 @@ async function ensureDriverStockRows(
   params: {
     driverId: string;
     assignmentId: string;
-    productIds: string[];
+    items: StockIdentityItem[];
   },
 ) {
   const sb = getAdminSupabase();
@@ -529,20 +586,79 @@ async function ensureDriverStockRows(
    * =========================================================
    */
 
+  const uniqueItems =
+    Array.from(
+      new Map(
+        params.items
+          .map((item) => {
+            const productId =
+              String(
+                item.product_id || '',
+              ).trim();
+
+            const settingId =
+              item.inventory_product_setting_id
+                ? String(
+                    item.inventory_product_setting_id,
+                  ).trim()
+                : null;
+
+            if (!productId) {
+              return null;
+            }
+
+            const normalized = {
+              product_id:
+                productId,
+
+              inventory_product_setting_id:
+                settingId,
+            };
+
+            return [
+              stockIdentityKey(
+                productId,
+                settingId,
+              ),
+              normalized,
+            ] as const;
+          })
+          .filter(Boolean) as Array<
+            readonly [
+              string,
+              StockIdentityItem,
+            ]
+          >,
+      ).values(),
+    );
+
   const uniqueProductIds =
     Array.from(
       new Set(
-        params.productIds
+        uniqueItems.map(
+          (item) =>
+            item.product_id,
+        ),
+      ),
+    );
+
+  const uniqueSettingIds =
+    Array.from(
+      new Set(
+        uniqueItems
           .map(
-            (id) =>
-              String(id || '').trim(),
+            (item) =>
+              item.inventory_product_setting_id,
           )
-          .filter(Boolean),
+          .filter(
+            (id): id is string =>
+              Boolean(id),
+          ),
       ),
     );
 
   if (
-    uniqueProductIds.length === 0
+    uniqueItems.length === 0
   ) {
     throw new Error(
       'No hay productos válidos para registrar',
@@ -800,6 +916,61 @@ async function ensureDriverStockRows(
     }
   }
 
+
+  /*
+   * =========================================================
+   * qtyByInventoryKey
+   *
+   * Vista física nueva:
+   * BV004__ROLITO__5
+   * BV008__ROLITO__5
+   * =========================================================
+   */
+
+  const qtyByInventoryKey =
+    new Map<string, number>();
+
+  if (
+    outputsJson?.qtyByInventoryKey &&
+    typeof outputsJson.qtyByInventoryKey ===
+      'object'
+  ) {
+    for (
+      const [
+        key,
+        value,
+      ] of Object.entries(
+        outputsJson.qtyByInventoryKey,
+      )
+    ) {
+      const cleanKey =
+        String(
+          key || '',
+        )
+          .trim()
+          .toUpperCase();
+
+      const qty =
+        Math.abs(
+          toInt(value),
+        );
+
+      if (
+        cleanKey &&
+        qty > 0
+      ) {
+        qtyByInventoryKey.set(
+          cleanKey,
+          (
+            qtyByInventoryKey.get(
+              cleanKey,
+            ) ?? 0
+          ) + qty,
+        );
+      }
+    }
+  }
+
   /*
    * =========================================================
    * CATÁLOGO DE PRODUCTOS
@@ -838,6 +1009,58 @@ async function ensureDriverStockRows(
       ),
     );
 
+
+  /*
+   * =========================================================
+   * CONFIGURACIONES FÍSICAS
+   * =========================================================
+   */
+
+  const settingById =
+    new Map<string, any>();
+
+  if (
+    uniqueSettingIds.length > 0
+  ) {
+    const {
+      data: settings,
+      error: settingsErr,
+    } = await sb
+      .from(
+        'inventory_product_settings',
+      )
+      .select(
+        `
+        id,
+        firebase_bolsa_vacia_codigo,
+        firebase_tipo_hielo,
+        peso_kg,
+        nombre_comercial,
+        activo
+        `,
+      )
+      .in(
+        'id',
+        uniqueSettingIds,
+      );
+
+    if (settingsErr) {
+      throw settingsErr;
+    }
+
+    for (
+      const setting of
+        settings || []
+    ) {
+      settingById.set(
+        String(
+          (setting as any).id,
+        ),
+        setting,
+      );
+    }
+  }
+
   /*
    * =========================================================
    * USADO REAL DEL DÍA
@@ -865,7 +1088,7 @@ async function ensureDriverStockRows(
     .map((row: any) => String(row?.id || '').trim())
     .filter(Boolean);
 
-  const usedByProductId = new Map<string, number>();
+  const usedByIdentity = new Map<string, number>();
 
   if (dayAssignmentIds.length > 0) {
     const {
@@ -891,7 +1114,7 @@ async function ensureDriverStockRows(
         error: dayItemsErr,
       } = await sb
         .from('delivery_items')
-        .select('delivery_id,product_id,qty_assigned,qty_real')
+        .select('delivery_id,product_id,inventory_product_setting_id,qty_assigned,qty_real')
         .in('delivery_id', deliveredIds)
         .in('product_id', uniqueProductIds);
 
@@ -914,9 +1137,28 @@ async function ensureDriverStockRows(
 
         if (qty <= 0) continue;
 
-        usedByProductId.set(
-          productId,
-          (usedByProductId.get(productId) ?? 0) + qty,
+        const settingId =
+          (row as any)
+            ?.inventory_product_setting_id
+            ? String(
+                (row as any)
+                  .inventory_product_setting_id,
+              ).trim()
+            : null;
+
+        const identity =
+          stockIdentityKey(
+            productId,
+            settingId,
+          );
+
+        usedByIdentity.set(
+          identity,
+          (
+            usedByIdentity.get(
+              identity,
+            ) ?? 0
+          ) + qty,
         );
       }
     }
@@ -934,7 +1176,7 @@ async function ensureDriverStockRows(
   } = await sb
     .from('driver_stock')
     .select(
-      'product_id,assigned_qty,used_qty,available_qty',
+      'product_id,inventory_product_setting_id,assigned_qty,used_qty,available_qty',
     )
     .eq(
       'driver_id',
@@ -949,7 +1191,7 @@ async function ensureDriverStockRows(
     throw existingStockErr;
   }
 
-  const existingStockByProductId =
+  const existingStockByIdentity =
     new Map<
       string,
       DriverStockRow
@@ -969,11 +1211,26 @@ async function ensureDriverStockRows(
       continue;
     }
 
-    existingStockByProductId.set(
-      productId,
+    const settingId =
+      (raw as any)
+        .inventory_product_setting_id
+        ? String(
+            (raw as any)
+              .inventory_product_setting_id,
+          ).trim()
+        : null;
+
+    existingStockByIdentity.set(
+      stockIdentityKey(
+        productId,
+        settingId,
+      ),
       {
         product_id:
           productId,
+
+        inventory_product_setting_id:
+          settingId,
 
         assigned_qty:
           toInt(
@@ -1009,8 +1266,20 @@ async function ensureDriverStockRows(
    * =========================================================
    */
 
-  for (const productId of uniqueProductIds) {
-    const product = productById.get(productId);
+  for (
+    const item of
+      uniqueItems
+  ) {
+    const productId =
+      item.product_id;
+
+    const settingId =
+      item.inventory_product_setting_id;
+
+    const product =
+      productById.get(
+        productId,
+      );
 
     if (!product) {
       throw new Error(
@@ -1018,7 +1287,10 @@ async function ensureDriverStockRows(
       );
     }
 
-    const productKey = toKey(product);
+    const productKey =
+      toKey(
+        product,
+      );
 
     if (!productKey) {
       throw new Error(
@@ -1026,61 +1298,173 @@ async function ensureDriverStockRows(
       );
     }
 
-    /*
-     * Cargado real HOY.
-     *
-     * Importante: si hoy no hubo salida para este producto,
-     * assigned_qty debe ser 0. No conservamos el valor histórico.
-     */
-    const assignedToday = Math.max(
-      0,
-      toInt(qtyByKey.get(productKey) ?? 0),
-    );
+    const setting =
+      settingId
+        ? settingById.get(
+            settingId,
+          )
+        : null;
+
+    if (
+      settingId &&
+      !setting
+    ) {
+      throw new Error(
+        `No se encontró la configuración de inventario ${settingId}`,
+      );
+    }
+
+    const inventoryProductKey =
+      setting
+        ? buildInventorySettingKey(
+            setting,
+            product,
+          )
+        : '';
 
     /*
-     * Usado real HOY ANTES de registrar la venta nueva.
+     * Si existe setting, exigimos la clave física.
+     * No debemos caer silenciosamente a ROLITO_5 para BV004/BV008,
+     * porque eso volvería a mezclar normal y maquila.
      */
-    const usedToday = Math.max(
-      0,
-      toInt(usedByProductId.get(productId) ?? 0),
-    );
+    let assignedToday = 0;
+
+    if (
+      settingId
+    ) {
+      if (
+        !inventoryProductKey
+      ) {
+        throw new Error(
+          `No se pudo construir la clave física para ${settingId}`,
+        );
+      }
+
+      assignedToday =
+        Math.max(
+          0,
+          toInt(
+            qtyByInventoryKey.get(
+              inventoryProductKey,
+            ) ?? 0,
+          ),
+        );
+    } else {
+      assignedToday =
+        Math.max(
+          0,
+          toInt(
+            qtyByKey.get(
+              productKey,
+            ) ?? 0,
+          ),
+        );
+    }
+
+    const identity =
+      stockIdentityKey(
+        productId,
+        settingId,
+      );
+
+    const usedToday =
+      Math.max(
+        0,
+        toInt(
+          usedByIdentity.get(
+            identity,
+          ) ?? 0,
+        ),
+      );
 
     const existingStock =
-      existingStockByProductId.get(productId);
+      existingStockByIdentity.get(
+        identity,
+      );
 
-    const nowIso = new Date().toISOString();
+    const nowIso =
+      new Date()
+        .toISOString();
 
     if (existingStock) {
+      let updateQuery =
+        sb
+          .from(
+            'driver_stock',
+          )
+          .update({
+            assigned_qty:
+              assignedToday,
+
+            used_qty:
+              usedToday,
+
+            updated_at:
+              nowIso,
+          })
+          .eq(
+            'driver_id',
+            params.driverId,
+          )
+          .eq(
+            'product_id',
+            productId,
+          );
+
+      updateQuery =
+        settingId
+          ? updateQuery.eq(
+              'inventory_product_setting_id',
+              settingId,
+            )
+          : updateQuery.is(
+              'inventory_product_setting_id',
+              null,
+            );
+
       const {
         error: updateStockErr,
-      } = await sb
-        .from('driver_stock')
-        .update({
-          assigned_qty: assignedToday,
-          used_qty: usedToday,
-          updated_at: nowIso,
-        })
-        .eq('driver_id', params.driverId)
-        .eq('product_id', productId);
+      } =
+        await updateQuery;
 
       if (updateStockErr) {
         throw updateStockErr;
       }
 
       console.log(
-        '[driver-sales] driver_stock diario sincronizado',
+        '[driver-sales] driver_stock por setting sincronizado',
         {
-          driverId: params.driverId,
+          driverId:
+            params.driverId,
+
           productId,
+
+          settingId,
+
           productKey,
-          assignedBefore: existingStock.assigned_qty,
-          usedBefore: existingStock.used_qty,
+
+          inventoryProductKey:
+            inventoryProductKey ||
+            null,
+
+          assignedBefore:
+            existingStock
+              .assigned_qty,
+
+          usedBefore:
+            existingStock
+              .used_qty,
+
           assignedToday,
+
           usedToday,
-          availableBeforeSale: Math.max(
-            0,
-            assignedToday - usedToday,
-          ),
+
+          availableBeforeSale:
+            Math.max(
+              0,
+              assignedToday -
+                usedToday,
+            ),
         },
       );
 
@@ -1090,31 +1474,73 @@ async function ensureDriverStockRows(
     const {
       error: insertStockErr,
     } = await sb
-      .from('driver_stock')
+      .from(
+        'driver_stock',
+      )
       .insert({
-        driver_id: params.driverId,
-        product_id: productId,
-        assigned_qty: assignedToday,
-        used_qty: usedToday,
-        updated_at: nowIso,
+        driver_id:
+          params.driverId,
+
+        product_id:
+          productId,
+
+        inventory_product_setting_id:
+          settingId,
+
+        assigned_qty:
+          assignedToday,
+
+        used_qty:
+          usedToday,
+
+        updated_at:
+          nowIso,
       });
 
     if (insertStockErr) {
       /*
-       * Si dos solicitudes intentaron crear la misma fila a la vez,
-       * hacemos una actualización final con el snapshot de HOY.
+       * Reintento por posible carrera.
+       * Requiere que driver_stock permita identidad por setting.
        */
+      let retryQuery =
+        sb
+          .from(
+            'driver_stock',
+          )
+          .update({
+            assigned_qty:
+              assignedToday,
+
+            used_qty:
+              usedToday,
+
+            updated_at:
+              nowIso,
+          })
+          .eq(
+            'driver_id',
+            params.driverId,
+          )
+          .eq(
+            'product_id',
+            productId,
+          );
+
+      retryQuery =
+        settingId
+          ? retryQuery.eq(
+              'inventory_product_setting_id',
+              settingId,
+            )
+          : retryQuery.is(
+              'inventory_product_setting_id',
+              null,
+            );
+
       const {
         error: retryUpdateErr,
-      } = await sb
-        .from('driver_stock')
-        .update({
-          assigned_qty: assignedToday,
-          used_qty: usedToday,
-          updated_at: nowIso,
-        })
-        .eq('driver_id', params.driverId)
-        .eq('product_id', productId);
+      } =
+        await retryQuery;
 
       if (retryUpdateErr) {
         throw insertStockErr;
@@ -1122,17 +1548,31 @@ async function ensureDriverStockRows(
     }
 
     console.log(
-      '[driver-sales] driver_stock diario creado',
+      '[driver-sales] driver_stock por setting creado',
       {
-        driverId: params.driverId,
+        driverId:
+          params.driverId,
+
         productId,
+
+        settingId,
+
         productKey,
+
+        inventoryProductKey:
+          inventoryProductKey ||
+          null,
+
         assignedToday,
+
         usedToday,
-        availableBeforeSale: Math.max(
-          0,
-          assignedToday - usedToday,
-        ),
+
+        availableBeforeSale:
+          Math.max(
+            0,
+            assignedToday -
+              usedToday,
+          ),
       },
     );
   }
@@ -1317,10 +1757,15 @@ export async function POST(
         driverId,
         assignmentId,
 
-        productIds:
+        items:
           cleanItems.map(
-            (item) =>
-              item.product_id,
+            (item) => ({
+              product_id:
+                item.product_id,
+
+              inventory_product_setting_id:
+                item.inventory_product_setting_id,
+            }),
           ),
       },
     );

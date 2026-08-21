@@ -16,9 +16,15 @@ type ProductSourceRow = {
 
 type DriverStockRow = {
   product_id: string;
+  inventory_product_setting_id?: string | null;
   assigned_qty: number | null;
   used_qty: number | null;
   available_qty: number | null;
+};
+
+type InventoryOutputsResult = {
+  byLegacyKey: Map<string, number>;
+  byInventoryKey: Map<string, number>;
 };
 
 export async function OPTIONS() {
@@ -391,6 +397,50 @@ function buildProductKey(input: {
   return type || name;
 }
 
+
+function normalizeInventoryCode(value: any) {
+  return normalizeText(value)
+    .replace(/[^A-Z0-9]+/g, '_')
+    .replace(/^_+|_+$/g, '');
+}
+
+function buildInventorySettingKey(input: {
+  bolsa_vacia_codigo?: any;
+  firebase_tipo_hielo?: any;
+  peso_kg?: any;
+  nombre?: any;
+  kind?: any;
+}) {
+  const code =
+    normalizeInventoryCode(
+      input.bolsa_vacia_codigo,
+    );
+
+  const legacyKey =
+    buildProductKey({
+      nombre:
+        input.nombre,
+      ice_type:
+        input.firebase_tipo_hielo,
+      kg_por_unidad:
+        input.peso_kg,
+      kind:
+        input.kind,
+    });
+
+  if (!code) {
+    return legacyKey;
+  }
+
+  if (legacyKey === 'BARRA') {
+    return `${code}__BARRA`;
+  }
+
+  return legacyKey
+    ? `${code}__${legacyKey.replace('_', '__')}`
+    : code;
+}
+
 async function loadInventoryOutputs(
   params: {
     req: Request;
@@ -551,7 +601,13 @@ async function loadInventoryOutputs(
     );
   }
 
-  const out =
+  const byLegacyKey =
+    new Map<
+      string,
+      number
+    >();
+
+  const byInventoryKey =
     new Map<
       string,
       number
@@ -583,10 +639,10 @@ async function loadInventoryOutputs(
       key &&
       qty > 0
     ) {
-      out.set(
+      byLegacyKey.set(
         key,
         (
-          out.get(
+          byLegacyKey.get(
             key,
           ) ?? 0
         ) + qty,
@@ -594,7 +650,54 @@ async function loadInventoryOutputs(
     }
   }
 
-  return out;
+  const physicalSource =
+    json.qtyByInventoryKey &&
+    typeof json.qtyByInventoryKey ===
+      'object'
+      ? json.qtyByInventoryKey
+      : {};
+
+  for (
+    const [
+      keyRaw,
+      qtyRaw,
+    ] of Object.entries(
+      physicalSource,
+    )
+  ) {
+    const key =
+      String(
+        keyRaw || '',
+      )
+        .trim()
+        .toUpperCase();
+
+    const qty =
+      Math.abs(
+        toInt(
+          qtyRaw,
+        ),
+      );
+
+    if (
+      key &&
+      qty > 0
+    ) {
+      byInventoryKey.set(
+        key,
+        (
+          byInventoryKey.get(
+            key,
+          ) ?? 0
+        ) + qty,
+      );
+    }
+  }
+
+  return {
+    byLegacyKey,
+    byInventoryKey,
+  } satisfies InventoryOutputsResult;
 }
 
 function parseNullableNumber(
@@ -852,7 +955,7 @@ export async function GET(
      *
      * NO convertimos el fallo en stock 0.
      */
-    const outputsByKey =
+    const inventoryOutputs =
       await loadInventoryOutputs(
         {
           req,
@@ -882,6 +985,7 @@ export async function GET(
         .select(
           `
           product_id,
+          inventory_product_setting_id,
           assigned_qty,
           used_qty,
           available_qty
@@ -1197,6 +1301,7 @@ export async function GET(
           created_at,
           inventory_product_settings:inventory_product_setting_id (
             id,
+            firebase_bolsa_vacia_codigo,
             firebase_tipo_hielo,
             peso_kg,
             nombre_comercial,
@@ -1570,14 +1675,80 @@ export async function GET(
                   p?.kind,
               });
 
+            /*
+             * Para customer_inventory_products usamos SIEMPRE la clave física
+             * del setting cuando existe:
+             *
+             * BV004__ROLITO__5
+             * BV008__ROLITO__5
+             *
+             * Así un cliente normal y uno de maquila no comparten la misma
+             * cantidad asignada aunque ambos apunten al mismo products.id.
+             */
+            const inventoryProductKey =
+              setting
+                ? buildInventorySettingKey({
+                    bolsa_vacia_codigo:
+                      setting
+                        ?.firebase_bolsa_vacia_codigo,
+
+                    firebase_tipo_hielo:
+                      setting
+                        ?.firebase_tipo_hielo,
+
+                    peso_kg:
+                      setting
+                        ?.peso_kg,
+
+                    nombre:
+                      setting
+                        ?.nombre_comercial ??
+                      p?.nombre,
+
+                    kind:
+                      p?.kind,
+                  })
+                : '';
+
+            const hasPhysicalStock =
+              Boolean(
+                inventoryProductKey &&
+                inventoryOutputs
+                  .byInventoryKey
+                  .has(
+                    inventoryProductKey,
+                  ),
+              );
+
             const assignedQty =
               Math.max(
                 0,
-                outputsByKey.get(
-                  productKey,
-                ) ?? 0,
+                hasPhysicalStock
+                  ? (
+                      inventoryOutputs
+                        .byInventoryKey
+                        .get(
+                          inventoryProductKey,
+                        ) ??
+                      0
+                    )
+                  : (
+                      inventoryOutputs
+                        .byLegacyKey
+                        .get(
+                          productKey,
+                        ) ??
+                      0
+                    ),
               );
 
+            /*
+             * deliveredByKey continúa como compatibilidad histórica mientras
+             * migramos driver_stock/register_driver_sale al setting exacto.
+             *
+             * IMPORTANTE:
+             * assignedQty YA queda separado por BV para clientes configurados.
+             */
             const usedQty =
               Math.max(
                 0,
@@ -1629,6 +1800,10 @@ export async function GET(
 
               product_key:
                 productKey,
+
+              inventory_product_key:
+                inventoryProductKey ||
+                null,
 
               nombre:
                 setting
@@ -1693,7 +1868,9 @@ export async function GET(
                 availableQty,
 
               stock_source:
-                'inventory_outputs_today+deliveries_today',
+                hasPhysicalStock
+                  ? 'inventory_outputs_physical_today+deliveries_today'
+                  : 'inventory_outputs_legacy_today+deliveries_today',
             };
           },
         )
@@ -1755,7 +1932,16 @@ export async function GET(
 
         outputsByKey:
           Object.fromEntries(
-            outputsByKey.entries(),
+            inventoryOutputs
+              .byLegacyKey
+              .entries(),
+          ),
+
+        outputsByInventoryKey:
+          Object.fromEntries(
+            inventoryOutputs
+              .byInventoryKey
+              .entries(),
           ),
 
         deliveredByKey:
@@ -1844,6 +2030,9 @@ export async function GET(
 
               product_key:
                 r.product_key,
+
+              inventory_product_key:
+                r.inventory_product_key,
 
               assigned_qty:
                 r.assigned_qty,

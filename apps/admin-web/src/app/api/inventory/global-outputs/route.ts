@@ -405,6 +405,61 @@ function productKey(item: MovementItem) {
     .replace(/^_+|_+$/g, "");
 }
 
+
+/*
+ * Clave física del inventario.
+ *
+ * qtyByKey se conserva para compatibilidad histórica:
+ *   ROLITO_5, FRAP_15, BARRA, etc.
+ *
+ * Esta clave adicional sí distingue la bolsa/configuración:
+ *   BV004 + ROLITO + 5 -> BV004__ROLITO__5
+ *   BV008 + ROLITO + 5 -> BV008__ROLITO__5
+ */
+function inventoryProductKey(item: MovementItem) {
+  const legacyKey = productKey(item);
+
+  const code = normalize(
+    item.bolsaVaciaCodigo ||
+      item.productoCodigo,
+  )
+    .replace(/[^A-Z0-9]+/g, "_")
+    .replace(/^_+|_+$/g, "");
+
+  if (!code) {
+    return legacyKey;
+  }
+
+  const label = productLabel(item);
+
+  const tipo = normalizeIceType(
+    item.tipoHielo || label,
+  );
+
+  const kg = extractKg(
+    item.pesoKg,
+    label,
+    item.inventoryKey,
+  );
+
+  if (
+    tipo === "BARRA" ||
+    normalize(label).includes("BARRA")
+  ) {
+    return `${code}__BARRA`;
+  }
+
+  if (tipo && kg) {
+    return `${code}__${tipo}__${kg}`;
+  }
+
+  if (tipo) {
+    return `${code}__${tipo}`;
+  }
+
+  return code || legacyKey;
+}
+
 function movementItems(raw: MovementDoc): MovementItem[] {
   if (
     Array.isArray(raw.items) &&
@@ -550,8 +605,15 @@ type MatchedSalidaDoc = {
   id: string;
   data: MovementDoc;
   time: Date | null;
+
+  // Claves históricas.
   totals: Record<string, number>;
   labels: Record<string, string>;
+
+  // Claves físicas por código de inventario.
+  inventoryTotals: Record<string, number>;
+  inventoryLabels: Record<string, string>;
+
   sortTime: number;
 };
 
@@ -565,6 +627,12 @@ function totalsForMovement(
     Record<string, number> = {};
 
   const labels:
+    Record<string, string> = {};
+
+  const inventoryTotals:
+    Record<string, number> = {};
+
+  const inventoryLabels:
     Record<string, string> = {};
 
   for (
@@ -585,25 +653,39 @@ function totalsForMovement(
     const key =
       productKey(item);
 
+    const physicalKey =
+      inventoryProductKey(item);
+
     const label =
       productLabel(item);
 
-    if (!key) {
-      continue;
+    if (key) {
+      totals[key] =
+        (totals[key] || 0) +
+        qty;
+
+      if (!labels[key]) {
+        labels[key] = label;
+      }
     }
 
-    totals[key] =
-      (totals[key] || 0) +
-      qty;
+    if (physicalKey) {
+      inventoryTotals[physicalKey] =
+        (inventoryTotals[physicalKey] || 0) +
+        qty;
 
-    if (!labels[key]) {
-      labels[key] = label;
+      if (!inventoryLabels[physicalKey]) {
+        inventoryLabels[physicalKey] =
+          label;
+      }
     }
   }
 
   return {
     totals,
     labels,
+    inventoryTotals,
+    inventoryLabels,
   };
 }
 
@@ -1116,6 +1198,18 @@ export async function GET(
         string
       > = {};
 
+    const qtyByInventoryKey:
+      Record<
+        string,
+        number
+      > = {};
+
+    const labelByInventoryKey:
+      Record<
+        string,
+        string
+      > = {};
+
     const devolucionesByKey:
       Record<
         string,
@@ -1123,6 +1217,18 @@ export async function GET(
       > = {};
 
     const devolucionesLabelByKey:
+      Record<
+        string,
+        string
+      > = {};
+
+    const devolucionesByInventoryKey:
+      Record<
+        string,
+        number
+      > = {};
+
+    const devolucionesLabelByInventoryKey:
       Record<
         string,
         string
@@ -1188,6 +1294,8 @@ export async function GET(
           const {
             totals,
             labels,
+            inventoryTotals,
+            inventoryLabels,
           } =
             totalsForMovement(
               raw,
@@ -1209,6 +1317,8 @@ export async function GET(
                 time: docDate,
                 totals,
                 labels,
+                inventoryTotals,
+                inventoryLabels,
                 sortTime:
                   docDate?.getTime() ||
                   0,
@@ -1235,6 +1345,8 @@ export async function GET(
           const {
             totals,
             labels,
+            inventoryTotals,
+            inventoryLabels,
           } =
             totalsForMovement(
               raw,
@@ -1256,6 +1368,8 @@ export async function GET(
                 time: docDate,
                 totals,
                 labels,
+                inventoryTotals,
+                inventoryLabels,
                 sortTime:
                   docDate?.getTime() ||
                   0,
@@ -1307,6 +1421,43 @@ export async function GET(
       }
     }
 
+    /*
+     * Salidas separadas por código físico.
+     */
+    for (
+      const doc of
+        effectiveDocs
+    ) {
+      for (
+        const [
+          key,
+          qty,
+        ] of Object.entries(
+          doc.inventoryTotals,
+        )
+      ) {
+        if (
+          qty <= 0
+        ) {
+          continue;
+        }
+
+        qtyByInventoryKey[key] =
+          (
+            qtyByInventoryKey[key] ||
+            0
+          ) + qty;
+
+        if (
+          !labelByInventoryKey[key]
+        ) {
+          labelByInventoryKey[key] =
+            doc.inventoryLabels[key] ||
+            key;
+        }
+      }
+    }
+
     for (
       const doc of
         matchedDevolucionDocs
@@ -1348,6 +1499,48 @@ export async function GET(
       }
     }
 
+    /*
+     * Devoluciones separadas por código físico.
+     */
+    for (
+      const doc of
+        matchedDevolucionDocs
+    ) {
+      for (
+        const [
+          key,
+          qty,
+        ] of Object.entries(
+          doc.inventoryTotals,
+        )
+      ) {
+        if (
+          qty <= 0
+        ) {
+          continue;
+        }
+
+        devolucionesByInventoryKey[key] =
+          (
+            devolucionesByInventoryKey[key] ||
+            0
+          ) + qty;
+
+        if (
+          !devolucionesLabelByInventoryKey[
+            key
+          ]
+        ) {
+          devolucionesLabelByInventoryKey[
+            key
+          ] =
+            doc.inventoryLabels[key] ||
+            labelByInventoryKey[key] ||
+            key;
+        }
+      }
+    }
+
     return NextResponse.json(
       {
         ok: true,
@@ -1356,11 +1549,19 @@ export async function GET(
         driverCode,
         driverName,
 
+        // Compatibilidad histórica.
         qtyByKey,
         labelByKey,
 
         devolucionesByKey,
         devolucionesLabelByKey,
+
+        // Nueva vista física: BV004__ROLITO__5, BV008__ROLITO__5, etc.
+        qtyByInventoryKey,
+        labelByInventoryKey,
+
+        devolucionesByInventoryKey,
+        devolucionesLabelByInventoryKey,
 
         totalProducts:
           Object.keys(
@@ -1370,6 +1571,16 @@ export async function GET(
         totalDevolucionesProducts:
           Object.keys(
             devolucionesByKey,
+          ).length,
+
+        totalInventoryProducts:
+          Object.keys(
+            qtyByInventoryKey,
+          ).length,
+
+        totalInventoryDevolucionesProducts:
+          Object.keys(
+            devolucionesByInventoryKey,
           ).length,
 
         debug: {
@@ -1420,6 +1631,9 @@ export async function GET(
                 keys:
                   doc.totals,
 
+                inventoryKeys:
+                  doc.inventoryTotals,
+
                 isCompleteBatch:
                   isCompleteBatchSalida(
                     doc,
@@ -1445,6 +1659,9 @@ export async function GET(
 
                 keys:
                   doc.totals,
+
+                inventoryKeys:
+                  doc.inventoryTotals,
               }),
             ),
 
@@ -1466,8 +1683,16 @@ export async function GET(
 
                 keys:
                   doc.totals,
+
+                inventoryKeys:
+                  doc.inventoryTotals,
               }),
             ),
+
+          physicalTotals: {
+            qtyByInventoryKey,
+            devolucionesByInventoryKey,
+          },
 
           hasAdminConfig,
           hasClientConfig,
