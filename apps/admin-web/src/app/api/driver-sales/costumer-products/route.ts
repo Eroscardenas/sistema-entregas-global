@@ -90,8 +90,20 @@ function normalizeText(value: any) {
 function normalizeIceType(value: any) {
   let s = normalizeText(value);
 
-  if (s === 'FRAPPE') {
-    s = 'FRAPPE';
+  /*
+   * Compatibilidad histórica:
+   *
+   * Visualmente el producto puede llamarse FRAPPE,
+   * pero las claves internas del inventario ya existentes
+   * utilizan FRAP.
+   *
+   * Por eso tanto FRAPPE como FRAP se normalizan a FRAP.
+   */
+  if (
+    s === 'FRAPPE' ||
+    s === 'FRAP'
+  ) {
+    s = 'FRAP';
   }
 
   if (s === 'NORMAL') {
@@ -155,9 +167,10 @@ function resolveProductIceType(product: any) {
     ) {
       type = 'GOURMET';
     } else if (
-      name.includes('FRAPPE')
+      name.includes('FRAPPE') ||
+      name.includes('FRAP')
     ) {
-      type = 'FRAPPE';
+      type = 'FRAP';
     } else if (
       name.includes('ENFRIAR')
     ) {
@@ -323,9 +336,12 @@ function buildProductKey(input: {
     } else if (
       name.includes(
         'FRAPPE',
+      ) ||
+      name.includes(
+        'FRAP',
       )
     ) {
-      type = 'FRAPPE';
+      type = 'FRAP';
     } else if (
       name.includes(
         'ENFRIAR',
@@ -338,7 +354,8 @@ function buildProductKey(input: {
   }
 
   if (
-    type === 'FRAPPE'
+    type === 'FRAPPE' ||
+    type === 'FRAP'
   ) {
     type = 'FRAP';
   }

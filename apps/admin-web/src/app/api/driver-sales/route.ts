@@ -120,8 +120,11 @@ function toKey(product: any) {
   if (!type || type === 'NORMAL') {
     if (name.includes('GOURMET')) {
       type = 'GOURMET';
-    } else if (name.includes('FRAPPE')) {
-      type = 'FRAPPE';
+    } else if (
+      name.includes('FRAPPE') ||
+      name.includes('FRAP')
+    ) {
+      type = 'FRAP';
     } else if (name.includes('ENFRIAR')) {
       type = 'ENFRIAR';
     } else {
@@ -129,8 +132,11 @@ function toKey(product: any) {
     }
   }
 
-  if (type === 'FRAPPE') {
-    type = 'FRAPPE';
+  if (
+    type === 'FRAPPE' ||
+    type === 'FRAP'
+  ) {
+    type = 'FRAP';
   }
 
   if (type === 'NORMAL') {
