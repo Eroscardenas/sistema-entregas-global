@@ -1040,6 +1040,7 @@ export function useAssignmentsBuilderAdmin() {
             .select('driver_id,product_id,assigned_qty,used_qty')
             .eq('driver_id', stockDriverId)
             .eq('product_id', it.product_id)
+            .is('inventory_product_setting_id', null)
             .maybeSingle();
 
           if (stockReadErr) {
@@ -1059,7 +1060,8 @@ export function useAssignmentsBuilderAdmin() {
                 updated_at: new Date().toISOString(),
               })
               .eq('driver_id', stockDriverId)
-              .eq('product_id', it.product_id);
+              .eq('product_id', it.product_id)
+              .is('inventory_product_setting_id', null);
 
             if (stockUpdateErr) {
               await sb.from(T_DELIVERY_ITEMS).delete().eq('delivery_id', deliveryId);
@@ -1070,6 +1072,7 @@ export function useAssignmentsBuilderAdmin() {
             const { error: stockInsertErr } = await sb.from('driver_stock').insert({
               driver_id: stockDriverId,
               product_id: it.product_id,
+              inventory_product_setting_id: null,
               assigned_qty: it.qty,
               used_qty: 0,
               updated_at: new Date().toISOString(),
