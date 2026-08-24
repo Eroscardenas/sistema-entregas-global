@@ -215,7 +215,7 @@ function normalizeIceTypeForPdf(value?: string | null) {
   if (!t) return "";
   if (t.includes("BARRA")) return "BARRA";
   if (t.includes("GOURMET")) return "GOURMET";
-  if (t.includes("FRAPPE")) return "FRAPPE";
+  if (t.includes("FRAPPE") || t.includes("FRAP")) return "FRAPPE";
   if (t.includes("ENFRIAR")) return "ENFRIAR";
   if (t.includes("ROLITO")) return "ROLITO";
   if (t.includes("NORMAL")) return "ROLITO";
@@ -661,12 +661,12 @@ function canonicalInventoryOutputKeyForPdf(
   // Esto evita que FRAP_15 se vuelva ROLITO_15 cuando el label genérico
   // viene como "Bolsa vacía 15KG".
   const rawUnderscoreMatch = raw.match(
-    /^(ROLITO|FRAPPE|FRAPPE|GOURMET|ENFRIAR)_(\d+(?:\.\d+)?)$/,
+    /^(ROLITO|FRAP|FRAPPE|GOURMET|ENFRIAR)_(\d+(?:\.\d+)?)$/,
   );
 
   if (rawUnderscoreMatch) {
-    const type =
-      rawUnderscoreMatch[1] === "FRAPPE" ? "FRAPPE" : rawUnderscoreMatch[1];
+    const rawType = rawUnderscoreMatch[1];
+    const type = rawType === "FRAP" ? "FRAPPE" : rawType;
     const kg = rawUnderscoreMatch[2].replace(/\.0+$/, "");
     return `${type}_${kg}`;
   }
