@@ -476,7 +476,7 @@ export default function SolicitudesPage() {
         >
           <div className="flex items-center justify-between gap-3">
             <div className="flex items-center gap-4">
-              <div className="rounded-2xl bg-gradient-to-br from-[#1E4A7A] to-[#2D1B3A] p-3 shadow-lg">
+              <div className="rounded-2xl bg-gradient-to-br from-blue-500 to-sky-400 p-3 shadow-lg">
                 <ClipboardList className="h-8 w-8 text-white" />
               </div>
               <div>

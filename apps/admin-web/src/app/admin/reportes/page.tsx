@@ -2259,7 +2259,7 @@ export default function ReportesPage() {
         >
           <div className="flex items-center justify-between gap-3">
             <div className="flex items-center gap-4">
-              <div className="rounded-2xl bg-gradient-to-br from-[#1E4A7A] to-[#2D1B3A] p-3 shadow-lg">
+              <div className="rounded-2xl bg-gradient-to-br from-blue-500 to-sky-400 p-3 shadow-lg">
                 <BarChart3 className="h-8 w-8 text-white" />
               </div>
               <div>
@@ -2282,7 +2282,7 @@ export default function ReportesPage() {
 
               <button
                 onClick={() => router.push("/admin/reportes/minuta")}
-                className="flex items-center gap-2 rounded-xl border border-purple-400/20 bg-purple-500/20 px-4 py-2 text-sm font-semibold text-purple-100 transition-colors hover:bg-purple-500/30"
+                className="flex items-center gap-2 rounded-xl border border-amber-400/20 bg-amber-500/20 px-4 py-2 text-sm font-semibold text-amber-100 transition-colors hover:bg-amber-500/30"
               >
                 <ClipboardList className="h-4 w-4" />
                 Minuta
@@ -2306,7 +2306,7 @@ export default function ReportesPage() {
                   "flex items-center gap-2 rounded-xl px-4 py-3 font-medium transition-all shadow-lg",
                   rows.length === 0
                     ? "bg-white/10 text-white/30 cursor-not-allowed"
-                    : "bg-gradient-to-r from-purple-900 to-purple-600 text-white hover:from-purple-600 hover:to-purple-500",
+                    : "bg-gradient-to-r from-blue-900 to-blue-600 text-white hover:from-sky-400 hover:to-sky-500",
                 )}
               >
                 <Download className="h-4 w-4" />
@@ -2489,132 +2489,6 @@ export default function ReportesPage() {
           </div>
         </div>
 
-        <div className="mb-5 grid grid-cols-1 gap-3 md:grid-cols-2 xl:grid-cols-9">
-          <TopStat
-            label="Asignaciones"
-            value={kpis.assignmentsCount}
-            icon={<ClipboardList className="h-4 w-4" />}
-          />
-          <TopStat
-            label="Entregas"
-            value={kpis.deliveriesCount}
-            icon={<ListOrdered className="h-4 w-4" />}
-          />
-          <TopStat
-            label="Clientes"
-            value={kpis.customersCount}
-            icon={<Users className="h-4 w-4" />}
-          />
-          <TopStat
-            label="Choferes"
-            value={kpis.driversCount}
-            icon={<Truck className="h-4 w-4" />}
-          />
-          <TopStat
-            label="Piezas esp."
-            value={kpis.totalPieces}
-            icon={<Boxes className="h-4 w-4" />}
-          />
-          <TopStat
-            label="Piezas reales"
-            value={kpis.totalPiecesReal}
-            icon={<Boxes className="h-4 w-4" />}
-          />
-          <TopStat
-            label="Salida inventario"
-            value={kpis.totalInventoryOutput}
-            icon={<Warehouse className="h-4 w-4" />}
-          />
-          <TopStat
-            label="Total esperado"
-            value={money(kpis.totalExpected)}
-            icon={<DollarSign className="h-4 w-4" />}
-          />
-          <TopStat
-            label="Total real"
-            value={money(kpis.totalReal)}
-            icon={<CircleDollarSign className="h-4 w-4" />}
-          />
-        </div>
-
-        {(reportMode === "general" || reportMode === "production") && (
-          <div className="mb-5 grid grid-cols-1 gap-3 md:grid-cols-2 xl:grid-cols-8">
-            <TopStat
-              label="Ventas Producción"
-              value={productionKpis.salesCount}
-              icon={<Factory className="h-4 w-4" />}
-            />
-            <TopStat
-              label="Empleados activos"
-              value={productionEmployees.length}
-              icon={<UserRound className="h-4 w-4" />}
-            />
-            <TopStat
-              label="Empleados con venta"
-              value={productionKpis.employeesCount}
-              icon={<Users className="h-4 w-4" />}
-            />
-            <TopStat
-              label="Piezas Producción"
-              value={productionKpis.totalPieces}
-              icon={<Boxes className="h-4 w-4" />}
-            />
-            <TopStat
-              label="Efectivo Producción"
-              value={money(productionKpis.efectivo)}
-              icon={<DollarSign className="h-4 w-4" />}
-            />
-            <TopStat
-              label="Transferencia"
-              value={money(productionKpis.transferencia)}
-              icon={<CircleDollarSign className="h-4 w-4" />}
-            />
-            <TopStat
-              label="Crédito Producción"
-              value={money(productionKpis.credito)}
-              icon={<Scale className="h-4 w-4" />}
-            />
-            <TopStat
-              label="Total Producción"
-              value={money(productionKpis.totalAmount)}
-              icon={<TrendingUp className="h-4 w-4" />}
-            />
-          </div>
-        )}
-
-        <div className="mb-5 grid grid-cols-1 gap-3 md:grid-cols-6">
-          <TopStat
-            label="Diferencia total"
-            value={money(kpis.totalDifference)}
-            icon={<Scale className="h-4 w-4" />}
-          />
-          <TopStat
-            label="Estado general"
-            value={totalDiffPresentation.label}
-            icon={totalDiffPresentation.icon}
-          />
-          <TopStat
-            label="Inv vs real"
-            value={kpis.inventoryVsExpectedDifference}
-            icon={<Warehouse className="h-4 w-4" />}
-          />
-          <TopStat
-            label="Estado inventario"
-            value={inventoryExpectedTone.label}
-            icon={inventoryExpectedTone.icon}
-          />
-          <TopStat
-            label="Dejó más"
-            value={kpis.moreCount}
-            icon={<TrendingUp className="h-4 w-4" />}
-          />
-          <TopStat
-            label="Dejó menos"
-            value={kpis.lessCount}
-            icon={<TrendingDown className="h-4 w-4" />}
-          />
-        </div>
-
         <div className="mb-6 grid grid-cols-1 gap-6 lg:grid-cols-3">
           <div className="lg:col-span-1">
             <div className="rounded-2xl bg-white/5 backdrop-blur-xl border border-white/10 overflow-hidden">
@@ -2786,186 +2660,6 @@ export default function ReportesPage() {
                     icon={<Layers3 className="h-4 w-4" />}
                   />
                 </div>
-
-                <div className="rounded-2xl bg-black/10 border border-white/10 p-4">
-                  <p className="text-white font-medium mb-2">
-                    Resumen ejecutivo
-                  </p>
-                  <p className="text-sm leading-7 text-white/65">
-                    En el rango analizado se registran{" "}
-                    <span className="font-semibold text-white">
-                      {kpis.assignmentsCount}
-                    </span>{" "}
-                    asignaciones, con{" "}
-                    <span className="font-semibold text-white">
-                      {kpis.deliveriesCount}
-                    </span>{" "}
-                    entregas,{" "}
-                    <span className="font-semibold text-white">
-                      {kpis.totalPieces}
-                    </span>{" "}
-                    piezas esperadas,{" "}
-                    <span className="font-semibold text-white">
-                      {kpis.totalPiecesReal}
-                    </span>{" "}
-                    piezas reales,{" "}
-                    <span className="font-semibold text-white">
-                      {kpis.totalInventoryOutput}
-                    </span>{" "}
-                    piezas registradas como salida en inventario, un total
-                    esperado de{" "}
-                    <span className="font-semibold text-white">
-                      {money(kpis.totalExpected)}
-                    </span>
-                    , un total real de{" "}
-                    <span className="font-semibold text-white">
-                      {money(kpis.totalReal)}
-                    </span>{" "}
-                    y una diferencia de{" "}
-                    <span
-                      className={cx(
-                        "font-semibold",
-                        totalDiffPresentation.text,
-                      )}
-                    >
-                      {money(kpis.totalDifference)}
-                    </span>
-                    . Contra inventario, la diferencia vs piezas reales es{" "}
-                    <span
-                      className={cx(
-                        "font-semibold",
-                        inventoryExpectedTone.text,
-                      )}
-                    >
-                      {fmtSignedQty(kpis.inventoryVsExpectedDifference)}
-                    </span>
-                    .
-                    {executiveSummary.topDriver ? (
-                      <>
-                        {" "}
-                        El chofer con mayor carga del periodo es{" "}
-                        <span className="font-semibold text-white">
-                          {executiveSummary.topDriver.driver_nombre}
-                        </span>
-                        .
-                      </>
-                    ) : null}
-                    {executiveSummary.topProduct ? (
-                      <>
-                        {" "}
-                        El producto con mayor movimiento es{" "}
-                        <span className="font-semibold text-white">
-                          {executiveSummary.topProduct.nombre}
-                        </span>
-                        .
-                      </>
-                    ) : null}
-                  </p>
-                </div>
-              </div>
-            </div>
-
-            <div className="rounded-2xl bg-white/5 backdrop-blur-xl border border-white/10 overflow-hidden">
-              <div className="border-b border-white/10 p-4">
-                <p className="text-white font-semibold flex items-center gap-2">
-                  <Truck className="h-4 w-4" />
-                  Resumen por chofer
-                </p>
-                <p className="text-xs text-white/50 mt-1">
-                  Consolidado operativo por responsable de ruta e inventario.
-                </p>
-              </div>
-
-              <div className="max-h-[36vh] overflow-y-auto">
-                {driverSummary.length === 0 ? (
-                  <div className="p-6 text-center text-white/50">
-                    Sin datos.
-                  </div>
-                ) : (
-                  <div className="divide-y divide-white/10">
-                    {driverSummary.map((d) => (
-                      <div key={d.driver_id} className="px-4 py-4 space-y-3">
-                        <div className="grid grid-cols-1 gap-3 md:grid-cols-10">
-                          <MiniResume
-                            label="Chofer"
-                            value={d.driver_nombre}
-                            icon={<UserRound className="h-4 w-4" />}
-                          />
-                          <MiniResume
-                            label="Código inv."
-                            value={d.driver_firebase_codigo || "—"}
-                            icon={<Link2 className="h-4 w-4" />}
-                          />
-                          <MiniResume
-                            label="Asignaciones"
-                            value={d.assignments_count}
-                            icon={<ClipboardList className="h-4 w-4" />}
-                          />
-                          <MiniResume
-                            label="Entregas"
-                            value={d.deliveries_count}
-                            icon={<ListOrdered className="h-4 w-4" />}
-                          />
-                          <MiniResume
-                            label="Clientes"
-                            value={d.customers_count}
-                            icon={<Users className="h-4 w-4" />}
-                          />
-                          <MiniResume
-                            label="Piezas esp."
-                            value={d.total_pieces}
-                            icon={<Boxes className="h-4 w-4" />}
-                          />
-                          <MiniResume
-                            label="Inv"
-                            value={d.inventory_total_pieces}
-                            icon={<Warehouse className="h-4 w-4" />}
-                          />
-                          <MiniResume
-                            label="Piezas reales"
-                            value={d.total_pieces_real}
-                            icon={<Boxes className="h-4 w-4" />}
-                          />
-                          <MiniResume
-                            label="Esperado"
-                            value={money(d.total_expected)}
-                            icon={<DollarSign className="h-4 w-4" />}
-                          />
-                          <MiniResume
-                            label="Real"
-                            value={money(d.total_real)}
-                            icon={<CircleDollarSign className="h-4 w-4" />}
-                          />
-                        </div>
-
-                        <div className="flex flex-wrap gap-2">
-                          <StatusChip
-                            label={`Dejó más: ${d.more_count}`}
-                            tone="more"
-                          />
-                          <StatusChip
-                            label={`Exactas: ${d.exact_count}`}
-                            tone="exact"
-                          />
-                          <StatusChip
-                            label={`Dejó menos: ${d.less_count}`}
-                            tone="less"
-                          />
-                          <StatusChip
-                            label={`Inv vs real: ${fmtSignedQty(d.inventory_vs_expected_diff)}`}
-                            tone={
-                              d.inventory_vs_expected_diff > 0
-                                ? "more"
-                                : d.inventory_vs_expected_diff < 0
-                                  ? "less"
-                                  : "exact"
-                            }
-                          />
-                        </div>
-                      </div>
-                    ))}
-                  </div>
-                )}
               </div>
             </div>
 
@@ -3052,24 +2746,7 @@ export default function ReportesPage() {
             </div>
 
             <div className="rounded-2xl bg-white/5 backdrop-blur-xl border border-white/10 overflow-hidden">
-              <div className="border-b border-white/10 p-4 flex items-center justify-between">
-                <div>
-                  <p className="text-white font-semibold">
-                    Detalle de asignación
-                  </p>
-                  <p className="text-xs text-white/50">
-                    {selectedAssignment
-                      ? `${selectedAssignment.driver_nombre || "Chofer"} • ${formatOnlyDate(selectedAssignment.work_date)}`
-                      : "Selecciona una asignación"}
-                  </p>
-                </div>
 
-                {selectedAssignment && (
-                  <span className="text-xs px-2 py-1 rounded-full border bg-white/10 border-white/10 text-white/70">
-                    {selectedAssignment.status || "—"}
-                  </span>
-                )}
-              </div>
 
               {!selectedAssignment ? (
                 <div className="p-10 text-center text-white/60">
@@ -3077,82 +2754,6 @@ export default function ReportesPage() {
                 </div>
               ) : (
                 <div className="p-4 space-y-4">
-                  <div className="grid grid-cols-1 md:grid-cols-9 gap-3">
-                    <SideKpi
-                      title="Chofer"
-                      value={selectedAssignment.driver_nombre || "—"}
-                      icon={<Truck className="h-4 w-4" />}
-                    />
-                    <SideKpi
-                      title="Código inv."
-                      value={selectedAssignment.driver_firebase_codigo || "—"}
-                      icon={<Link2 className="h-4 w-4" />}
-                    />
-                    <SideKpi
-                      title="Fecha"
-                      value={formatOnlyDate(selectedAssignment.work_date)}
-                      icon={<CalendarDays className="h-4 w-4" />}
-                    />
-                    <SideKpi
-                      title="Entregas"
-                      value={selectedAssignment.deliveries.length}
-                      icon={<ListOrdered className="h-4 w-4" />}
-                    />
-                    <SideKpi
-                      title="Total esperado"
-                      value={money(
-                        selectedAssignment.deliveries.reduce(
-                          (acc, d) => acc + safeNum(d.total_expected, 0),
-                          0,
-                        ),
-                      )}
-                      icon={<DollarSign className="h-4 w-4" />}
-                    />
-                    <SideKpi
-                      title="Total real"
-                      value={money(
-                        selectedAssignment.deliveries.reduce(
-                          (acc, d) => acc + safeNum(d.total_real, 0),
-                          0,
-                        ),
-                      )}
-                      icon={<CircleDollarSign className="h-4 w-4" />}
-                    />
-                    <SideKpi
-                      title="Salida inventario"
-                      value={`${selectedAssignment.inventory_outputs.total_qty} pzas`}
-                      icon={<Warehouse className="h-4 w-4" />}
-                    />
-                    <SideKpi
-                      title="Diferencia"
-                      value={money(
-                        selectedAssignment.deliveries.reduce(
-                          (acc, d) => acc + d.total_diff,
-                          0,
-                        ),
-                      )}
-                      icon={<Scale className="h-4 w-4" />}
-                    />
-                    <SideKpi
-                      title="Estado"
-                      value={
-                        getDiffPresentation(
-                          selectedAssignment.deliveries.reduce(
-                            (acc, d) => acc + d.total_diff,
-                            0,
-                          ),
-                        ).label
-                      }
-                      icon={
-                        getDiffPresentation(
-                          selectedAssignment.deliveries.reduce(
-                            (acc, d) => acc + d.total_diff,
-                            0,
-                          ),
-                        ).icon
-                      }
-                    />
-                  </div>
 
                   <div className="rounded-2xl bg-black/10 border border-white/10 overflow-hidden">
                     <div className="border-b border-white/10 px-4 py-3">
@@ -3405,19 +3006,6 @@ export default function ReportesPage() {
                       </div>
                     </div>
                   )}
-
-                  <div className="rounded-2xl bg-white/5 border border-white/10 p-4">
-                    <div className="flex items-start gap-3 text-white/70">
-                      <Eye className="h-4 w-4 mt-0.5 shrink-0" />
-                      <p className="text-sm leading-6">
-                        Este módulo resume la operación logística por fecha,
-                        chofer, asignación, cliente y producto, incorporando
-                        comparación entre lo esperado, lo real y las salidas
-                        registradas en inventario para facilitar auditoría y
-                        control operativo.
-                      </p>
-                    </div>
-                  </div>
                 </div>
               )}
             </div>

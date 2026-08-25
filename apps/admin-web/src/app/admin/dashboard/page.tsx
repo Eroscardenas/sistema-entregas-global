@@ -729,75 +729,13 @@ export default function AdminDashboardPage() {
       <DashboardBackground />
 
       <div className="relative z-10 space-y-6">
-        <div className="rounded-3xl border border-white/12 bg-white/6 p-5 shadow-[0_28px_90px_rgba(0,0,0,0.35)] backdrop-blur-xl">
-          <p className="text-sm text-white/70">Bienvenido,</p>
-          <h2 className="mt-1 text-2xl font-semibold tracking-tight">
-            {adminName}
-          </h2>
 
-          <div className="mt-4 flex flex-wrap gap-2">
-            <QuickChip
-              label="Choferes"
-              onClick={() => router.push(PATHS.admin.choferes)}
-            />
-            <QuickChip
-              label="Clientes"
-              onClick={() => router.push(PATHS.admin.clientes)}
-            />
-            <QuickChip
-              label="Productos"
-              onClick={() => router.push(PATHS.admin.productos)}
-            />
-            <QuickChip
-              label="Asignaciones"
-              onClick={() => router.push(PATHS.admin.asignaciones)}
-            />
-            <QuickChip
-              label="Reportes"
-              onClick={() => router.push(PATHS.admin.reportes)}
-            />
-          </div>
-        </div>
-
-        <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4">
-          <KpiCard
-            title="Choferes activos"
-            value={data ? String(data.summary.choferesActivos) : '—'}
-            icon={<Users className="h-5 w-5" />}
-            tone="blue"
-          />
-          <KpiCard
-            title="En ruta"
-            value={data ? String(data.summary.enRuta) : '—'}
-            icon={<Truck className="h-5 w-5" />}
-            tone="wine"
-          />
-          <KpiCard
-            title="Entregas hoy"
-            value={
-              data
-                ? `${data.summary.entregasHechas}/${data.summary.entregasTotal}`
-                : '—'
-            }
-            icon={<Route className="h-5 w-5" />}
-            tone="blue"
-          />
-          <KpiCard
-            title="Total real"
-            value={data ? fmtMoney(data.summary.real) : '—'}
-            icon={<BarChart3 className="h-5 w-5" />}
-            tone="wine"
-          />
-        </div>
 
         <div className="rounded-3xl border border-white/12 bg-white/6 shadow-[0_28px_90px_rgba(0,0,0,0.35)] backdrop-blur-xl">
           <div className="flex items-center justify-between gap-3 border-b border-white/10 px-5 py-4">
             <div>
               <div className="text-sm font-semibold">
-                Choferes y progreso en vivo
-              </div>
-              <div className="mt-1 text-xs text-white/55">
-                Última actualización: {data ? fmtTime(data.updatedAt) : '—'}
+                Choferes y progreso 
               </div>
             </div>
 

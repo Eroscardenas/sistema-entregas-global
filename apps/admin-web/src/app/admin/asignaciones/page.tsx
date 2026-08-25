@@ -2888,7 +2888,7 @@ FECHA: ${escapeHtml(formatOnlyDate(api.workDate))}
         >
           <div className="flex items-center justify-between gap-3">
             <div className="flex items-center gap-4">
-              <div className="rounded-2xl bg-gradient-to-br from-[#1E4A7A] to-[#2D1B3A] p-3 shadow-lg">
+              <div className="rounded-2xl bg-gradient-to-br from-blue-500 to-sky-400 p-3 shadow-lg">
                 <ClipboardList className="h-8 w-8 text-white" />
               </div>
               <div>
@@ -3058,7 +3058,7 @@ FECHA: ${escapeHtml(formatOnlyDate(api.workDate))}
                   {api.selectedAssignmentId && (
                     <button
                       onClick={exportSelectedAssignmentPdf}
-                      className="inline-flex items-center gap-2 rounded-xl bg-gradient-to-r from-[#6B21A8] to-[#7C3AED] px-3 py-2 text-sm text-white hover:from-[#7C3AED] hover:to-[#6B21A8]"
+                      className="inline-flex items-center gap-2 rounded-xl bg-gradient-to-r from-blue-500 to-sky-400 px-3 py-2 text-sm text-white hover:from-blue-600 hover:to-sky-500"
                       title="Exportar hoja operativa"
                     >
                       <FileText className="h-4 w-4" />

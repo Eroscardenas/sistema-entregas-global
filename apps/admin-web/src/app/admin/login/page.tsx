@@ -117,9 +117,6 @@ export default function AdminLoginPage() {
                   <ShieldCheck className="h-4 w-4 text-[#4DADFF]" />
                   <span className="text-sm text-white/80">Módulo de Administración</span>
                 </div>
-                <div className="text-xs text-white/50">
-                  {guard.loading ? 'Verificando sesión…' : 'Acceso seguro'}
-                </div>
               </div>
             </div>
 
@@ -194,7 +191,7 @@ export default function AdminLoginPage() {
               </AnimatePresence>
 
               <div className="pt-2 text-center text-xs text-white/45">
-                © {new Date().getFullYear()} Global Ice de México
+                ©  2006 • Todos los derechos reservados  
               </div>
             </form>
           </GlassCard>
@@ -259,7 +256,7 @@ function Header() {
       </div>
 
       <div className="min-w-0">
-        <h1 className="text-xl font-semibold tracking-tight">Sistema de Entregas</h1>
+        <h1 className="text-xl font-semibold tracking-tight">Panel Administrativo Sistema Entregas</h1>
         <p className="mt-1 text-sm text-white/70 truncate">Global Ice de México SA. de CV.</p>
       </div>
     </div>

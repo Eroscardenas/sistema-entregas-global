@@ -693,7 +693,7 @@ export default function AdminClientesPage() {
         <motion.div initial={{ opacity: 0, y: -20 }} animate={{ opacity: 1, y: 0 }} className="mb-8">
           <div className="flex items-center justify-between gap-4">
             <div className="flex items-center space-x-4">
-              <div className="rounded-2xl bg-gradient-to-br from-[#1E4A7A] to-[#2D1B3A] p-3 shadow-lg">
+              <div className="rounded-2xl bg-gradient-to-br from-blue-500 to-sky-400 p-3 shadow-lg">
                 <Users2 className="h-8 w-8 text-white" />
               </div>
               <div>
@@ -723,41 +723,6 @@ export default function AdminClientesPage() {
             </div>
           </div>
         </motion.div>
-
-        <div className="mb-8 grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
-          <KPI
-            title="Total Clientes"
-            value={summary.totalClientes}
-            icon={<Users className="h-5 w-5" />}
-            color="from-[#1E4A7A] to-[#2E6B9E]"
-            subValue={`${summary.activos} activos`}
-            delay={0}
-          />
-          <KPI
-            title="Con Equipo"
-            value={summary.conEquipo}
-            icon={<Coffee className="h-5 w-5" />}
-            color="from-[#4A1F2F] to-[#6D2F45]"
-            subValue="capacidad asignada"
-            delay={0.1}
-          />
-          <KPI
-            title="Comedores"
-            value={summary.totalComedores}
-            icon={<Building2 className="h-5 w-5" />}
-            color="from-[#2D1B3A] to-[#4A2D5A]"
-            subValue={`${summary.comedoresActivos} activos`}
-            delay={0.2}
-          />
-          <KPI
-            title="Productos Cliente"
-            value={customersWithPricing.reduce((acc, c) => acc + (c.product_count || 0), 0)}
-            icon={<Package className="h-5 w-5" />}
-            color="from-[#1E4A7A] to-[#4A1F2F]"
-            subValue="asignaciones activas"
-            delay={0.3}
-          />
-        </div>
 
         <div className="mb-6 space-y-4">
           <Glass className="p-2">
@@ -1490,17 +1455,12 @@ function CustomerDetails({
 
         <div className="mt-4 grid grid-cols-2 gap-3">
           <SmallStat label="Productos activos" value={selectedProducts.length} />
-          <SmallStat
-            label="Valor cliente"
-            value={money(selectedProducts.reduce((acc, x) => acc + x.finalPrice, 0))}
-          />
         </div>
       </div>
 
       <div className="border-b border-white/10 p-6">
         <div className="mb-3 flex items-center justify-between">
           <h4 className="font-semibold text-white">Productos asignados</h4>
-          <span className="text-sm text-white/50">Base / override / final</span>
         </div>
 
         {selectedProducts.length === 0 ? (
@@ -1527,7 +1487,7 @@ function CustomerDetails({
                     <p className="font-medium text-white">{money(product.precio_base)}</p>
                   </div>
                   <div className="rounded-lg bg-[#0A1A2F]/50 p-3">
-                    <p className="text-white/40">Override</p>
+                    <p className="text-white/40">Precio por Cliente</p>
                     <p className="font-medium text-white">{override === null ? 'Usa base' : money(override)}</p>
                   </div>
                   <div className="rounded-lg bg-[#0A1A2F]/50 p-3">

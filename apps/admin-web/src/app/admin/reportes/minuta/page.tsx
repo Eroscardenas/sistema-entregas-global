@@ -1476,7 +1476,7 @@ const drivers = ((driversData ?? []) as DriverRow[])
         >
           <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
             <div className="flex items-center gap-4">
-              <div className="rounded-2xl bg-gradient-to-br from-purple-500 to-violet-600 p-3 shadow-lg">
+              <div className="rounded-2xl bg-gradient-to-br from-blue-500 to-sky-600 p-3 shadow-lg">
                 <ClipboardList className="h-8 w-8 text-white" />
               </div>
 
@@ -1526,7 +1526,7 @@ const drivers = ((driversData ?? []) as DriverRow[])
                   "inline-flex items-center gap-2 rounded-xl px-4 py-3 text-sm font-semibold shadow-lg transition",
                   rows.length === 0
                     ? "cursor-not-allowed bg-white/10 text-white/30"
-                    : "bg-gradient-to-r from-violet-500 to-purple-600 text-white hover:from-violet-400 hover:to-purple-500",
+                    : "bg-gradient-to-r from-blue-500 to-blue-600 text-white hover:from-sky-400 hover:to-sky-500",
                 )}
               >
                 <Printer className="h-4 w-4" />
@@ -1578,7 +1578,7 @@ const drivers = ((driversData ?? []) as DriverRow[])
             <div className="flex items-end gap-2">
               <button
                 onClick={() => void loadData()}
-                className="w-full rounded-xl bg-purple-500 px-4 py-3 text-sm font-semibold text-white hover:bg-violet-400"
+                className="w-full rounded-xl bg-blue-500 px-4 py-3 text-sm font-semibold text-white hover:bg-sky-400"
               >
                 Aplicar fecha
               </button>
@@ -1596,18 +1596,6 @@ const drivers = ((driversData ?? []) as DriverRow[])
           </div>
         </div>
 
-        <div className="mb-5 grid grid-cols-1 gap-3 md:grid-cols-2 xl:grid-cols-6">
-          <TopStat label="Personal activo" value={rows.length} icon={<Truck className="h-4 w-4" />} />
-          <TopStat label="Personal con actividad" value={totals.workingDrivers} icon={<Route className="h-4 w-4" />} />
-          <TopStat label="Visitas totales" value={totals.visits} icon={<Users className="h-4 w-4" />} />
-          <TopStat label="Km recorridos" value={totals.kmTotal} icon={<Gauge className="h-4 w-4" />} />
-          <TopStat label="Venta total" value={money(totals.saleTotal)} icon={<DollarSign className="h-4 w-4" />} />
-          <TopStat
-            label="Toneladas"
-            value={totals.tons.toLocaleString("es-MX", { maximumFractionDigits: 3 })}
-            icon={<Warehouse className="h-4 w-4" />}
-          />
-        </div>
 
         <div className="mb-5 rounded-2xl border border-white/10 bg-white/5 p-4 backdrop-blur-xl">
           <div className="mb-3 flex items-center justify-between gap-3">

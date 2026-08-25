@@ -439,56 +439,7 @@ function KPISection({
 }) {
   return (
     <div className="grid grid-cols-1 gap-4 md:grid-cols-3">
-      <motion.div
-        initial={{ opacity: 0, y: 20 }}
-        animate={{ opacity: 1, y: 0 }}
-        transition={{ delay: 0 }}
-        className="rounded-xl bg-gradient-to-br from-[#1E4A7A] to-[#2E6B9E] p-5 shadow-lg"
-      >
-        <div className="flex items-center justify-between">
-          <div>
-            <p className="mb-1 text-sm text-white/70">Total Choferes</p>
-            <p className="text-2xl font-bold text-white">{total}</p>
-          </div>
-          <div className="rounded-lg bg-white/20 p-3">
-            <Users className="h-6 w-6 text-white" />
-          </div>
-        </div>
-      </motion.div>
 
-      <motion.div
-        initial={{ opacity: 0, y: 20 }}
-        animate={{ opacity: 1, y: 0 }}
-        transition={{ delay: 0.1 }}
-        className="rounded-xl bg-gradient-to-br from-[#2D1B3A] to-[#4A2D5A] p-5 shadow-lg"
-      >
-        <div className="flex items-center justify-between">
-          <div>
-            <p className="mb-1 text-sm text-white/70">Activos</p>
-            <p className="text-2xl font-bold text-white">{activos}</p>
-          </div>
-          <div className="rounded-lg bg-white/20 p-3">
-            <CheckCircle2 className="h-6 w-6 text-white" />
-          </div>
-        </div>
-      </motion.div>
-
-      <motion.div
-        initial={{ opacity: 0, y: 20 }}
-        animate={{ opacity: 1, y: 0 }}
-        transition={{ delay: 0.2 }}
-        className="rounded-xl bg-gradient-to-br from-[#4A1F2F] to-[#6D2F45] p-5 shadow-lg"
-      >
-        <div className="flex items-center justify-between">
-          <div>
-            <p className="mb-1 text-sm text-white/70">Inactivos</p>
-            <p className="text-2xl font-bold text-white">{inactivos}</p>
-          </div>
-          <div className="rounded-lg bg-white/20 p-3">
-            <XCircle className="h-6 w-6 text-white" />
-          </div>
-        </div>
-      </motion.div>
     </div>
   );
 }
@@ -642,7 +593,7 @@ export default function AdminChoferesPage() {
               <div>
                 <h1 className="text-2xl font-bold text-white">Gestión de Choferes</h1>
                 <p className="text-sm text-white/70">
-                  Jala transportes desde inventario y completa sus accesos a la aplicación
+                  Trae transportes desde inventario y completa sus accesos a la aplicación
                 </p>
               </div>
             </div>

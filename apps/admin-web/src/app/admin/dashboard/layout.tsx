@@ -264,7 +264,7 @@ export default function AdminDashboardLayout({
             <div className="min-w-0">
               <div className="flex items-center gap-2">
                 <span className="text-sm font-semibold tracking-tight">
-                  Global Ice • Admin
+                  Global Ice • Panel Administrativo
                 </span>
                 <span className="hidden sm:inline-flex items-center gap-1 rounded-full border border-white/10 bg-white/5 px-2 py-0.5 text-xs text-white/70">
                   <ShieldCheck className="h-3.5 w-3.5 text-[#4DADFF]" />
@@ -311,15 +311,6 @@ export default function AdminDashboardLayout({
       <div className="relative z-10 mx-auto grid max-w-7xl grid-cols-1 gap-6 px-4 py-6 lg:grid-cols-[320px_1fr] lg:px-6">
         <aside className="hidden lg:block">
           <GlassPanel className="p-4">
-            <div className="flex items-center gap-3 rounded-2xl border border-white/10 bg-white/5 p-3">
-              <div className="flex h-11 w-11 items-center justify-center rounded-2xl bg-gradient-to-br from-[#4DADFF]/20 to-[#852838]/20">
-                <Snowflake className="h-5 w-5 text-[#B9E3FF]" />
-              </div>
-
-              <div className="min-w-0">
-                <div className="text-sm font-bold text-white">Panel Administrativo</div>
-              </div>
-            </div>
 
             <div className="mt-4 space-y-2">
               {nav.map((item) => (
@@ -332,9 +323,6 @@ export default function AdminDashboardLayout({
               ))}
             </div>
 
-            <div className="mt-3 text-center text-[11px] text-white/35">
-              Global Ice • Panel Admin
-            </div>
           </GlassPanel>
         </aside>
 
@@ -440,7 +428,7 @@ export default function AdminDashboardLayout({
                 </div>
 
                 <div className="mt-4 text-center text-xs text-white/35">
-                  Global Ice • Admin
+                  Global Ice • Panel Administrativo
                 </div>
               </div>
             </motion.div>
